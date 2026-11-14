@@ -591,11 +591,14 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
   const onlyLater = part === "later";
   const view = onlyLater ? [] : buildAsksView(live);
   const approvals = onlyLater ? [] : data.approvals ?? [];
+  const history = (data.pick_actions ?? []).slice(0, 20);
+  const earlier = (history[0]?.earlier_count ?? 0) + Math.max(0, (data.pick_actions?.length ?? 0) - history.length);
+  const empty = view.length === 0 && approvals.length === 0 && held.length === 0 && (part === "decide" || later.length === 0);
   if (onlyLater && later.length === 0) return <p className="p-4 text-sm text-muted-foreground">{emptyText ?? "Nothing is set aside."}</p>;
   if (view.length === 0 && approvals.length === 0 && held.length === 0 && (data.pick_actions?.length ?? 0) === 0 && (part === "decide" || later.length === 0)) return <p className="p-4 text-sm text-muted-foreground">{emptyText ?? "Nothing needs you."}</p>;
   return (
     <div className="space-y-3 p-2 sm:space-y-4 sm:p-3">
-      {!onlyLater && (data.pick_actions ?? []).map(s => <PickActionStatus key={s.decision_id} status={s} />)}
+      {!onlyLater && empty ? <p className="p-4 text-sm text-muted-foreground">{emptyText ?? "Nothing needs you."}</p> : null}
       {view.map((s) => (
         <section key={s.key} data-section={s.key}>
           <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2>
@@ -649,6 +652,11 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
         </section>
       ) : null}
       {approvals.length > 0 ? <ApprovalsList approvals={approvals} {...(onRevoke ? { onRevoke } : {})} nowMs={nowMs} /> : null}
+      {!onlyLater && history.length > 0 ? <section data-section="pick-history">
+        <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Recent pick history</h2>
+        {history.map(s => <PickActionStatus key={s.decision_id} status={s} />)}
+        {earlier > 0 ? <p className="text-sm text-muted-foreground">{`${earlier} earlier picks. Use the original pick or generation to read their history.`}</p> : null}
+      </section> : null}
     </div>
   );
 }

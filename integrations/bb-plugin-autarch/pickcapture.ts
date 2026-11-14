@@ -3,7 +3,7 @@ import { readAsk } from "./askbody.js";
 import { canonicalOnPick } from "./model.js";
 import { evaluationDeadline, hasAcceptedPickEvidence, PICK_POLICY_VERSION, pickActionOps } from "./pickhandler.js";
 import type { TargetEvidence } from "./picktarget.js";
-import { MESSAGE_DUE_SQL, type ObligationInput, type PickActionRow, type Store } from "./store.js";
+import { MESSAGE_DUE_SQL, type ObligationInput, type ObligationRow, type PickActionRow, type Store } from "./store.js";
 import { ledgerId } from "./ledger.js";
 
 export function productionPickMode(value: unknown): "off" | "shadow" {
@@ -114,10 +114,13 @@ export function fallbackPickAction(store: Store, pickId: string, reason: string,
     const action = store.db.prepare("SELECT * FROM pick_actions WHERE pick_id = ?").get(pickId) as PickActionRow | undefined;
     if (!action || action.capture_mode !== "live" || (action.disposition !== "pending" && action.disposition !== "automatic")) return false;
     const relay = action.relay_op === null ? undefined
-      : store.db.prepare("SELECT * FROM obligations WHERE op = ? AND kind = 'pick-relay' AND decision_id = ?").get(action.relay_op, action.decision_id) as { id: string; voided_at: string | null } | undefined;
-    const states = relay ? store.attempts(relay.id).map(a => a.state) : [];
-    if (states.includes("delivered")) return false;
-    const delivery: PickFallbackDelivery = states.includes("uncertain") ? "uncertain" : states.includes("queued") ? "queued" : states.includes("sending") ? "pending" : "none-confirmed";
+      : store.db.prepare("SELECT * FROM obligations WHERE op = ? AND kind = 'pick-relay' AND decision_id = ?").get(action.relay_op, action.decision_id) as ObligationRow | undefined;
+    const attempts = relay ? store.attempts(relay.id) : [];
+    if (relay && attempts.some(a => hasAcceptedPickEvidence(store, relay, a))) return false;
+    const states = attempts.map(a => a.state);
+    const delivery: PickFallbackDelivery = states.includes("uncertain") || states.includes("delivered")
+      || (relay && (relay.state === "done" || relay.state === "uncertain" || relay.attempt !== attempts.length)) ? "uncertain"
+      : states.includes("queued") ? "queued" : states.includes("sending") ? "pending" : "none-confirmed";
     const applied = store.db.prepare(`UPDATE pick_actions SET disposition = 'fallback', updated_at = @now,
         evaluation_json = CASE WHEN @evaluation IS NOT NULL AND evaluation_json IS NULL AND julianday(evaluation_deadline_at) > julianday(@now) THEN @evaluation ELSE evaluation_json END,
         evaluated_at = CASE WHEN @evaluation IS NOT NULL AND evaluation_json IS NULL AND julianday(evaluation_deadline_at) > julianday(@now) THEN @now ELSE evaluated_at END
@@ -125,7 +128,8 @@ export function fallbackPickAction(store: Store, pickId: string, reason: string,
       .run({ pick_id: pickId, now, evaluation: evaluation === null ? null : JSON.stringify(evaluation) }).changes === 1;
     if (!applied) return false;
     if (relay && delivery === "none-confirmed" && relay.voided_at === null) store.voidObligation(relay.id);
-    store.recordEvent("pick-fallback", action.decision_id, { pick_id: pickId, reason, delivery, relay: relay?.id ?? null, at: now });
+    store.recordEvent("pick-fallback", action.decision_id, { pick_id: pickId, generation: action.generation,
+      policy_version: action.policy_version, reason, delivery, relay: relay?.id ?? null, at: now, evaluation });
     const out = render(action, delivery);
     const rows: ObligationInput[] = [];
     if (out.wake !== null && action.asker !== "" && action.fallback_op) {

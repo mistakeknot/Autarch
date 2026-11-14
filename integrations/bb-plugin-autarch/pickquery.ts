@@ -8,6 +8,8 @@ export const PickActionQuerySchema = z.union([
 export type PickActionQuery = z.infer<typeof PickActionQuerySchema>;
 
 export interface PickActionSummary {
+  /** View-only count of participating picks outside this bounded history window. */
+  earlier_count?: number;
   decision_id: string;
   generation: number;
   status: string;

@@ -1002,11 +1002,16 @@ export class Service {
 
   pickActionSummaries(): import("./pickquery.js").PickActionSummary[] {
     return this.db.transaction(() => {
-      const rows = this.db.prepare("SELECT d.id, d.generation, d.body_json, d.source, p.pick_id FROM decisions d JOIN picks p ON p.decision_id = d.id WHERE d.source = 'card' ORDER BY p.picked_at DESC").all() as { id: string; generation: number; body_json: string; source: string; pick_id: string }[];
-      return rows.filter(row => readAsk(row.body_json, {}, row.source)?.options?.some(o => o.on_pick)
-        || this.storedAction(row.pick_id) !== undefined).map(row => {
+      // Select and count cheaply before ledger reads or per-action evidence expansion.
+      const rows = this.db.prepare(`SELECT d.id, d.generation, p.pick_id, COUNT(*) OVER () AS total
+        FROM decisions d JOIN picks p ON p.decision_id = d.id WHERE d.source = 'card'
+        AND (EXISTS (SELECT 1 FROM pick_actions a WHERE a.pick_id = p.pick_id)
+          OR EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(d.body_json) THEN d.body_json ELSE '{}' END, '$.options') o
+            WHERE json_type(o.value, '$.on_pick') = 'object'))
+        ORDER BY p.picked_at DESC, p.pick_id DESC LIMIT 20`).all() as { id: string; generation: number; pick_id: string; total: number }[];
+      return rows.map(row => {
         const v = this.readPickAction({ pick_id: row.pick_id });
-        return { decision_id: row.id, generation: row.generation,
+        return { decision_id: row.id, generation: row.generation, earlier_count: Math.max(0, row.total - rows.length),
           status: v.kind === "action" ? v.handler_status : "data unavailable",
           observation_only: v.kind === "action" && v.observation_only,
           ordinary_continuation: v.ordinary_continuation,
@@ -1041,15 +1046,15 @@ export class Service {
   }
 
   /** Full fact sheet for the asker plus information-only release notices; rendered inside the fallback transaction. */
-  private fallbackOutbox(action: PickActionRow, delivery: PickFallbackDelivery, reason: string, evaluation: PickEvaluation | null): PickFallbackOutbox {
+  private fallbackOutbox(action: PickActionRow, delivery: PickFallbackDelivery, evaluation: PickEvaluation | null, reason: string): PickFallbackOutbox {
     const d = this.row(action.decision_id);
     const pick = this.store.pickByPickId(action.pick_id);
     if (!d || !pick) throw new Error("pick fallback evidence unavailable");
     const ask = readAsk(d.body_json, {}, d.source);
     let declaration: OnPick | null = null;
     try { declaration = action.declaration_json ? JSON.parse(action.declaration_json) as OnPick : null; } catch { declaration = null; }
-    let saved = evaluation;
-    if (!saved && action.evaluation_json) { try { saved = JSON.parse(action.evaluation_json) as PickEvaluation; } catch { saved = null; } }
+    let saved: PickEvaluation | null = null;
+    if (action.evaluation_json) { try { saved = JSON.parse(action.evaluation_json) as PickEvaluation; } catch { saved = null; } }
     const imageOp = `wake:${action.decision_id}:${action.pick_id}`;
     const imageCount = this.deps.images ? this.deps.images.expectedCount(imageOp) : 0;
     const asker = (this.db.prepare("SELECT detail_json FROM events WHERE decision_id = ? AND type = 'on-pick-targets' ORDER BY seq LIMIT 1").get(action.decision_id) as { detail_json: string } | undefined)?.detail_json;
@@ -1066,7 +1071,7 @@ export class Service {
     const observed = this.db.prepare("SELECT detail_json FROM events WHERE decision_id = ? AND type = 'pick-evidence-observed' ORDER BY seq").all(action.decision_id) as { detail_json: string }[];
     const comments = new Map<string, string>();
     let headEvidence = saved?.evidence?.head;
-    for (const evidence of [...observed.map(row => (JSON.parse(row.detail_json) as { evidence: NonNullable<PickEvaluation["evidence"]> }).evidence), saved?.evidence]) {
+    for (const evidence of [saved?.evidence, ...observed.map(row => (JSON.parse(row.detail_json) as { evidence: NonNullable<PickEvaluation["evidence"]> }).evidence), evaluation?.evidence]) {
       for (const word of evidence?.comments?.owner_words ?? []) comments.set(word.id, word.text);
       if (evidence?.head) headEvidence = evidence.head;
     }
@@ -1076,7 +1081,7 @@ export class Service {
       card_key: this.cardKey(action.task_id), decision_id: action.decision_id, generation: action.generation, pick_id: action.pick_id,
       card_title: null, question: ask?.question ?? null, selected_option: pick.option_id,
       recommended_option: typeof ask?.recommendation === "string" && ask.recommendation !== "" ? ask.recommendation : null,
-      evaluation: saved, declaration,
+      evaluation, initial_evaluation: saved, fallback_reason: reason, declaration,
       target: action.target_thread ? { thread_id: action.target_thread, title: action.target_title ?? "", project_id: action.target_project_id ?? "", project_name: action.target_project_name ?? "" } : null,
       asker_project_id: askerProject,
       head: declaration?.subject.kind === "github-pr" ? { filed: declaration.subject.head, current: headEvidence?.head ?? null, state: headEvidence?.state ?? null } : null,
@@ -1085,21 +1090,19 @@ export class Service {
       delivery, owner_words: words,
       images: imageCount > 0 ? { count: imageCount, op: imageOp } : null,
     };
-    const possible = delivery !== "none-confirmed";
-    const head = `Home pick ${action.pick_id} on ${action.decision_id}: automatic handling ended (${reason}). ${possible ? "Recovery required" : "Manual handling required"}; nothing here is a relay.`;
     const threads = (this.db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ? ORDER BY ref").all(action.blocks_decision_id) as { ref: string }[])
       .map((b) => b.ref).filter((r) => r.startsWith("thread:")).map((r) => r.slice("thread:".length));
     const notices = [...new Set(threads)].filter((t) => t !== "" && t !== action.asker && t !== action.target_thread).map((recipient) => ({
       recipient,
       payload: `Home pick ${action.pick_id} on ${action.decision_id} is no longer handler-owned: it fell back to manual handling by the asking thread. Information only; do not relay or act. This is not merge, deploy, release or publish authorization.`,
     }));
-    return { wake: `${head}\n${pickFactSheet(facts).text}`, notices };
+    return { wake: pickFactSheet(facts).text, notices };
   }
 
   /** Terminal fallback through the shared transaction; failures stay out of every legacy path. */
   private pickFallback(pickId: string, reason: string, evaluation: PickEvaluation | null = null): boolean {
     try {
-      const done = fallbackPickAction(this.store, pickId, reason, this.now(), (action, delivery) => this.fallbackOutbox(action, delivery, reason, evaluation), evaluation);
+      const done = fallbackPickAction(this.store, pickId, reason, this.now(), (action, delivery) => this.fallbackOutbox(action, delivery, evaluation, reason), evaluation);
       if (done) this.deps.nudge?.();
       return done;
     } catch (e) {
@@ -1249,8 +1252,6 @@ export class Service {
             ELSE NULL END AS reason
         FROM pick_actions p
         WHERE p.capture_mode = 'live' AND p.disposition IN ('pending','automatic')
-          AND NOT EXISTS (SELECT 1 FROM obligations o JOIN attempts t ON t.obligation_id = o.id
-            WHERE o.op = p.relay_op AND o.kind = 'pick-relay' AND t.state = 'delivered')
         ORDER BY p.evaluation_deadline_at, p.pick_id`).all({ now }).filter((r) => (r as { reason: string | null }).reason !== null) as { pick_id: string; reason: string }[];
     } catch (e) {
       this.deps.log?.(`pick watchdog read failed: ${message(e)}`);

@@ -14,7 +14,7 @@ it("the actual asks panel retains action readback after the owed card disappears
   }} />);
   expect(html).toContain("data-pick-action");
   expect(html).toContain("Already relayed; do not act.");
-  expect(html).not.toContain("Nothing needs you.");
+  expect(html).toContain("Nothing needs you.");
 });
 it("derived action status exposes observer/deadline/failure evidence and recovery without a retry button", () => {
   const html = renderToStaticMarkup(<PickActionStatus status={{ decision_id: "original", generation: 1, status: "delivery uncertain", observation_only: true,

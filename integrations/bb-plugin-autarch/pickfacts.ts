@@ -13,6 +13,8 @@ export type OwnerWords = { kind: "ordinary-reason" | "own-words" | "answers" | "
 export interface PickFacts {
   observation_only?: boolean;
   handler_status?: string;
+  fallback_reason?: string | null;
+  initial_evaluation?: PickEvaluation | null;
   card_key: string | null;
   decision_id: string;
   generation: number | null;
@@ -119,6 +121,8 @@ export function pickFactSheet(f: PickFacts): PickFactSheet {
       `selected ${value(f.selected_option)}; recommended ${value(f.recommended_option)}`,
       ...(f.observation_only ? ["Observation only; the proposal does not own delivery"] : []),
       ...(f.handler_status ? [`Handler: ${value(f.handler_status)}`] : []),
+      ...(f.fallback_reason ? [`Fallback reason: ${value(f.fallback_reason)}`] : []),
+      ...(f.initial_evaluation ? [`Initial evaluation (history only): ${value(f.initial_evaluation.outcome)} at ${value(f.initial_evaluation.evidence_times.evaluated_at)}; consult full JSON for historical checks`] : []),
       ...(e ? [] : ["Evaluation: unavailable"]),
       ...CHECKS.map(name => `${name}: ${value(e?.checks[name].result)} (${value(e?.checks[name].reasons.join(", "))})`),
       `Supplementary exclusions: ${e ? value(e.exclusions.map(x => x.code).join(", ") || "none") : "unknown"}`,

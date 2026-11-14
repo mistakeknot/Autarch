@@ -8,6 +8,7 @@ import type { AttemptRow, ObligationRow, ObligationState } from "./store.js";
 import type { Service } from "./service.js";
 import { THREAD_EVENT_PAGE_CAP, threadEventLimit } from "./hostLimits.js";
 import { claimPickReceipt, reconcilePickReceipts } from "./pickcapture.js";
+import { hasAcceptedPickEvidence } from "./pickhandler.js";
 
 export type SendResult = { delivery: "sent"; messageId?: string } | { delivery: "queued"; queuedMessageId: string };
 export interface QueuedRow {
@@ -250,7 +251,9 @@ export class WakeLoop {
 
   private acceptResponse(row: ObligationRow, n: number, res: SendResult): void {
     if (res.delivery === "sent") {
-      if (row.require_message_id === 1 && !res.messageId) this.store.updateAttempt(row.id, n, "uncertain", { error: "sent without a durable host message id" });
+      const attempt = this.store.attempts(row.id).find(a => a.n === n);
+      if (row.require_message_id === 1 && (!attempt || !hasAcceptedPickEvidence(this.store, row,
+        { ...attempt, state: "delivered", evidence: res.messageId ?? null }))) this.store.updateAttempt(row.id, n, "uncertain", { error: "sent without a durable host message id" });
       else this.store.updateAttempt(row.id, n, "delivered", { evidence: res.messageId ?? "sent" });
     } else {
       this.store.updateAttempt(row.id, n, "queued", { handle: res.queuedMessageId });
@@ -272,7 +275,8 @@ export class WakeLoop {
     const atts = this.store.attempts(id);
     let to: ObligationState | undefined;
     let fields: { last_error?: string; next_try_at?: string } = {};
-    if (atts.some((a) => a.state === "delivered")) to = "done";
+    if (atts.some((a) => row.require_message_id === 1 ? hasAcceptedPickEvidence(this.store, row, a) : a.state === "delivered")) to = "done";
+    else if (atts.some((a) => a.state === "delivered")) to = "uncertain";
     else if (atts.some((a) => a.state === "sending")) to = "sending";
     else if (atts.some((a) => a.state === "queued")) to = "queued";
     else if (atts.some((a) => a.state === "uncertain")) to = "uncertain";
@@ -416,7 +420,7 @@ export class WakeLoop {
     }
     // A delivered attempt makes the row done and any still-queued attempt is removed.
     const after = this.store.attempts(id);
-    if (after.some((a) => a.state === "delivered")) {
+    if (after.some((a) => row.require_message_id === 1 ? hasAcceptedPickEvidence(this.store, row, a) : a.state === "delivered")) {
       for (const a of after) if (a.state === "queued" && a.handle) await this.removeQueued(id, a, thread);
     }
     this.settle(id, "gone");

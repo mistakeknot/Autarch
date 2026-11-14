@@ -84,6 +84,34 @@ function readSnapshot(s: PickReadSources, query: PickActionQuery, routing: (ordi
     evaluation = evaluationSchema.parse(JSON.parse(action.evaluation_json));
     if (evaluation.pick_id !== pick.pick_id || evaluation.decision_id !== pick.decision_id) return failed("evaluation identity conflict");
   }
+  const initialEvaluation = evaluation;
+  let fallbackReason: string | null = null;
+  let fallbackEvidenceValid = action.disposition !== "fallback";
+  if (action.disposition === "fallback") {
+    const fallback = events.filter(e => e.type === "pick-fallback").at(-1);
+    const fresh = evaluationSchema.safeParse(fallback?.detail.evaluation);
+    const boundFallback = !!fallback
+      && fallback.detail.pick_id === action.pick_id && fallback.detail.generation === action.generation
+      && fallback.detail.policy_version === action.policy_version
+      && typeof fallback.detail.at === "string"
+      && Date.parse(fallback.detail.at) >= Date.parse(action.captured_at)
+      && Date.parse(fallback.detail.at) <= Date.parse(s.now());
+    const freshValid = boundFallback && fresh.success
+      && fresh.data.pick_id === action.pick_id && fresh.data.decision_id === action.decision_id
+      && fresh.data.generation === action.generation && fresh.data.policy_version === action.policy_version
+      && fresh.data.selected_option === pick.option_id
+      && (fallback.detail.reason !== "before-send-evaluation" || (fresh.data.outcome === "fallback" && fresh.data.evidence?.comments !== undefined))
+      && Date.parse(fresh.data.evidence_times.evaluated_at) >= Date.parse(action.evaluated_at ?? action.captured_at)
+      && Date.parse(fresh.data.evidence_times.evaluated_at) <= Date.parse(String(fallback.detail.at));
+    // These terminal guards can fire without a full assessment. They release manual
+    // judgment only; current attempt evidence below must still prove no send.
+    const recordedGuard = boundFallback && fallback.detail.evaluation === null
+      && ["evaluation-timeout", "mode-epoch-changed", "generation-invalid", "home-note-fence", "ruling-file-failure"].includes(String(fallback.detail.reason));
+    fallbackEvidenceValid = freshValid || recordedGuard;
+    fallbackReason = boundFallback && typeof fallback.detail.reason === "string" ? fallback.detail.reason : null;
+    // Missing or invalid fresh evidence must never resurrect the initial passing checks.
+    evaluation = freshValid && fresh.success ? fresh.data : null;
+  }
   const operations = [action.ruling_op, action.relay_op, action.fallback_op, action.receipt_op].map(op => ({ op,
     rows: work.filter(o => op !== null && o.op === op).map(row => ({ row, attempts: store.attempts(row.id).map(a => ({ ...a, queue_event: a.handle ? store.queueEvent(a.handle) ?? null : null })) })),
   }));
@@ -99,7 +127,7 @@ function readSnapshot(s: PickReadSources, query: PickActionQuery, routing: (ordi
   else if (relay.length || action.capture_mode !== "live" || action.disposition === "fallback" || action.disposition === "cancelled") delivery = "none-confirmed";
   else if (action.disposition === "pending" || action.disposition === "automatic") delivery = "not-attempted";
   const observation = action.capture_mode !== "live";
-  const ordinaryContinuation = (observation || action.disposition === "fallback" || action.disposition === "cancelled") && delivery === "none-confirmed";
+  const ordinaryContinuation = fallbackEvidenceValid && (observation || action.disposition === "fallback" || action.disposition === "cancelled") && delivery === "none-confirmed";
   const status = delivery === "confirmed" ? "already relayed" : ["uncertain", "unknown"].includes(delivery) ? "delivery uncertain" : ordinaryContinuation ? "manual handling required" : "pending";
   const words: PickFacts["owner_words"][number][] = pick.reason === null || pick.reason === "" ? [] : [{
     kind: pick.option_id === "other" || isOwnWordsForm(pick.option_id) ? "own-words" : pick.option_id === "answers" ? "answers" : "ordinary-reason", text: pick.reason,
@@ -115,7 +143,7 @@ function readSnapshot(s: PickReadSources, query: PickActionQuery, routing: (ordi
   });
   const comments = new Map<string, string>();
   let head = evaluation?.evidence?.head;
-  for (const evidence of [...events.filter(e => e.type === "pick-evidence-observed").map(e => e.detail.evidence), evaluation?.evidence]) {
+  for (const evidence of [initialEvaluation?.evidence, ...events.filter(e => e.type === "pick-evidence-observed").map(e => e.detail.evidence), evaluation?.evidence]) {
     if (evidence === undefined) continue;
     const ev = observedEvidence.parse(evidence);
     for (const w of ev.comments?.owner_words ?? []) comments.set(w.id, w.text);
@@ -134,7 +162,8 @@ function readSnapshot(s: PickReadSources, query: PickActionQuery, routing: (ordi
   const imageOp = `wake:${pick.decision_id}:${pick.pick_id}`;
   const images = s.imageCount(imageOp);
   const facts: PickFacts = {
-    observation_only: observation, handler_status: status,
+    observation_only: observation, handler_status: status, fallback_reason: fallbackReason,
+    initial_evaluation: action.disposition === "fallback" ? initialEvaluation : null,
     card_key: (db.prepare("SELECT card_key FROM cards WHERE task_id = ?").get(action.task_id) as { card_key: string | null } | undefined)?.card_key ?? null,
     card_title: null, question: ask.question, pick_id: pick.pick_id, decision_id: pick.decision_id, generation: action.generation,
     selected_option: pick.option_id, recommended_option: ask.recommendation || null, declaration, evaluation,
