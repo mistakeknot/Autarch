@@ -38,12 +38,19 @@ func TestOpenDBCreatesNestedDataDirectory(t *testing.T) {
 		t.Fatalf("reopen database: %v", err)
 	}
 	defer db.Close()
-	var project, agent, bead, outcome, reason string
-	if err := db.QueryRow(`SELECT project, agent, bead, outcome, reason FROM dispatch_log`).Scan(&project, &agent, &bead, &outcome, &reason); err != nil {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM dispatch_log`).Scan(&count); err != nil {
+		t.Fatalf("count approvals: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one approval, got %d", count)
+	}
+	var project, agent, bead, action, outcome, reason string
+	if err := db.QueryRow(`SELECT project, agent, bead, action, outcome, reason FROM dispatch_log`).Scan(&project, &agent, &bead, &action, &outcome, &reason); err != nil {
 		t.Fatalf("read approval: %v", err)
 	}
-	if project != "demarch" || agent != "test-agent" || bead != "test-bead" || outcome != string(mycroft.OutcomeAccepted) || reason != "nested directory round trip" {
-		t.Fatalf("unexpected approval: %q %q %q %q %q", project, agent, bead, outcome, reason)
+	if project != "demarch" || agent != "test-agent" || bead != "test-bead" || action != string(mycroft.ActionSuggest) || outcome != string(mycroft.OutcomeAccepted) || reason != "nested directory round trip" {
+		t.Fatalf("unexpected approval: %q %q %q %q %q %q", project, agent, bead, action, outcome, reason)
 	}
 }
 
