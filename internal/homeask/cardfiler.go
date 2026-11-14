@@ -184,14 +184,20 @@ var _ CardLister = (*CardFiler)(nil)
 
 // ---- identity and description -------------------------------------------------------
 
+// readOnlyAskMetadata is excluded from request identity and refused by the
+// description writer until metadata writing is supported. Keep both consumers
+// on this policy when enabling a metadata field.
+var readOnlyAskMetadata = [...]string{"subject_key", "signals"}
+
 // RequestIdentity is hash H1 (plan 1.2): the first 16 hex characters of the sha256 of the
 // canonical JSON of {project, title, blocks sorted, ask, root_run}. The tasks project is not
 // part of it, so the same ask filed into two tasks projects is one Request. It is compared
 // only by the filer.
 func RequestIdentity(r CardRequest) (string, error) {
 	r.Ask = maps.Clone(r.Ask)
-	delete(r.Ask, "subject_key")
-	delete(r.Ask, "signals")
+	for _, key := range readOnlyAskMetadata {
+		delete(r.Ask, key)
+	}
 	ask, err := r.wireAsk()
 	if err != nil {
 		return "", err
@@ -245,7 +251,7 @@ func (r CardRequest) wireAsk() (map[string]any, error) {
 	if r.Ask == nil {
 		return nil, fmt.Errorf("%w: no ask", ErrInvalid)
 	}
-	for _, key := range []string{"subject_key", "signals"} {
+	for _, key := range readOnlyAskMetadata {
 		if _, ok := r.Ask[key]; ok {
 			return nil, fmt.Errorf("%w: %s is not writable yet", ErrInvalid, key)
 		}
