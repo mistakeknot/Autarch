@@ -569,8 +569,9 @@ func TestCASRepairUsesValidatedStat(t *testing.T) {
 	if !called {
 		t.Fatal("before-scan hook was not reached")
 	}
-	if !errors.Is(err, ErrCAS) {
-		t.Errorf("repair accepted replacement inode: %v", err)
+	want := fmt.Sprintf("entry %s changed or has a leftover hard link outside the store", p)
+	if !errors.Is(err, ErrCAS) || !strings.Contains(fmt.Sprint(err), want) {
+		t.Errorf("repair refusal: %v, want ErrCAS with %q", err, want)
 	}
 	for _, path := range []string{p, replacementAlias} {
 		fi, err := os.Lstat(path)

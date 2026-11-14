@@ -274,7 +274,7 @@ func (c *CAS) repairAndVerifyWith(sha string, dir *os.File, effectiveUID func() 
 		_, err = c.read(sha)
 		return err
 	}
-	return casErr("entry %s has an unidentified leftover hard link outside the store", p)
+	return casErr("entry %s changed or has a leftover hard link outside the store", p)
 }
 
 // Verify checks an entry is exactly what its name says: a regular file reached without symlinks, mode 0444,
