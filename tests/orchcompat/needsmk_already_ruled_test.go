@@ -1,6 +1,9 @@
 package orchcompat
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestFileAlreadyPickedCardExitsFive(t *testing.T) {
 	e := newEnv(t)
@@ -13,22 +16,29 @@ func TestFileAlreadyPickedCardExitsFive(t *testing.T) {
 	})
 	before := e.st().Tasks[0].Desc
 	setupCalls := len(e.calls())
+	for _, call := range e.calls()[:setupCalls] {
+		if len(call.Args) >= 2 && call.Args[0] == "tasks" && call.Args[1] == "update" {
+			t.Errorf("first filing attempted a board update: %q", call.Args)
+		}
+	}
 	wantCode(t, e.autarch(fileArgs(ask)...), 5, "already ruled", card)
 	if len(e.st().Tasks) != 1 || e.st().Tasks[0].Desc != before {
 		t.Fatal("refiling picked card changed board contents")
 	}
 	for _, call := range e.calls()[setupCalls:] {
 		args := call.Args
-		if len(args) < 2 || args[0] != "tasks" {
-			continue
+		// Allow known reads explicitly, so writes under any command are caught.
+		if len(args) >= 2 {
+			switch strings.Join(args[:2], " ") {
+			case "tasks list", "tasks show", "thread show", "thread list", "home binding":
+				continue
+			}
 		}
-		// Only known board reads are allowed after setup. This also catches
-		// comment, label create, and any future board write verbs.
-		if args[1] == "list" || args[1] == "show" {
-			continue
-		}
-		if len(args) >= 3 && (args[1] == "label" || args[1] == "project") && args[2] == "list" {
-			continue
+		if len(args) >= 3 {
+			switch strings.Join(args[:3], " ") {
+			case "tasks label list", "tasks project list", "home get --request", "home get --card":
+				continue
+			}
 		}
 		t.Errorf("refiling picked card attempted a board write: %q", args)
 	}
