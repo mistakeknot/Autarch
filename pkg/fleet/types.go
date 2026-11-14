@@ -1,11 +1,9 @@
-// Package fleet provides shared fleet view types used by the Mycroft
-// orchestrator and its TUI dashboard. Types here are the public contract
-// between the patrol loop, aggregator sources, and view layer.
+// Package fleet provides shared fleet view types for aggregator sources and views.
 package fleet
 
 import "time"
 
-// FleetView is the composed view of all agents and work, rebuilt each patrol cycle.
+// FleetView is the composed view of all agents and work, assembled from source snapshots.
 type FleetView struct {
 	Agents    []AgentView
 	Work      []BeadView

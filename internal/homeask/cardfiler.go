@@ -61,13 +61,13 @@ type CardFiler struct {
 	Run     BBRunner      // default: exec Bin
 	LockDir string        // default ${XDG_RUNTIME_DIR:-/tmp}/autarch-needsmk-<uid>
 	// TasksProjects maps a Home project name (case-insensitive) to the tasks project (id, key
-	// prefix or name) File and FileForPull file its cards into. It is the operator's binding:
+	// prefix or name) File files its cards into. It is the operator's binding:
 	// the filer never guesses a tasks project from names (a name match is only the poller's
 	// "suggested" binding, which mk confirms in Home Settings).
 	TasksProjects map[string]string
 	// TasksProject is the tasks project used for a Home project with no TasksProjects entry.
 	TasksProject string
-	// ConfigErr, when set, makes File and FileForPull refuse (ErrInvalid): the binding config was
+	// ConfigErr, when set, makes File refuse (ErrInvalid): the binding config was
 	// unreadable, so nothing may be filed against a guess.
 	ConfigErr error
 	// ReadbackTimeout bounds how long FileCard polls `bb home get --card` for the card's card_key after
@@ -184,14 +184,20 @@ var _ CardLister = (*CardFiler)(nil)
 
 // ---- identity and description -------------------------------------------------------
 
+// readOnlyAskMetadata is excluded from request identity and refused by the
+// description writer until metadata writing is supported. Keep both consumers
+// on this policy when enabling a metadata field.
+var readOnlyAskMetadata = [...]string{"subject_key", "signals"}
+
 // RequestIdentity is hash H1 (plan 1.2): the first 16 hex characters of the sha256 of the
 // canonical JSON of {project, title, blocks sorted, ask, root_run}. The tasks project is not
 // part of it, so the same ask filed into two tasks projects is one Request. It is compared
 // only by the filer.
 func RequestIdentity(r CardRequest) (string, error) {
 	r.Ask = maps.Clone(r.Ask)
-	delete(r.Ask, "subject_key")
-	delete(r.Ask, "signals")
+	for _, key := range readOnlyAskMetadata {
+		delete(r.Ask, key)
+	}
 	ask, err := r.wireAsk()
 	if err != nil {
 		return "", err
@@ -245,7 +251,7 @@ func (r CardRequest) wireAsk() (map[string]any, error) {
 	if r.Ask == nil {
 		return nil, fmt.Errorf("%w: no ask", ErrInvalid)
 	}
-	for _, key := range []string{"subject_key", "signals"} {
+	for _, key := range readOnlyAskMetadata {
 		if _, ok := r.Ask[key]; ok {
 			return nil, fmt.Errorf("%w: %s is not writable yet", ErrInvalid, key)
 		}
@@ -718,9 +724,6 @@ func (f *CardFiler) locate(ctx context.Context, key, ident string) (*found, erro
 	return c, nil
 }
 
-// ErrForeignPullCard: the card registered under a pull's legacy key is not that Mycroft pull.
-var ErrForeignPullCard = fmt.Errorf("%w: foreign card under the pull key", ErrInvalid)
-
 var errReused = fmt.Errorf("%w: Request reused for a different card", ErrInvalid)
 
 // ---- filing -------------------------------------------------------------------------
@@ -1033,7 +1036,7 @@ func titleOf(a Ask) string {
 	return q
 }
 
-// tasksProject is the tasks project File and FileForPull file into: the configured binding for
+// tasksProject is the tasks project File files into: the configured binding for
 // the Home project, else the configured default. There is no name-matching fallback.
 func (f *CardFiler) tasksProject(homeProject string) (string, error) {
 	if f.ConfigErr != nil {
@@ -1053,7 +1056,7 @@ func (f *CardFiler) tasksProject(homeProject string) (string, error) {
 // It returns the card's task id.
 func (f *CardFiler) File(ctx context.Context, a Ask) (string, error) {
 	if a.Asker == "mycroft" {
-		return "", fmt.Errorf("%w: a threadless ask is filed with FileForPull", ErrInvalid)
+		return "", fmt.Errorf("%w: legacy threadless asks are refused", ErrInvalid)
 	}
 	wire, err := wireFromAsk(a)
 	if err != nil {
@@ -1087,66 +1090,6 @@ func (f *CardFiler) File(ctx context.Context, a Ask) (string, error) {
 
 // needsMkNS is the UUIDv5 namespace of derived Request keys.
 var needsMkNS = uuid.NewSHA1(uuid.NameSpaceURL, []byte("https://autarch.invalid/needs-mk"))
-
-// PullKey is the Request key of a pull filing: the UUIDv5 of the rev-4 key
-// mycroft:<project>:<bead>:<agent>.
-func PullKey(legacyKey string) string {
-	return uuid.NewSHA1(needsMkNS, []byte(legacyKey)).String()
-}
-
-// FileForPull is mk question 4's default, and the only threadless way to file: Mycroft's pull
-// asks. It writes "pull":"mycroft" and posts no comment; the card is forgeable and carries no
-// routing authority. It supports legacy pull-card compatibility; the autarch CLI has no flag for it.
-//
-// The rev-4 key mycroft:<project>:<bead>:<agent> (a.RequestID) is looked up first, in Home's
-// registry: while the legacy ask is open nothing is filed. It returns the card's task id, or the
-// open legacy ask's decision id.
-func (f *CardFiler) FileForPull(ctx context.Context, a Ask) (string, error) {
-	if a.Asker != "mycroft" || !strings.HasPrefix(a.RequestID, "mycroft:") {
-		return "", fmt.Errorf("%w: a pull ask needs asker mycroft and a mycroft:<project>:<bead>:<agent> request id", ErrInvalid)
-	}
-	reg, err := f.registry(ctx, a.RequestID)
-	if err != nil {
-		return "", err
-	}
-	switch reg.Status {
-	case "legacy":
-		if reg.State == "open" {
-			return reg.DecisionID, nil
-		}
-		return "", fmt.Errorf("%w: %s", ErrAlreadyRuled, a.RequestID)
-	case "registered":
-		// The legacy key is predictable, so any same-uid filer can register a card under it. Report the card as
-		// this pull only when its parsed body says so: a Mycroft pull card, under this key, for this ask.
-		s, err := f.show(ctx, reg.TaskID)
-		if err != nil {
-			return "", err
-		}
-		c, perr := ParseCard(s.Task.Description)
-		wire, werr := wireFromAsk(a)
-		var want string
-		if werr == nil {
-			want, werr = RequestIdentity(CardRequest{Title: titleOf(a), Ask: wire, Pull: true})
-		}
-		if werr != nil {
-			return "", werr
-		}
-		if perr != nil || c.Pull != "mycroft" || c.Request.Key != a.RequestID || reg.Identity != want || c.Request.Identity != want {
-			return "", fmt.Errorf("%w: card %s registered under %s is not that Mycroft pull", ErrForeignPullCard, reg.TaskID, a.RequestID)
-		}
-		return reg.TaskID, nil
-	}
-	wire, err := wireFromAsk(a)
-	if err != nil {
-		return "", err
-	}
-	project, err := f.tasksProject(a.Project)
-	if err != nil {
-		return "", err
-	}
-	res, err := f.FileCard(ctx, CardRequest{Project: project, Title: titleOf(a), Ask: wire, Key: PullKey(a.RequestID), Pull: true})
-	return res.ID, err
-}
 
 // List implements Lister: `bb home list --asker X --json`.
 func (f *CardFiler) List(ctx context.Context, asker string) ([]ListRow, error) {

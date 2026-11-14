@@ -158,7 +158,7 @@ func TestDecideNeedsAThread(t *testing.T) {
 	}
 }
 
-// The autarch CLI has no way to file threadless: only Mycroft's FileForPull does (operator question 4).
+// The autarch CLI refuses legacy threadless Mycroft asks before running any command.
 func TestDecideRefusesAThreadlessMycroftAskAndRunsNothing(t *testing.T) {
 	s := &stubBB{}
 	withCardFiler(t, s)

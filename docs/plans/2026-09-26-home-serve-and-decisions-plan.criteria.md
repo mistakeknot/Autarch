@@ -96,7 +96,7 @@
     suggestion through the production constructor, Mycroft never schedules a decision bead,
     and `DecisionQueue` keeps no private list.
     ```check
-    go test -race ./internal/mycroft/... ./cmd/mycroft/ && ! grep -nE '^[[:space:]]+decisions[[:space:]]+\[\]PendingDecision' [removed Mycroft orchestration code]
+    go test -race ./internal/mycroft/... ./cmd/mycroft/ && ! grep -nE '^[[:space:]]+decisions[[:space:]]+\[\]PendingDecision' internal/mycroft/escalate/escalate.go
     ```
 12. The bb plugin typechecks, all its fake-SDK tests pass, and it builds.
     ```check
