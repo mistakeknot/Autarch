@@ -441,21 +441,27 @@ CREATE TABLE pick_actions (
 );
 CREATE INDEX pick_actions_generation ON pick_actions(task_id, generation);
 CREATE INDEX pick_actions_deadline ON pick_actions(disposition, evaluation_deadline_at);
+-- BEFORE INSERT has an undefined NEW.rowid when omitted. Validate the allocated
+-- rowid AFTER INSERT; ABORT also restores any victim deleted by REPLACE.
+CREATE TRIGGER pick_actions_positive_rowid AFTER INSERT ON pick_actions
+WHEN NEW.rowid < 1
+BEGIN SELECT RAISE(ABORT, 'pick action requires positive rowid'); END;
 CREATE TRIGGER pick_actions_no_replace BEFORE INSERT ON pick_actions
 WHEN EXISTS (SELECT 1 FROM pick_actions WHERE pick_id=NEW.pick_id OR decision_id=NEW.decision_id
   OR ruling_op=NEW.ruling_op OR relay_op=NEW.relay_op OR fallback_op=NEW.fallback_op
-  OR receipt_op=NEW.receipt_op OR status_op=NEW.status_op)
+  OR receipt_op=NEW.receipt_op OR status_op=NEW.status_op OR (NEW.rowid>=1 AND rowid=NEW.rowid))
 BEGIN SELECT RAISE(ABORT, 'pick action identity already exists'); END;
 CREATE TRIGGER pick_actions_no_update_replace BEFORE UPDATE ON pick_actions
 WHEN EXISTS (SELECT 1 FROM pick_actions WHERE rowid != OLD.rowid AND (pick_id=NEW.pick_id OR decision_id=NEW.decision_id
   OR ruling_op=NEW.ruling_op OR relay_op=NEW.relay_op OR fallback_op=NEW.fallback_op
-  OR receipt_op=NEW.receipt_op OR status_op=NEW.status_op))
+  OR receipt_op=NEW.receipt_op OR status_op=NEW.status_op OR rowid=NEW.rowid))
 BEGIN SELECT RAISE(ABORT, 'pick action identity already exists'); END;
 CREATE TRIGGER pick_actions_terminal BEFORE UPDATE ON pick_actions
 WHEN OLD.disposition IN ('fallback','cancelled') AND NEW.disposition IS NOT OLD.disposition
 BEGIN SELECT RAISE(ABORT, 'pick action disposition is terminal'); END;
 CREATE TRIGGER pick_actions_snapshot BEFORE UPDATE ON pick_actions
 WHEN OLD.pick_id IS NOT NEW.pick_id OR OLD.decision_id IS NOT NEW.decision_id
+  OR OLD.rowid IS NOT NEW.rowid
   OR OLD.task_id IS NOT NEW.task_id OR OLD.generation IS NOT NEW.generation
   OR OLD.revision IS NOT NEW.revision OR OLD.card_fp IS NOT NEW.card_fp
   OR OLD.declaration_json IS NOT NEW.declaration_json OR OLD.declaration_sha256 IS NOT NEW.declaration_sha256
@@ -491,11 +497,16 @@ CREATE TABLE pick_note_fences (
   PRIMARY KEY (decision_id, note_id)
 );
 CREATE INDEX pick_note_fences_generation ON pick_note_fences(task_id, generation);
+CREATE TRIGGER pick_note_fences_positive_rowid AFTER INSERT ON pick_note_fences
+WHEN NEW.rowid < 1
+BEGIN SELECT RAISE(ABORT, 'pick note fence requires positive rowid'); END;
 CREATE TRIGGER pick_note_fences_no_replace BEFORE INSERT ON pick_note_fences
-WHEN EXISTS (SELECT 1 FROM pick_note_fences WHERE decision_id=NEW.decision_id AND note_id=NEW.note_id)
+WHEN EXISTS (SELECT 1 FROM pick_note_fences WHERE (decision_id=NEW.decision_id AND note_id=NEW.note_id)
+  OR (NEW.rowid>=1 AND rowid=NEW.rowid))
 BEGIN SELECT RAISE(ABORT, 'pick note fence identity already exists'); END;
 CREATE TRIGGER pick_note_fences_identity BEFORE UPDATE ON pick_note_fences
 WHEN OLD.decision_id IS NOT NEW.decision_id OR OLD.task_id IS NOT NEW.task_id
+  OR OLD.rowid IS NOT NEW.rowid
   OR OLD.generation IS NOT NEW.generation OR OLD.note_id IS NOT NEW.note_id OR OLD.created_at IS NOT NEW.created_at
 BEGIN SELECT RAISE(ABORT, 'pick note fence identity is immutable'); END;
 CREATE TRIGGER pick_note_fences_no_delete BEFORE DELETE ON pick_note_fences
@@ -548,13 +559,20 @@ ALTER TABLE obligations ADD COLUMN require_message_id INTEGER NOT NULL DEFAULT 0
 ALTER TABLE obligations ADD COLUMN handler_next_try_at TEXT;
 CREATE INDEX obligations_handler_due ON obligations(state, handler_next_try_at)
   WHERE kind IN ('pick-relay','pick-receipt');
+CREATE TRIGGER obligations_handler_positive_rowid AFTER INSERT ON obligations
+WHEN NEW.kind IN ('pick-relay','pick-receipt') AND NEW.rowid < 1
+BEGIN SELECT RAISE(ABORT, 'protected obligation requires positive rowid'); END;
+CREATE TRIGGER obligations_handler_rowid_update BEFORE UPDATE ON obligations
+WHEN (OLD.kind IN ('pick-relay','pick-receipt') AND OLD.rowid IS NOT NEW.rowid)
+  OR (NEW.kind IN ('pick-relay','pick-receipt') AND NEW.rowid < 1)
+BEGIN SELECT RAISE(ABORT, 'protected obligation requires immutable positive rowid'); END;
 CREATE TRIGGER obligations_handler_no_replace BEFORE INSERT ON obligations
 WHEN EXISTS (SELECT 1 FROM obligations WHERE kind IN ('pick-relay','pick-receipt')
-  AND (id=NEW.id OR op=NEW.op))
+  AND (id=NEW.id OR op=NEW.op OR (NEW.rowid>=1 AND rowid=NEW.rowid)))
 BEGIN SELECT RAISE(ABORT, 'protected obligation identity already exists'); END;
 CREATE TRIGGER obligations_handler_no_update_replace BEFORE UPDATE ON obligations
 WHEN EXISTS (SELECT 1 FROM obligations WHERE rowid != OLD.rowid AND kind IN ('pick-relay','pick-receipt')
-  AND (id=NEW.id OR op=NEW.op))
+  AND (id=NEW.id OR op=NEW.op OR rowid=NEW.rowid))
 BEGIN SELECT RAISE(ABORT, 'protected obligation identity already exists'); END;
 CREATE TRIGGER obligations_handler_insert BEFORE INSERT ON obligations
 WHEN NEW.kind IN ('pick-relay','pick-receipt') AND NEW.next_try_at != '9999-12-31T23:59:59.999Z'

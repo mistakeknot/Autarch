@@ -41,7 +41,7 @@ describe("v7 pick handler persistence", () => {
 
   const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
   function uniqueKeys(db: Database.Database, table: string): string[][] {
-    const columns = db.pragma(`table_info(${quote(table)})`) as {name: string; pk: number}[];
+    const columns = db.pragma(`table_info(${quote(table)})`) as {name: string; type: string; pk: number}[];
     const primary = columns.filter(c => c.pk > 0).sort((a,b) => a.pk-b.pk).map(c => c.name);
     const keys: string[][] = primary.length ? [primary] : [];
     const indexes = db.pragma(`index_list(${quote(table)})`) as {name: string; unique: number; partial: number; origin: string}[];
@@ -53,6 +53,13 @@ describe("v7 pick handler persistence", () => {
       if (index.origin === 'pk') expect(key).toEqual(primary);
       else keys.push(key);
     }
+    const metadata = (db.pragma('table_list') as {schema: string; name: string; wr: number}[])
+      .find(t => t.schema === 'main' && t.name === table)!;
+    // An INTEGER PRIMARY KEY aliases rowid unless SQLite built a separate PK index
+    // (e.g. INTEGER PRIMARY KEY DESC). WITHOUT ROWID tables have no hidden key.
+    const rowidAlias = primary.length === 1 && columns.find(c => c.name === primary[0])?.type.toUpperCase() === 'INTEGER'
+      && !indexes.some(i => i.origin === 'pk');
+    if (metadata.wr === 0 && !rowidAlias) keys.push(['rowid']);
     expect(keys.length).toBeGreaterThan(0);
     return keys;
   }
@@ -81,8 +88,10 @@ describe("v7 pick handler persistence", () => {
           if (table === 'obligations') db.prepare(`INSERT INTO obligations
             (id,decision_id,kind,state,op,next_try_at,updated_at,allow_reroute,allow_batch,require_message_id,handler_next_try_at,payload)
             VALUES ('protected','d',?,'done','operation','9999-12-31T23:59:59.999Z','audit',0,0,1,'2030-01-01T00:00:00Z','exact')`).run(kind);
-          const before = db.prepare(`SELECT * FROM ${quote(table)} ORDER BY rowid`).all() as Record<string, unknown>[];
+          const before = tableRows(db, table);
           const row = {...before[0]};
+          // Control's id aliases rowid; bind it only once.
+          if (table === 'pick_handler_control') delete row.rowid;
           for (const column of new Set(keys.flat())) {
             const value = row[column];
             if (value === null || value === undefined) throw new Error(`Missing non-null unique fixture: ${table}.${column}`);
@@ -110,15 +119,154 @@ describe("v7 pick handler persistence", () => {
             : 'protected obligation identity already exists';
           expect(() => db.prepare(`INSERT OR REPLACE INTO ${quote(table)} (${columns.map(quote).join(',')})
             VALUES (${columns.map(() => '?').join(',')})`).run(...columns.map(c => row[c]))).toThrow(message);
-          expect(db.prepare(`SELECT * FROM ${quote(table)} ORDER BY rowid`).all()).toEqual(before);
+          expect(tableRows(db, table)).toEqual(before);
         } finally { db.close(); }
       });
     }
   }
 
   function tableRows(db: Database.Database, table: string) {
-    return db.prepare(`SELECT rowid AS _rowid, * FROM ${quote(table)} ORDER BY rowid`).all() as Record<string, unknown>[];
+    return db.prepare(`SELECT rowid AS rowid, * FROM ${quote(table)} ORDER BY rowid`).all() as Record<string, unknown>[];
   }
+
+  function insertRow(db: Database.Database, table: string, suffix: string, rowid?: number, kind = 'pick-relay') {
+    if (table === 'pick_actions') {
+      action(db, {pick_id:suffix,decision_id:suffix,...(rowid === undefined ? {} : {rowid})});
+      return;
+    }
+    const row = table === 'pick_note_fences'
+      ? {decision_id:suffix,task_id:'task',generation:1,note_id:suffix,created_at:'time'}
+      : {id:suffix,decision_id:suffix,kind,next_try_at:'9999-12-31T23:59:59.999Z',
+        updated_at:'time',allow_reroute:0,allow_batch:0,require_message_id:1};
+    const values = {...row,...(rowid === undefined ? {} : {rowid})};
+    const columns = Object.keys(values);
+    db.prepare(`INSERT INTO ${quote(table)} (${columns.map(quote).join(',')})
+      VALUES (${columns.map(c => '@'+c).join(',')})`).run(values);
+  }
+
+  for (const table of ['pick_actions','pick_note_fences','obligations']) {
+    it(`ordinary inserts without explicit rowid succeed for ${table}`, () => {
+      const db = new Database(file); migrate(db);
+      try {
+        insertRow(db,table,'first'); insertRow(db,table,'second');
+        expect(tableRows(db,table).map(row => row.rowid)).toEqual([1,2]);
+      } finally { db.close(); }
+    });
+
+  }
+
+  const protectedRows = [
+    {table:'pick_actions',kind:''}, {table:'pick_note_fences',kind:''},
+    ...['pick-relay','pick-receipt'].map(kind => ({table:'obligations',kind})),
+  ];
+  for (const {table,kind} of protectedRows) for (const rowid of [-1,0]) {
+    it(`protected nonpositive rowid INSERT aborts unchanged ${table} ${kind} (${rowid})`, () => {
+      const db = new Database(file); migrate(db);
+      try {
+        insertRow(db,table,'existing',1,kind);
+        const before = tableRows(db,table);
+        expect(() => insertRow(db,table,'invalid',rowid,kind)).toThrow('positive rowid');
+        expect(tableRows(db,table)).toEqual(before);
+      } finally { db.close(); }
+    });
+  }
+
+  for (const kind of ['pick-relay','pick-receipt']) {
+    it(`omitted protected rowid after legacy -1 allocates positive rowid for ${kind}`, () => {
+      const db = new Database(file); migrate(db);
+      try {
+        insertRow(db,'obligations','negative',-1,'wake');
+        insertRow(db,'obligations','positive',1,'wake');
+        const before = tableRows(db,'obligations');
+        insertRow(db,'obligations','ordinary',undefined,kind);
+        const after = tableRows(db,'obligations');
+        expect(after.slice(0,2)).toEqual(before);
+        expect(after).toHaveLength(3);
+        expect(after[2]).toMatchObject({rowid:2,kind,id:'ordinary'});
+      } finally { db.close(); }
+    });
+
+    it(`omitted protected rowid allocating zero aborts unchanged for ${kind}`, () => {
+      const db = new Database(file); migrate(db);
+      try {
+        insertRow(db,'obligations','negative',-1,'wake');
+        const before = tableRows(db,'obligations');
+        expect(() => insertRow(db,'obligations','ordinary',undefined,kind)).toThrow('positive rowid');
+        expect(tableRows(db,'obligations')).toEqual(before);
+      } finally { db.close(); }
+    });
+
+    it(`protected no-collision rowid move is rejected for obligations ${kind}`, () => {
+      const db = new Database(file); migrate(db);
+      try {
+        insertRow(db,'obligations','protected',1,kind);
+        const before = tableRows(db,'obligations');
+        for (const rowid of [-1,0,42]) {
+          expect(() => db.prepare('UPDATE OR REPLACE obligations SET rowid=?').run(rowid)).toThrow('immutable');
+          expect(tableRows(db,'obligations')).toEqual(before);
+        }
+      } finally { db.close(); }
+    });
+
+    for (const rowid of [-1,0]) {
+      it(`legacy nonpositive rowid conversion aborts unchanged for ${kind} (${rowid})`, () => {
+        const db = new Database(file); migrate(db);
+        try {
+          insertRow(db,'obligations','legacy',rowid,'wake');
+          const before = tableRows(db,'obligations');
+          expect(() => db.prepare('UPDATE obligations SET kind=?').run(kind)).toThrow('positive rowid');
+          expect(tableRows(db,'obligations')).toEqual(before);
+        } finally { db.close(); }
+      });
+
+      it(`AFTER INSERT ABORT restores legacy REPLACE victim for ${kind} (${rowid})`, () => {
+        const db = new Database(file); migrate(db);
+        try {
+          insertRow(db,'obligations','victim',rowid,'wake');
+          insertRow(db,'obligations','bystander',5,'wake');
+          const before = tableRows(db,'obligations');
+          expect(() => db.prepare(`INSERT OR REPLACE INTO obligations
+            (rowid,id,decision_id,kind,next_try_at,updated_at,allow_reroute,allow_batch,require_message_id)
+            VALUES (?,'replacement','d',?,'9999-12-31T23:59:59.999Z','time',0,0,1)`)
+            .run(rowid,kind)).toThrow('positive rowid');
+          expect(tableRows(db,'obligations')).toEqual(before);
+        } finally { db.close(); }
+      });
+    }
+  }
+
+  for (const table of ['pick_actions','pick_note_fences']) {
+    it(`protected no-collision rowid move is rejected for ${table}`, () => {
+      const db = new Database(file); migrate(db);
+      try {
+        insertRow(db,table,'first');
+        const before = tableRows(db,table);
+        expect(() => db.exec(`UPDATE ${quote(table)} SET rowid=42`)).toThrow('immutable');
+        expect(tableRows(db,table)).toEqual(before);
+      } finally { db.close(); }
+    });
+  }
+
+  it('legacy no-collision rowid moves remain allowed', () => {
+    const db = new Database(file); migrate(db);
+    try {
+      db.exec("INSERT INTO obligations(id,decision_id,kind,next_try_at,updated_at) VALUES ('legacy','d','wake','time','time')");
+      const before = tableRows(db,'obligations');
+      db.exec('UPDATE obligations SET rowid=-1');
+      expect(tableRows(db,'obligations')).toEqual([{...before[0],rowid:-1}]);
+    } finally { db.close(); }
+  });
+
+  it('ordinary control initialization without explicit rowid preserves the id alias and singleton', () => {
+    const db = new Database(file); migrate(db);
+    try {
+      expect(tableRows(db,'pick_handler_control')).toHaveLength(1);
+      expect(tableRows(db,'pick_handler_control')[0]).toMatchObject({rowid:1,id:1});
+      const before = tableRows(db,'pick_handler_control');
+      expect(() => db.exec('UPDATE OR REPLACE pick_handler_control SET rowid=2')).toThrow('CHECK');
+      expect(tableRows(db,'pick_handler_control')).toEqual(before);
+    } finally { db.close(); }
+  });
 
   function isolatedUpdate(db: Database.Database, table: string, keys: string[][], key: string[],
     source: Record<string, unknown>, victim: Record<string, unknown>) {
@@ -126,11 +274,11 @@ describe("v7 pick handler persistence", () => {
     for (const other of keys) {
       const collision = db.prepare(`SELECT count(*) n FROM ${quote(table)} WHERE rowid != ? AND
         ${other.map(c => `${quote(c)}=?`).join(' AND ')}`)
-        .get(source._rowid, ...other.map(c => candidate[c])) as {n: number};
+        .get(source.rowid, ...other.map(c => candidate[c])) as {n: number};
       expect(collision.n, `${table} (${other.join(',')})`).toBe(other === key ? 1 : 0);
     }
     return () => db.prepare(`UPDATE OR REPLACE ${quote(table)} SET ${key.map(c => `${quote(c)}=?`).join(',')}
-      WHERE rowid=?`).run(...key.map(c => victim[c]), source._rowid);
+      WHERE rowid=?`).run(...key.map(c => victim[c]), source.rowid);
   }
 
   for (const [table, keys] of Object.entries(inventory)) {
@@ -170,11 +318,11 @@ describe("v7 pick handler persistence", () => {
             (id,decision_id,kind,state,op,next_try_at,updated_at,allow_reroute,allow_batch,require_message_id,handler_next_try_at,payload)
             VALUES ('protected','d',?,'done','operation','9999-12-31T23:59:59.999Z','audit',0,0,1,'2030-01-01T00:00:00Z','Exact payload')`).run(kind);
           const victim = tableRows(db, table)[0];
-          const {_rowid, ...sourceValues} = victim;
+          const sourceValues = {...victim};
           for (const column of new Set(keys.flat())) {
             const value = sourceValues[column];
-            if (typeof value !== 'string') throw new Error(`Missing string unique fixture: ${table}.${column}`);
-            sourceValues[column] = `source-${value}`;
+            if (typeof value !== 'string' && typeof value !== 'number') throw new Error(`Missing unique fixture: ${table}.${column}`);
+            sourceValues[column] = typeof value === 'number' ? value + 1 : `source-${value}`;
           }
           if (table === 'pick_actions') {
             sourceValues.disposition = 'pending';
@@ -241,7 +389,7 @@ describe("v7 pick handler persistence", () => {
           const changes: Record<string, unknown> = {...Object.fromEntries([...new Set(keys.flat())].map(c => [c,row[c]])), ...audit};
           const columns = Object.keys(changes);
           expect(db.prepare(`UPDATE OR REPLACE ${quote(table)} SET ${columns.map(c => `${quote(c)}=?`).join(',')}
-            WHERE rowid=?`).run(...columns.map(c => changes[c]),row._rowid).changes).toBe(1);
+            WHERE rowid=?`).run(...columns.map(c => changes[c]),row.rowid).changes).toBe(1);
         }
         expect(tableRows(db, table)).toEqual(before.map(row => ({...row,...audit})));
       }
@@ -274,14 +422,15 @@ describe("v7 pick handler persistence", () => {
       db.exec("INSERT INTO obligations(id,decision_id,kind,op,next_try_at,updated_at,payload) VALUES ('old','d','wake','old-op','time','time','original')");
       const id = key.includes('id') ? 'old' : 'new';
       const op = key.includes('op') ? 'old-op' : 'new-op';
-      const values = [id,op];
-      expect(db.prepare(`INSERT OR IGNORE INTO obligations(id,decision_id,kind,op,next_try_at,updated_at)
-        VALUES (?,'d','wake',?,'time','time')`).run(...values).changes).toBe(0);
-      db.prepare(`INSERT INTO obligations(id,decision_id,kind,op,next_try_at,updated_at) VALUES (?,'d','wake',?,'time','time')
+      const rowid = key.includes('rowid') ? 1 : 2;
+      const values = [rowid,id,op];
+      expect(db.prepare(`INSERT OR IGNORE INTO obligations(rowid,id,decision_id,kind,op,next_try_at,updated_at)
+        VALUES (?,?,'d','wake',?,'time','time')`).run(...values).changes).toBe(0);
+      db.prepare(`INSERT INTO obligations(rowid,id,decision_id,kind,op,next_try_at,updated_at) VALUES (?,?,'d','wake',?,'time','time')
         ON CONFLICT (${key.map(quote).join(',')}) DO UPDATE SET payload='upsert'`).run(...values);
       expect(db.prepare('SELECT payload FROM obligations').all()).toEqual([{payload:'upsert'}]);
-      db.prepare(`INSERT OR REPLACE INTO obligations(id,decision_id,kind,op,next_try_at,updated_at,payload)
-        VALUES (?,'d','wake',?,'time','time','replacement')`).run(...values);
+      db.prepare(`INSERT OR REPLACE INTO obligations(rowid,id,decision_id,kind,op,next_try_at,updated_at,payload)
+        VALUES (?,?,'d','wake',?,'time','time','replacement')`).run(...values);
       expect(db.prepare('SELECT id,op,payload,allow_reroute,allow_batch,require_message_id FROM obligations').all())
         .toEqual([{id,op,payload:'replacement',allow_reroute:1,allow_batch:1,require_message_id:0}]);
       db.close();
