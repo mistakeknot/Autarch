@@ -965,6 +965,11 @@ export class Store {
   // ---- obligations --------------------------------------------------------
 
   private insertObligationRows(decisionId: string, rows: ObligationInput[], ignoreDup: boolean): number {
+    // Handler operations need immutable-payload replay checks and their action CAS in the same
+    // transaction. The legacy skip-duplicates path must never consume those identities.
+    if (rows.some(o => o.kind === "pick-relay" || o.kind === "pick-receipt")) {
+      throw new Error("protected obligations require guarded insertion");
+    }
     const now = this.now();
     const stmt = this.db.prepare(
       `INSERT ${ignoreDup ? "OR IGNORE " : ""}INTO obligations(id, decision_id, kind, recipient, payload, op, after_id, next_try_at, updated_at)
@@ -1080,7 +1085,10 @@ export class Store {
       .prepare(
         `UPDATE obligations SET state = @to, updated_at = @now,
            last_error = COALESCE(@last_error, last_error),
-           next_try_at = COALESCE(@next_try_at, next_try_at),
+           next_try_at = CASE WHEN kind IN ('pick-relay','pick-receipt') THEN next_try_at
+             ELSE COALESCE(@next_try_at, next_try_at) END,
+           handler_next_try_at = CASE WHEN kind IN ('pick-relay','pick-receipt')
+             THEN COALESCE(@next_try_at, handler_next_try_at) ELSE handler_next_try_at END,
            resend_permit = CASE WHEN @to IN ('done','dismissed') THEN 0 ELSE resend_permit END
          WHERE id = @id AND state = @from AND attempt = @attempt
            AND NOT (voided_at IS NOT NULL AND @to IN ('pending','sending'))
@@ -1106,7 +1114,7 @@ export class Store {
 
   /** Point a message row at another thread after its recipient was archived; only while it still names `from`. */
   retarget(id: string, from: string, to: string): boolean {
-    return this.db.prepare("UPDATE obligations SET recipient = @to, updated_at = @now WHERE id = @id AND recipient = @from AND state NOT IN ('done','dismissed')").run({ id, from, to, now: this.now() }).changes === 1;
+    return this.db.prepare("UPDATE obligations SET recipient = @to, updated_at = @now WHERE id = @id AND recipient = @from AND allow_reroute = 1 AND state NOT IN ('done','dismissed')").run({ id, from, to, now: this.now() }).changes === 1;
   }
 
   /** Suppress a row without changing its state [G-2]; also clears any resend permit. */
@@ -1152,12 +1160,13 @@ export class Store {
       const res = this.db
         .prepare(
           `UPDATE obligations SET state = 'pending', resend_permit = 1, resend_click = @click, updated_at = @now
-           WHERE id = @id AND state = 'uncertain' AND attempt = @attempt AND voided_at IS NULL`,
+           WHERE id = @id AND state = 'uncertain' AND attempt = @attempt AND voided_at IS NULL
+             AND kind NOT IN ('pick-relay','pick-receipt')`,
         )
         .run({ id, attempt, click: clickId, now: this.now() });
       if (res.changes === 1) return { ok: true, replay: false } as const;
       const row = this.obligation(id);
-      if (row && row.resend_click === clickId) return { ok: true, replay: true } as const;
+      if (row && row.kind !== "pick-relay" && row.kind !== "pick-receipt" && row.resend_click === clickId) return { ok: true, replay: true } as const;
       return { ok: false, reason: "stale" } as const;
     });
   }
