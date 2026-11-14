@@ -11,9 +11,9 @@ import (
 	"strings"
 )
 
-// FileOrUpdateCard is the CLI's ask-key editing lane. Request lines and routing
-// comments are immutable: Home uses them to recognize a valid new generation.
-// Other filers retain FileCard's exact-request replay protocol.
+// FileOrUpdateCard is the CLI's ask-key filing lane. Changed legacy asks get a
+// separate card because Tasks cannot exclude a concurrent Home pick during an
+// edit. Request lines and routing comments remain immutable.
 func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, supersedes string) (CardResult, error) {
 	if err := f.PreflightOnPick(ctx, req); err != nil {
 		return CardResult{}, err
@@ -152,8 +152,8 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 			s.Comments = append(s.Comments, Comment{Kind: "agent", ThreadID: req.routeThread()})
 		}
 		// A just-repaired card may not yet have a Home generation. Its original
-		// missing routing comment prevented a pick; apply the edits now and
-		// retain the normal post-write pick check instead of requiring a third run.
+		// missing routing comment prevented a pick, but a pick becomes possible
+		// as soon as routing is repaired.
 		v := CardView{State: "open"}
 		if !repaired {
 			v, e = f.cardInProject(ctx, s.Task.ID, project)
@@ -193,6 +193,14 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 				return f.withCardKey(ctx, res)
 			}
 			return res, nil
+		}
+		if subject, _ := req.Ask["subject_key"].(string); subject == "" {
+			// Tasks cannot condition an edit on Home's pick state. A pick may
+			// already have landed after the open snapshot above, including on
+			// a just-repaired card. Leave that card untouched and file a new
+			// Request instead. Bind retries to both content and predecessor.
+			req.Key = DerivedKey(req.Thread, ident+"\x00replacement:"+s.Task.ID)
+			return f.FileCard(ctx, req)
 		}
 		if req.Move != nil {
 			if e = f.ensureLabelNamed(ctx, project, MoveLabel); e != nil {

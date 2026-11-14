@@ -55,7 +55,7 @@ func TestUnroutedAskCannotBeClaimedByAnotherThread(t *testing.T) {
 		})
 	}
 }
-func TestUnroutedRetryAppliesChangedContentImmediately(t *testing.T) {
+func TestUnroutedRetryFilesChangedContentSeparately(t *testing.T) {
 	for _, refile := range []bool{false, true} {
 		t.Run(fmt.Sprint("auto-refile=", refile), func(t *testing.T) {
 			f, fl, _ := updateRig(t)
@@ -89,8 +89,10 @@ func TestUnroutedRetryAppliesChangedContentImmediately(t *testing.T) {
 			r.Move = scriptMove()
 			deriveRoutingTestKey(t, &r)
 			res, err := fl.FileOrUpdateCard(context.Background(), r, "")
-			back, parseErr := ParseCard(pending.Desc)
-			if err != nil || parseErr != nil || res.ID != pending.ID || !res.Updated || back.Question != "Updated question?" || pending.Title != r.Title || back.Request != stored.Request || !moveEqual(back.Move, r.Move) || AskingThread(pending.Comments) != r.Thread || len(pending.Comments) != 1 || f.count("tasks", "update") != 1 {
+			replacement := f.tasks[len(f.tasks)-1]
+			back, parseErr := ParseCard(replacement.Desc)
+			unchanged, _ := ParseCard(pending.Desc)
+			if err != nil || parseErr != nil || res.ID == pending.ID || res.Updated || back.Question != "Updated question?" || replacement.Title != r.Title || back.Request == stored.Request || unchanged.Request != stored.Request || unchanged.Question == back.Question || !moveEqual(back.Move, r.Move) || AskingThread(pending.Comments) != r.Thread || len(pending.Comments) != 1 || AskingThread(replacement.Comments) != r.Thread || len(replacement.Comments) != 1 || f.count("tasks", "update") != 0 {
 				t.Fatalf("res=%+v err=%v card=%+v comments=%v", res, err, back, pending.Comments)
 			}
 			opts := back.Ask["options"].([]any)
