@@ -16,9 +16,7 @@ import (
 // The read-only metadata policy must have one declaration, so enabling a writer
 // cannot leave identity filtering and Description validation with separate lists.
 func TestMetadataPolicySingleSource(t *testing.T) {
-	files, err := parser.ParseDir(token.NewFileSet(), ".", func(info os.FileInfo) bool {
-		return !strings.HasSuffix(info.Name(), "_test.go")
-	}, 0)
+	files, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,8 +24,30 @@ func TestMetadataPolicySingleSource(t *testing.T) {
 	for _, key := range readOnlyAskMetadata {
 		counts[key] = 0
 	}
-	for _, f := range files["homeask"].Files {
+	// Count identifiers as well as literals: a new writer can reuse a constant
+	// or index the shared policy list. Counts include declarations and uses.
+	wantReferences := map[string]map[string]int{
+		"card.go":          {"subjectKeyMetadata": 4, "signalsMetadata": 4, "readOnlyAskMetadata": 0},
+		"card_metadata.go": {"subjectKeyMetadata": 2, "signalsMetadata": 1, "readOnlyAskMetadata": 0},
+		"cardfiler.go":     {"subjectKeyMetadata": 2, "signalsMetadata": 2, "readOnlyAskMetadata": 3},
+	}
+	for _, entry := range files {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		// Parse every non-test Go file in this directory, any package or build tag.
+		f, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		references := map[string]int{"subjectKeyMetadata": 0, "signalsMetadata": 0, "readOnlyAskMetadata": 0}
 		ast.Inspect(f, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok {
+				if _, tracked := references[id.Name]; tracked {
+					references[id.Name]++
+				}
+			}
 			if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 				value, err := strconv.Unquote(lit.Value)
 				if _, tracked := counts[value]; err == nil && tracked {
@@ -36,6 +56,11 @@ func TestMetadataPolicySingleSource(t *testing.T) {
 			}
 			return true
 		})
+		for constant, count := range references {
+			if want := wantReferences[name][constant]; count != want {
+				t.Errorf("%s: %s referenced %d times; want %d; review metadata policy uses", name, constant, count, want)
+			}
+		}
 	}
 	for key, count := range counts {
 		if count != 1 {
@@ -47,6 +72,9 @@ func TestMetadataPolicySingleSource(t *testing.T) {
 func TestMetadataPolicyIdentityAndDescription(t *testing.T) {
 	metadata := subjectVectors(t)[1].Metadata
 	for _, key := range readOnlyAskMetadata {
+		if metadata[key] == nil {
+			t.Fatalf("missing non-null metadata vector for %s", key)
+		}
 		for _, value := range []any{metadata[key], nil} {
 			t.Run(fmt.Sprintf("%s/null=%v", key, value == nil), func(t *testing.T) {
 				req := testReq()
@@ -73,9 +101,15 @@ func TestMetadataPolicyIdentityAndDescription(t *testing.T) {
 }
 
 func TestFilersRejectMetadataAtDescription(t *testing.T) {
+	metadata := subjectVectors(t)[1].Metadata
+	for _, key := range readOnlyAskMetadata {
+		if metadata[key] == nil {
+			t.Fatalf("missing non-null metadata vector for %s", key)
+		}
+	}
 	for _, lane := range []string{"exact", "update"} {
 		for _, key := range readOnlyAskMetadata {
-			for _, value := range []any{subjectVectors(t)[1].Metadata[key], nil} {
+			for _, value := range []any{metadata[key], nil} {
 				t.Run(fmt.Sprintf("%s/%s/null=%v", lane, key, value == nil), func(t *testing.T) {
 					f := newFake(t, registryOnCreate)
 					req := CardRequest{
