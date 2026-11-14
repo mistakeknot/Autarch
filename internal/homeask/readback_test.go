@@ -155,3 +155,33 @@ func TestFileCardReadbackProjectMismatchStopsImmediately(t *testing.T) {
 		}
 	}
 }
+
+func TestFileCardReadbackWithoutProjectRetriesToDeadline(t *testing.T) {
+	f := newFake(t, registryOnCreate)
+	f.fail = func(args []string) *BBResult {
+		if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
+			return &BBResult{Stdout: []byte(`{"card_key":""}`)}
+		}
+		return nil
+	}
+	fl := f.filer()
+	fl.ReadbackTimeout, fl.ReadbackInterval = 30*time.Millisecond, time.Millisecond
+	res, err := fl.FileCard(context.Background(), testReq())
+	if !errors.Is(err, ErrOutcomeUnknown) || errors.Is(err, ErrCardProjectMismatch) || res.CardKey != "" || f.count("home", "get", "--card") < 2 || f.cards() != 1 {
+		t.Fatalf("res=%+v err=%v polls=%d cards=%d", res, err, f.count("home", "get", "--card"), f.cards())
+	}
+}
+
+func TestCardReadbackWithoutProjectIsTransient(t *testing.T) {
+	for _, key := range []string{"", "P1-1"} {
+		t.Run("key="+key, func(t *testing.T) {
+			fl := CardFiler{Run: func(context.Context, []string, ...string) BBResult {
+				return okRes(map[string]any{"card_key": key})
+			}}
+			_, err := fl.cardInProject(context.Background(), "T1", "P1")
+			if err == nil || errors.Is(err, ErrCardProjectMismatch) || errors.Is(err, ErrInvalid) {
+				t.Fatalf("expected transient missing-project error, got %v", err)
+			}
+		})
+	}
+}

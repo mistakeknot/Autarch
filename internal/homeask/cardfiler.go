@@ -1140,7 +1140,10 @@ var ErrCardProjectMismatch = fmt.Errorf("%w: card project mismatch", ErrInvalid)
 func (f *CardFiler) cardInProject(ctx context.Context, taskID, project string) (CardView, error) {
 	var v CardView
 	err := f.callEnv(ctx, unscopedEnv(""), &v, "home", "get", "--card", taskID, "--json")
-	if err == nil && project != "" && v.ProjectID != project {
+	if err == nil && project != "" && v.ProjectID == "" {
+		return v, fmt.Errorf("card %s has no Tasks project in readback", taskID)
+	}
+	if err == nil && project != "" && v.ProjectID != "" && v.ProjectID != project {
 		return v, fmt.Errorf("%w: card %s belongs to Tasks project %q, expected %q", ErrCardProjectMismatch, taskID, v.ProjectID, project)
 	}
 	return v, err
