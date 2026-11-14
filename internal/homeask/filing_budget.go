@@ -53,19 +53,21 @@ func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
 }
 
 type filingEntry struct {
-	DeliveredCard  string      `json:"delivered_card,omitempty"`
-	CreationKey    string      `json:"creation_key,omitempty"`
-	Uncharged      bool        `json:"uncharged,omitempty"`
-	Refunded       bool        `json:"refunded,omitempty"`
-	TerminalReason string      `json:"terminal_reason,omitempty"`
-	Request        CardRequest `json:"request"`
-	Identity       string      `json:"identity"`
-	Project        string      `json:"project"`
-	Week           string      `json:"week"`
-	Attempted      bool        `json:"attempted,omitempty"`
-	Held           bool        `json:"held"`
-	Supersedes     string      `json:"supersedes,omitempty"`
-	Update         bool        `json:"update"`
+	DeliveredCard    string      `json:"delivered_card,omitempty"`
+	DeliveredKey     string      `json:"delivered_key,omitempty"`
+	DeliveredProject string      `json:"delivered_project,omitempty"`
+	CreationKey      string      `json:"creation_key,omitempty"`
+	Uncharged        bool        `json:"uncharged,omitempty"`
+	Refunded         bool        `json:"refunded,omitempty"`
+	TerminalReason   string      `json:"terminal_reason,omitempty"`
+	Request          CardRequest `json:"request"`
+	Identity         string      `json:"identity"`
+	Project          string      `json:"project"`
+	Week             string      `json:"week"`
+	Attempted        bool        `json:"attempted,omitempty"`
+	Held             bool        `json:"held"`
+	Supersedes       string      `json:"supersedes,omitempty"`
+	Update           bool        `json:"update"`
 }
 type filingState map[string]filingEntry
 
@@ -298,6 +300,7 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	locked = false
 	var result CardResult
 	r.beforeCreate = func(key string) error { return f.chargeCreation(r, key) }
+	r.afterUpdate = func(result CardResult) error { return f.recordWrittenEdit(r.Key, result) }
 	if update {
 		result, err = f.fileOrUpdateCard(ctx, r, supersedes)
 	} else {
@@ -416,6 +419,7 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		return CardResult{}, "", err
 	}
 	r.beforeCreate = func(key string) error { return f.chargeCreation(r, key) }
+	r.afterUpdate = func(result CardResult) error { return f.recordWrittenEdit(r.Key, result) }
 	if e.Update {
 		result, err = f.fileOrUpdateCard(ctx, r, e.Supersedes)
 	} else {
@@ -492,7 +496,18 @@ func (f *CardFiler) resolveTerminal(ctx context.Context, key string, reason erro
 	e := current[key]
 	done()
 	var delivered *found
-	if e.CreationKey != "" && e.CreationKey != key {
+	if e.DeliveredCard != "" {
+		deliveredKey := e.DeliveredKey
+		if deliveredKey == "" {
+			deliveredKey = key
+		}
+		project := e.DeliveredProject
+		if project == "" {
+			project = e.Request.Project
+		}
+		delivered = &found{ID: e.DeliveredCard, ProjectID: project, Req: RequestLine{Key: deliveredKey, Identity: e.Identity}}
+	}
+	if delivered == nil && e.CreationKey != "" && e.CreationKey != key {
 		candidate, err := f.locate(ctx, e.CreationKey, e.Identity)
 		if err != nil {
 			return CardResult{}, err
@@ -611,4 +626,23 @@ func (f *CardFiler) hasUpdateTarget(ctx context.Context, r CardRequest, supersed
 		seen[cursor] = true
 	}
 	return false, fmt.Errorf("%w: tasks search did not finish", ErrHomeDown)
+}
+
+// recordWrittenEdit stores the successful mutation before any later read can fail.
+// In-place edits retain their original uncharged status.
+func (f *CardFiler) recordWrittenEdit(key string, result CardResult) error {
+	state, path, unlock, err := f.openState()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	entry, ok := state[key]
+	if !ok {
+		return fmt.Errorf("%w: missing edit delivery entry", ErrHomeDown)
+	}
+	entry.DeliveredCard = result.ID
+	entry.DeliveredKey = result.Key
+	entry.DeliveredProject = result.Project
+	state[key] = entry
+	return saveFilingState(path, state)
 }

@@ -132,7 +132,8 @@ type RootRunSpec = RootRun
 
 // CardRequest is one filing.
 type CardRequest struct {
-	beforeCreate func(string) error // final budget admission for an update falling back to create
+	beforeCreate func(string) error     // final budget admission for an update falling back to create
+	afterUpdate  func(CardResult) error // persist a successful edit before its ruling read
 
 	Urgent      bool
 	KeepList    string
