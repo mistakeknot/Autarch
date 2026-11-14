@@ -198,6 +198,8 @@ export function pickFenceToken(store: Store, action: PickActionRow): number {
 /** Conditional SQL owns the transition. Late evaluations never revive terminal work. */
 export function recordPickEvaluation(store: Store, action: PickActionRow, evaluation: unknown, now: string, fenceToken: number,
   transition: { from: "pending" | "automatic"; to: PickActionRow["disposition"]; obligations?: ObligationInput[] } = { from: "pending", to: "pending" }): boolean {
+  // Terminal transitions require bound fallback evidence from fallbackPickAction.
+  if (transition.to === "fallback" || transition.to === "cancelled") return false;
   return store.atomically(() => {
     // Caller snapshots carry no authority. Read immutable values under the same
     // write lock as the CAS and outbox insert; retain CAS checks for mutable state.
