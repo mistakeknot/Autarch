@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // ErrCAS is wrapped by every content-addressed-store failure.
@@ -27,8 +28,9 @@ func casErr(format string, a ...any) error {
 // from the card's checkout.
 type CAS struct {
 	Root     string
-	OwnerUID int   // required owner of the root and the entries; -1 skips the owner checks (tests)
-	MaxBytes int64 // per-entry cap
+	OwnerUID int           // required owner of the root and the entries; -1 skips the owner checks (tests)
+	MaxBytes int64         // per-entry cap
+	lockWait time.Duration // zero uses the production lock deadline
 }
 
 // Path returns the entry path for a strict 64-hex digest.
@@ -107,11 +109,29 @@ func (c *CAS) lock(how int) (*os.File, error) {
 	if err != nil {
 		return nil, casErr("%v", err)
 	}
-	if err := syscall.Flock(int(f.Fd()), how); err != nil {
-		f.Close()
-		return nil, casErr("lock store: %v", err)
+	// Thirty seconds is deliberately far above normal holds (at most two fsyncs
+	// for a <=256 KiB entry), but bounds a stalled or hostile lock holder.
+	wait := c.lockWait
+	if wait <= 0 {
+		wait = 30 * time.Second
 	}
-	return f, nil
+	deadline := time.Now().Add(wait)
+	for {
+		err := syscall.Flock(int(f.Fd()), how|syscall.LOCK_NB)
+		if err == nil {
+			return f, nil
+		}
+		if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN && err != syscall.EINTR {
+			f.Close()
+			return nil, casErr("lock store %s: %v", c.Root, err)
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			f.Close()
+			return nil, casErr("lock deadline exceeded for store %s", c.Root)
+		}
+		time.Sleep(min(time.Millisecond, remaining))
+	}
 }
 
 // Put stores data and returns its digest. When wantSHA is non-empty the data must hash to it. An existing
@@ -124,18 +144,10 @@ func (c *CAS) Put(data []byte, wantSHA string) (string, error) {
 	if wantSHA != "" && wantSHA != got {
 		return "", casErr("content does not match the expected digest")
 	}
-	lock, err := c.lock(syscall.LOCK_EX)
-	if err != nil {
+	if err := c.checkDir(); err != nil {
 		return "", err
 	}
-	defer lock.Close() // closing releases the flock, including on errors
 	dst, _ := c.Path(got)
-	if _, err := os.Lstat(dst); err == nil {
-		if _, err := c.read(got); err != nil {
-			return "", err
-		}
-		return got, nil
-	}
 	var rnd [8]byte
 	if _, err := rand.Read(rnd[:]); err != nil {
 		return "", casErr("%v", err)
@@ -162,20 +174,83 @@ func (c *CAS) Put(data []byte, wantSHA string) (string, error) {
 		return "", casErr("%v", err)
 	}
 	f.Close()
+	defer cleanup()
+	// Prepare the unique temp before locking. The exclusive lock covers existing
+	// entry repair/verification, publication, unlink, directory sync and re-read.
+	lock, err := c.lock(syscall.LOCK_EX)
+	if err != nil {
+		return "", err
+	}
+	defer lock.Close()
+	if _, err := os.Lstat(dst); err == nil {
+		if err := c.repairAndVerify(got, lock); err != nil {
+			return "", err
+		}
+		return got, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", casErr("%v", err)
+	}
 	// link fails if dst appeared meanwhile, so a concurrent writer of other content cannot be overwritten.
 	if err := os.Link(tmp, dst); err != nil && !errors.Is(err, os.ErrExist) {
 		cleanup()
 		return "", casErr("%v", err)
 	}
-	cleanup()
-	if d, err := os.Open(c.Root); err == nil {
-		d.Sync()
-		d.Close()
+	if err := os.Remove(tmp); err != nil {
+		return "", casErr("remove publication temp %s: %v", tmp, err)
+	}
+	if err := lock.Sync(); err != nil {
+		return "", casErr("sync store: %v", err)
 	}
 	if _, err := c.read(got); err != nil {
 		return "", err
 	}
 	return got, nil
+}
+
+// repairAndVerify requires the exclusive directory lock. Only a validated entry
+// with exactly two links and an owned, same-directory .tmp-* alias is repairable.
+func (c *CAS) repairAndVerify(sha string, dir *os.File) error {
+	p, _ := c.Path(sha)
+	fi, err := os.Lstat(p)
+	if err != nil {
+		return casErr("%v", err)
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok || st.Nlink != 2 {
+		_, err := c.read(sha)
+		return err
+	}
+	// Check mode, owner, size and digest before removing any alias.
+	if _, err := c.readWithLinks(sha, 2); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(c.Root)
+	if err != nil {
+		return casErr("find leftover for %s: %v", p, err)
+	}
+	for _, entry := range entries {
+		if entry.Name() == sha {
+			continue
+		}
+		leftover := filepath.Join(c.Root, entry.Name())
+		alias, err := os.Lstat(leftover)
+		if err != nil || !os.SameFile(fi, alias) {
+			continue
+		}
+		owner, ok := alias.Sys().(*syscall.Stat_t)
+		if !strings.HasPrefix(entry.Name(), ".tmp-") || !ok || int(owner.Uid) != os.Geteuid() || !alias.Mode().IsRegular() {
+			return casErr("entry %s has unsafe leftover %s", p, leftover)
+		}
+		if err := os.Remove(leftover); err != nil {
+			return casErr("remove leftover %s: %v", leftover, err)
+		}
+		if err := dir.Sync(); err != nil {
+			return casErr("sync after removing leftover %s: %v", leftover, err)
+		}
+		_, err = c.read(sha)
+		return err
+	}
+	return casErr("entry %s has an unidentified leftover hard link outside the store", p)
 }
 
 // Verify checks an entry is exactly what its name says: a regular file reached without symlinks, mode 0444,
@@ -197,6 +272,11 @@ func (c *CAS) Read(sha string) ([]byte, error) {
 
 // read requires the caller to hold the store lock (shared or exclusive).
 func (c *CAS) read(sha string) ([]byte, error) {
+	return c.readWithLinks(sha, 1)
+}
+
+// readWithLinks permits two links only for validation before exclusive-lock repair.
+func (c *CAS) readWithLinks(sha string, links uint64) ([]byte, error) {
 	p, err := c.Path(sha)
 	if err != nil {
 		return nil, err
@@ -227,8 +307,8 @@ func (c *CAS) read(sha string) ([]byte, error) {
 		return nil, casErr("entry mode is %v, want 0444", fi.Mode())
 	}
 	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok || st.Nlink != 1 {
-		return nil, casErr("entry must have exactly one link")
+	if !ok || uint64(st.Nlink) != links {
+		return nil, casErr("entry %s must have exactly %d link(s); leftover hard link refused", p, links)
 	}
 	if c.OwnerUID >= 0 && int(st.Uid) != c.OwnerUID {
 		return nil, casErr("entry has the wrong owner")

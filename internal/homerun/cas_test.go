@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // T2.1 (CAS parts) — what runs is exactly what was signed.
@@ -284,5 +286,162 @@ func TestCASConcurrentInstances(t *testing.T) {
 	ents, err := os.ReadDir(store.Root)
 	if err != nil || len(ents) != 4 {
 		t.Errorf("CAS root holds %d entries, want 4: %v", len(ents), err)
+	}
+}
+
+// A second open file description models another process holding the directory lock.
+func TestCASLockDeadline(t *testing.T) {
+	for _, op := range []string{"Put", "Read", "Verify"} {
+		t.Run(op, func(t *testing.T) {
+			c := newCAS(t, os.Getuid())
+			data := []byte("lock deadline")
+			sha, err := c.Put(data, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.lockWait = 20 * time.Millisecond
+			f, err := os.Open(c.Root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			fd := int(f.Fd())
+			if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
+				t.Fatal(err)
+			}
+			// Release even on the old blocking implementation, so red never hangs the suite.
+			released := make(chan struct{})
+			release := time.AfterFunc(250*time.Millisecond, func() { syscall.Flock(fd, syscall.LOCK_UN); close(released) })
+			defer func() {
+				if !release.Stop() {
+					<-released
+				}
+			}()
+			start := time.Now()
+			switch op {
+			case "Put":
+				_, err = c.Put(data, "")
+			case "Read":
+				_, err = c.Read(sha)
+			case "Verify":
+				err = c.Verify(sha)
+			}
+			if !errors.Is(err, ErrCAS) || !strings.Contains(fmt.Sprint(err), "lock deadline exceeded") || !strings.Contains(fmt.Sprint(err), c.Root) {
+				t.Fatalf("want named lock deadline error, got %v (after %v)", err, time.Since(start))
+			}
+			if elapsed := time.Since(start); elapsed >= 250*time.Millisecond {
+				t.Fatalf("lock waited %v", elapsed)
+			}
+			if entries, err := os.ReadDir(c.Root); err != nil || len(entries) != 1 {
+				t.Fatalf("lock failure left temporary files: %v, %v", entries, err)
+			}
+		})
+	}
+}
+
+func TestCASReleasedLock(t *testing.T) {
+	for _, op := range []string{"Put", "Read"} {
+		t.Run(op, func(t *testing.T) {
+			c := newCAS(t, os.Getuid())
+			data := []byte("released lock")
+			sha, err := c.Put(data, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.lockWait = time.Second
+			f, err := os.Open(c.Root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			fd := int(f.Fd())
+			if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan struct{})
+			time.AfterFunc(20*time.Millisecond, func() { syscall.Flock(fd, syscall.LOCK_UN); close(done) })
+			if op == "Put" {
+				_, err = c.Put(data, "")
+			} else {
+				_, err = c.Read(sha)
+			}
+			<-done
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestCASStaleTemp(t *testing.T) {
+	for _, kind := range []string{"stale", "foreign-name", "outside", "three-links", "corrupt", "mode"} {
+		t.Run(kind, func(t *testing.T) {
+			c := newCAS(t, os.Getuid())
+			data := []byte("stale publication")
+			sha, err := c.Put(data, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, _ := c.Path(sha)
+			leftover := filepath.Join(c.Root, ".tmp-crashed")
+			if kind == "foreign-name" {
+				leftover = filepath.Join(c.Root, "foreign")
+			}
+			if kind == "outside" {
+				leftover = filepath.Join(t.TempDir(), ".tmp-outside")
+			}
+			if err := os.Link(p, leftover); err != nil {
+				t.Fatal(err)
+			}
+			if kind == "three-links" {
+				if err := os.Link(p, filepath.Join(c.Root, ".tmp-another")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if kind == "corrupt" || kind == "mode" {
+				if err := os.Chmod(p, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if kind == "corrupt" {
+					if err := os.WriteFile(p, []byte("bad"), 0o644); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Chmod(p, 0o444); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if _, err := c.Read(sha); !errors.Is(err, ErrCAS) {
+				t.Fatalf("Read accepted leftover: %v", err)
+			}
+			if err := c.Verify(sha); !errors.Is(err, ErrCAS) {
+				t.Fatalf("Verify accepted leftover: %v", err)
+			}
+			if _, err := os.Lstat(leftover); err != nil {
+				t.Fatalf("reader repaired leftover: %v", err)
+			}
+			_, err = c.Put(data, sha)
+			if kind == "stale" {
+				if err != nil {
+					t.Fatalf("Put did not repair stale temp: %v", err)
+				}
+				if _, err := os.Lstat(leftover); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("temp remains: %v", err)
+				}
+				if err := c.Verify(sha); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if !errors.Is(err, ErrCAS) {
+					t.Fatalf("Put accepted %s: %v", kind, err)
+				}
+				if kind == "foreign-name" && !strings.Contains(fmt.Sprint(err), leftover) {
+					t.Errorf("error does not name leftover: %v", err)
+				}
+				if _, err := os.Lstat(leftover); err != nil {
+					t.Fatalf("Put removed foreign/unsafe leftover: %v", err)
+				}
+			}
+		})
 	}
 }
