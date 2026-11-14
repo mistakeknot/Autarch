@@ -826,7 +826,7 @@ func (f *CardFiler) comment(ctx context.Context, thread, id, key string) error {
 func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (CardResult, error) {
 	res := CardResult{ID: c.ID, Key: req.Key, Project: c.ProjectID, Replay: true}
 	if req.Pull {
-		return res, nil
+		return res, f.ensureAttachments(ctx, req, c.ID)
 	}
 	agent := false
 	for _, cm := range c.Comments {
@@ -939,7 +939,17 @@ func CheckOptionIDs(ask map[string]any) error {
 	return nil
 }
 
-func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, error) {
+// errNoCardWritten is evidence from the delivery path, never inferred from an empty result.
+var errNoCardWritten = errors.New("no card was written")
+
+func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (result CardResult, resultErr error) {
+	noWrite := true
+	defer func() {
+		if noWrite && resultErr != nil {
+			resultErr = errors.Join(errNoCardWritten, resultErr)
+		}
+	}()
+
 	if err := f.CheckUI(req); err != nil {
 		return CardResult{}, err
 	}
@@ -983,6 +993,7 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 			return CardResult{}, err
 		}
 	}
+	noWrite = false // Registry and replay failures can refer to an existing card.
 	c, err := f.locate(ctx, req.Key, ident)
 	if err != nil {
 		return CardResult{}, err
@@ -993,6 +1004,7 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 		return res, err
 	}
 
+	noWrite = true // Registry and search proved this request absent.
 	if req.Owner != "" {
 		if err := f.checkOwnerLive(ctx, req.Owner); err != nil {
 			return CardResult{}, err
@@ -1015,6 +1027,7 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 	if req.Move != nil {
 		createArgs = append(createArgs, "--label", MoveLabel)
 	}
+	noWrite = false // From here even a lost reply can mean the create succeeded.
 	r := f.exec(ctx, cardEnv(req.Thread), append(createArgs, "--json")...)
 	if r.failed() || json.Unmarshal(r.Stdout, &created) != nil || created.Task.ID == "" {
 		// The card may have been written before the answer was lost: look again, under the same lock.

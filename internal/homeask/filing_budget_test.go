@@ -5,10 +5,55 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestReleaseDefiniteRefusalCanBeCancelled(t *testing.T) {
+	ctx := context.Background()
+	bb := newFake(t, registryOnCreate)
+	f := bb.filer()
+	r := testReq()
+	r.Owner = "thr_gone"
+	r.NonBlocking = true
+	if _, err := f.FileCard(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Release(ctx); err == nil {
+		t.Fatal("accepted dead owner")
+	}
+	if err := f.CancelHeld(r.Key); err != nil {
+		t.Fatal("definite refusal stranded slot", err)
+	}
+}
+
+func TestLostCreateInvalidLookupRetainsSlot(t *testing.T) {
+	ctx := context.Background()
+	bb := newFake(t, registryOnCreate)
+	f := bb.filer()
+	r := testReq()
+	bb.afterCreate = func(bb *memBB, _ string) {
+		a := bb.registry[r.Key]
+		a.Identity = "ffffffffffffffff"
+		bb.registry[r.Key] = a
+	}
+	f.Run = func(ctx context.Context, env []string, args ...string) BBResult {
+		res := bb.run(ctx, env, args...)
+		if strings.Join(args[:min(3, len(args))], " ") == "tasks create --project" {
+			return BBResult{Code: 1}
+		}
+		return res
+	}
+	if _, err := f.FileCard(ctx, r); err == nil {
+		t.Fatal("expected lost create error")
+	}
+	count, err := f.BudgetStatus("autarch")
+	if err != nil || count.Ordinary != 1 {
+		t.Fatal("created card refunded", count, err)
+	}
+}
 
 func TestExemptVolumeDoesNotConsumeBudget(t *testing.T) {
 	ctx := context.Background()

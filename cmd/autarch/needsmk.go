@@ -240,6 +240,7 @@ routing comment from it. AUTARCH_CARD_WEEKLY_BUDGET sets the weekly budget (defa
 AUTARCH_CARD_STATE_DIR overrides the local XDG state directory.
 --non-blocking queues a card until needs-mk release, reserving its slot now.
 --urgent or --keep-list marks a budget exception. Success prints JSON with a non-empty card_key (--json is also accepted).
+--urgent exempts the budget; --urgency blocker only controls phone push and does not exempt the budget.
 Exempt cards are recorded separately and never consume ordinary slots; needs-mk budget shows both tallies.
 After filing, waits up to 30 seconds for Home's index. If the key remains missing, exits 4
 with no success JSON: the card may have been filed. The error gives the request key;

@@ -20,13 +20,13 @@ func (f *CardFiler) FileOrUpdateCard(ctx context.Context, req CardRequest, super
 
 func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, supersedes string) (CardResult, error) {
 	if err := f.CheckUI(req); err != nil {
-		return CardResult{}, err
+		return CardResult{}, errors.Join(errNoCardWritten, err)
 	}
 	if err := f.PreflightOnPick(ctx, req); err != nil {
-		return CardResult{}, err
+		return CardResult{}, errors.Join(errNoCardWritten, err)
 	}
 	if err := CheckStopped(req.Ask); err != nil {
-		return CardResult{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: %v", ErrInvalid, err))
 	}
 	key, _ := req.Ask["ask_key"].(string)
 	if key == "" && supersedes == "" {
@@ -34,12 +34,12 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 	}
 	if req.Owner != "" {
 		if err := f.checkOwnerLive(ctx, req.Owner); err != nil {
-			return CardResult{}, err
+			return CardResult{}, errors.Join(errNoCardWritten, err)
 		}
 	}
 	desc, ident, err := req.Description()
 	if err != nil {
-		return CardResult{}, err
+		return CardResult{}, errors.Join(errNoCardWritten, err)
 	}
 	var projects struct {
 		Projects []struct{ ID, Name, Prefix string }

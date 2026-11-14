@@ -249,7 +249,7 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	} else {
 		result, err = f.fileCardReadback(ctx, r)
 	}
-	if !exists && errors.Is(err, ErrInvalid) && result.ID == "" {
+	if !exists && errors.Is(err, errNoCardWritten) && errors.Is(err, ErrInvalid) {
 		current, p, done, e := f.openState()
 		if e != nil {
 			return result, errors.Join(err, e)
@@ -327,6 +327,7 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		}
 	}
 	var result CardResult
+	previousAttempt := e.Attempted
 	state, path, unlock, err = f.openState()
 	if err != nil {
 		return CardResult{}, "", err
@@ -344,8 +345,21 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		result, err = f.fileCardReadback(ctx, r)
 	}
 	if err != nil {
+		if !previousAttempt && errors.Is(err, errNoCardWritten) && errors.Is(err, ErrInvalid) {
+			current, p, done, saveErr := f.openState()
+			if saveErr != nil {
+				return result, "", errors.Join(err, saveErr)
+			}
+			entry := current[key]
+			entry.Attempted = false
+			current[key] = entry
+			saveErr = saveFilingState(p, current)
+			done()
+			err = errors.Join(err, saveErr)
+		}
 		return result, "", err
 	}
+
 	state, path, unlock, err = f.openState()
 	if err != nil {
 		return result, "", err
