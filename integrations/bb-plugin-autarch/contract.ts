@@ -3,6 +3,7 @@
 // are checked loosely (see `result`) and pass through as JSON.
 import { z } from "zod";
 import { ArchiveQuery } from "./archive.js";
+import { PickActionQuerySchema } from "./pickquery.js";
 
 // Outputs are checked only for the shape every caller relies on, and every object passes extra fields
 // through, so a service that adds a field never breaks a panel. Most write methods answer with the
@@ -17,6 +18,7 @@ const docResult = z.union([
 const conversationView = z.object({ task_id: z.string(), comments: list, unread: z.number(), stale: z.boolean(), last_ok_at: z.string().nullable(), options: list });
 
 export const homeMethods = {
+  pickAction: { input: PickActionQuerySchema, output: result },
   evidenceImage: { input: z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict(), output: result },
   listAsks: { input: z.null(), output: readModel },
   // The blocks panel's read model (plan 1.4). `thread` pins the cards that involve that thread.
@@ -108,6 +110,7 @@ export const homeMethods = {
 export type CliMapping = { verb: string; summary: string } | { rpcOnly: string };
 
 export const homeCliMap = {
+  pickAction: { verb: "pick-action", summary: "Read the original pick action and delivery evidence for one exact generation" },
   evidenceImage: { rpcOnly: "read-only local evidence image by content hash" },
   listAsks: { verb: "list", summary: "List the asks waiting for a ruling" },
   stats: { verb: "stats", summary: "Picks, delegation and filing counts over a window" },

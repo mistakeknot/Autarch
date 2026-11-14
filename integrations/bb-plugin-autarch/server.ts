@@ -543,6 +543,12 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   const SERVE_READ_TTL_MS = 20_000;
   let serveRead: { at: number; projects: unknown; projectsError: string | undefined; build: unknown } | undefined;
   const handlers = {
+    pickAction(input: import("./pickreadback.js").PickActionQuery) {
+      const query = homeMethods.pickAction.input.safeParse(input);
+      if (!query.success) return { ok: false, kind: "invalid-query", status: 400, error: "original pick or exact decision/generation required", ordinary_continuation: false };
+      try { return need().svc.readPickAction(query.data); }
+      catch { return { ok: false, kind: "unavailable", status: 503, error: "pick action service unavailable", ordinary_continuation: false }; }
+    },
     async evidenceImage(i: { sha256: string }) {
       return readEvidence(i.sha256);
     },
@@ -580,6 +586,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       settings.vizierThreadId = resolved.ok ? resolved.id : undefined;
       return {
         owed: rows,
+        pick_actions: p.svc.pickActionSummaries(),
         runbook: p.asks.runbook(),
         ...p.asks.lists(),
         undeliverable: p.svc.undeliverable(),

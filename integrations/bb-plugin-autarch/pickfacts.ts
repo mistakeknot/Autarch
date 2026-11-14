@@ -11,6 +11,8 @@ export type OwnerWords = { kind: "ordinary-reason" | "own-words" | "answers" | "
 
 /** View-only facts joined from existing rows. No field here is persisted. */
 export interface PickFacts {
+  observation_only?: boolean;
+  handler_status?: string;
   card_key: string | null;
   decision_id: string;
   generation: number | null;
@@ -26,7 +28,7 @@ export interface PickFacts {
   head: { filed: string | null; current: string | null; state: string | null } | null;
   ruling_id: string | null;
   ledger: "matching" | "missing" | "conflicting" | "disabled" | "unknown";
-  ruling_file: { state: "written" | "pending" | "failed" | "unknown"; first_failure_at: string | null };
+  ruling_file: { state: "written" | "pending" | "failed" | "unknown"; first_failure_at: string | null; failed_before?: boolean };
   deadline: { at: string | null; outcome: "pending" | "met" | "expired" | "unknown" };
   delivery: PickDelivery;
   host_message_id?: string | null;
@@ -111,10 +113,12 @@ export function pickFactSheet(f: PickFacts): PickFactSheet {
     const value = (v: string | number | null | undefined) => excerpt(flatten(v == null ? "unknown" : String(v)), limit);
     const e = f.evaluation;
     const subject = f.declaration?.subject;
-    const delivery = f.delivery === "confirmed" ? ALREADY_RELAYED : possibleDelivery(f) ? RECOVERY_WARNING : "No relay was sent";
+    const delivery = f.delivery === "confirmed" ? ALREADY_RELAYED : possibleDelivery(f) ? RECOVERY_WARNING : f.observation_only ? "No handler relay was sent; manual delivery is not observed" : "No relay was sent";
     const lines = [
       `card ${value(f.card_key)}; decision ${value(f.decision_id)}; generation ${value(f.generation)}; pick ${value(f.pick_id)}`,
       `selected ${value(f.selected_option)}; recommended ${value(f.recommended_option)}`,
+      ...(f.observation_only ? ["Observation only; the proposal does not own delivery"] : []),
+      ...(f.handler_status ? [`Handler: ${value(f.handler_status)}`] : []),
       ...(e ? [] : ["Evaluation: unavailable"]),
       ...CHECKS.map(name => `${name}: ${value(e?.checks[name].result)} (${value(e?.checks[name].reasons.join(", "))})`),
       `Supplementary exclusions: ${e ? value(e.exclusions.map(x => x.code).join(", ") || "none") : "unknown"}`,
@@ -123,7 +127,7 @@ export function pickFactSheet(f: PickFacts): PickFactSheet {
       subject?.kind === "none" ? "Subject: no artifact; head check not applicable" : subject?.kind === "github-pr" ?
         `Subject: github-pr ${value(subject.repo)}#${value(subject.number)}; filed head ${value(f.head?.filed ?? subject.head)}; current head ${value(f.head?.current)}; state ${value(f.head?.state)}` : "Subject: unknown",
       `Ledger: ${value(f.ledger)} ${value(f.ruling_id)}`,
-      f.ruling_file.first_failure_at !== null ? `Ruling file: first failure at ${value(f.ruling_file.first_failure_at)}; automatic handling fell back and a later success does not revive it; current state ${value(f.ruling_file.state)}` :
+      f.ruling_file.first_failure_at !== null || f.ruling_file.failed_before ? `Ruling file: first failure at ${value(f.ruling_file.first_failure_at)}; automatic handling fell back and a later success does not revive it; current state ${value(f.ruling_file.state)}` :
         `Ruling file: ${value(f.ruling_file.state)}, ${f.ruling_file.state === "pending" || f.ruling_file.state === "written" ? "not yet failed" : "first failure unknown"}`,
       `Evaluation deadline: ${value(f.deadline.at)} (${value(f.deadline.outcome)})`,
       `Delivery: ${value(f.delivery)}; ${delivery}${f.host_message_id ? `; host message ${value(f.host_message_id)}` : ""}`,

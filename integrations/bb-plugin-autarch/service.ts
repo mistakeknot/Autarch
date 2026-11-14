@@ -42,7 +42,8 @@ import { TargetEvidenceError, validatePickTarget, type TargetEvidence } from "./
 import { evaluatePickRuntime, readBeforeDeadline, type PickEvaluation, type PickEvidenceOptions } from "./pickhandler.js";
 import { capturePick, claimPickRelay, fallbackPickAction, pickFenceToken, pickRelayPayload, productionPickMode, recordPickEvaluation, RULING_FAILURE_EVENT,
   type PickFallbackDelivery, type PickFallbackOutbox, type RelayPreparation, type SendGuardResult } from "./pickcapture.js";
-import { pickFactSheet, type PickFacts } from "./pickfacts.js";
+import { pickFactSheet, readbackCommand, type PickFacts } from "./pickfacts.js";
+import { readPickAction, type PickActionQuery } from "./pickreadback.js";
 import type { OnPick } from "./onpick.js";
 import type { HeadReader } from "./pickhead.js";
 import type { ThreadRow } from "./delegation.js";
@@ -987,6 +988,32 @@ export class Service {
 
   private storedAction(pickId: string): PickActionRow | undefined {
     return this.db.prepare("SELECT * FROM pick_actions WHERE pick_id = ?").get(pickId) as PickActionRow | undefined;
+  }
+
+  readPickAction(query: PickActionQuery) {
+    return readPickAction({ store: this.store, now: () => this.now(), ledger: id => this.ledgerState(id),
+      imageCount: op => this.deps.images?.expectedCount(op) ?? 0,
+      mode: productionPickMode(this.deps.pickHandlerMode) }, query);
+  }
+
+  pickActionSummaries(): import("./pickquery.js").PickActionSummary[] {
+    return this.db.transaction(() => {
+      const rows = this.db.prepare("SELECT d.id, d.generation, d.body_json, d.source, p.pick_id FROM decisions d JOIN picks p ON p.decision_id = d.id WHERE d.source = 'card' ORDER BY p.picked_at DESC").all() as { id: string; generation: number; body_json: string; source: string; pick_id: string }[];
+      return rows.filter(row => readAsk(row.body_json, {}, row.source)?.options?.some(o => o.on_pick)
+        || this.storedAction(row.pick_id) !== undefined).map(row => {
+        const v = this.readPickAction({ pick_id: row.pick_id });
+        return { decision_id: row.id, generation: row.generation,
+          status: v.kind === "action" ? v.handler_status : "data unavailable",
+          observation_only: v.kind === "action" && v.observation_only,
+          ordinary_continuation: v.ordinary_continuation,
+          target: v.kind === "action" && v.facts.target ? `${v.facts.target.title} / ${v.facts.target.project_name} (${v.facts.target.thread_id})` : null,
+          deadline: v.kind === "action" ? v.facts.deadline.at : null,
+          deadline_outcome: v.kind === "action" ? v.facts.deadline.outcome : "unknown",
+          first_failure: v.kind === "action" && v.ruling_first_failure.observed,
+          readback: v.kind === "action" ? v.facts.readback : readbackCommand({ pick_id: row.pick_id, decision_id: row.id, generation: row.generation }),
+        };
+      });
+    }).deferred();
   }
 
   /**
