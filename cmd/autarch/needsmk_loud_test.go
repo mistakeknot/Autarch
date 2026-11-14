@@ -166,7 +166,7 @@ func TestNeedsMkFileDefaultsTheProjectToTheBoardBindingInAWorktree(t *testing.T)
 }
 
 func TestNeedsMkCardKeyGuarantee(t *testing.T) {
-	for _, mode := range []string{"late", "timeout", "outside", "json", "legacy", "mismatch"} {
+	for _, mode := range []string{"late", "timeout", "outside", "json", "legacy", "mismatch", "no-project"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Setenv("BB_THREAD_ID", "thread-x")
 			if mode == "outside" {
@@ -181,6 +181,9 @@ func TestNeedsMkCardKeyGuarantee(t *testing.T) {
 				return &homeask.CardFiler{LockDir: t.TempDir(), ReadbackTimeout: 40 * time.Millisecond, ReadbackInterval: time.Millisecond, Run: func(ctx context.Context, env []string, args ...string) homeask.BBResult {
 					if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
 						polls++
+						if mode == "no-project" {
+							return homeask.BBResult{Stdout: []byte(`{"card_key":""}`)}
+						}
 						if mode == "mismatch" {
 							return homeask.BBResult{Stdout: []byte(`{"project_id":"P2","card_key":"P2-1"}`)}
 						}
@@ -220,6 +223,12 @@ func TestNeedsMkCardKeyGuarantee(t *testing.T) {
 			if mode == "mismatch" {
 				if exitCode(err) != 2 || out.Len() != 0 || polls != 1 || s.creates != 1 || !errors.Is(err, homeask.ErrCardProjectMismatch) || !strings.Contains(err.Error(), `"P1"`) || !strings.Contains(err.Error(), `"P2"`) {
 					t.Fatalf("exit=%d err=%v stdout=%q polls=%d creates=%d", exitCode(err), err, out.String(), polls, s.creates)
+				}
+				return
+			}
+			if mode == "no-project" {
+				if exitCode(err) != 4 || out.Len() != 0 || polls < 2 || errors.Is(err, homeask.ErrCardProjectMismatch) || !strings.Contains(errs.String(), "may have been filed") {
+					t.Fatalf("exit=%d err=%v stdout=%q polls=%d", exitCode(err), err, out.String(), polls)
 				}
 				return
 			}
