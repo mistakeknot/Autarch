@@ -77,7 +77,7 @@ const (
 
 var (
 	v2Allowed = map[string]bool{"schema": true, "project": true, "project_root": true, "question": true,
-		"options": true, "questions": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true, "urgency": true, "stopped": true, "evidence": true, "group": true, "subject_key": true, "signals": true}
+		"options": true, "questions": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true, "urgency": true, "stopped": true, "evidence": true, "group": true, subjectKeyMetadata: true, signalsMetadata: true}
 	v1Only = map[string]bool{"v": true, "kind": true, "thread": true, "asker": true, "request_id": true,
 		"supersedes": true, "mention_of": true, "steps": true, "machine": true}
 	countedKinds = map[string]bool{"bead": true, "thread": true, "project": true}
@@ -310,21 +310,21 @@ func parseWireAsk(body string, c *Card) error {
 	if err := exactCardNestedKeys(m); err != nil {
 		return err
 	}
-	if raw, ok := m["subject_key"]; ok {
+	if raw, ok := m[subjectKeyMetadata]; ok {
 		var err error
 		c.SubjectKey, err = parseSubjectKey(raw)
 		if err != nil {
 			return err
 		}
-		delete(m, "subject_key")
+		delete(m, subjectKeyMetadata)
 	}
-	if raw, ok := m["signals"]; ok {
+	if raw, ok := m[signalsMetadata]; ok {
 		var err error
 		c.Signals, err = parseSignals(raw)
 		if err != nil {
 			return err
 		}
-		delete(m, "signals")
+		delete(m, signalsMetadata)
 	}
 	c.Ask = m
 	if raw, ok := m["group"]; ok {
@@ -445,7 +445,7 @@ func parseAutoClose(raw any, options any) error {
 func (c Card) ToV1(thread string) (Ask, error) {
 	v1 := make(map[string]any, len(c.Ask)+4)
 	for k, v := range c.Ask {
-		if k != "schema" && k != "pull" && k != "auto_close" && k != "subject_key" && k != "signals" {
+		if k != "schema" && k != "pull" && k != "auto_close" && k != subjectKeyMetadata && k != signalsMetadata {
 			v1[k] = v
 		}
 	}

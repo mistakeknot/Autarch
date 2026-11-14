@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -15,20 +16,27 @@ import (
 // The read-only metadata policy must have one declaration, so enabling a writer
 // cannot leave identity filtering and Description validation with separate lists.
 func TestMetadataPolicySingleSource(t *testing.T) {
-	f, err := parser.ParseFile(token.NewFileSet(), "cardfiler.go", nil, 0)
+	files, err := parser.ParseDir(token.NewFileSet(), ".", func(info os.FileInfo) bool {
+		return !strings.HasSuffix(info.Name(), "_test.go")
+	}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	counts := map[string]int{"subject_key": 0, "signals": 0}
-	ast.Inspect(f, func(n ast.Node) bool {
-		if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-			value, err := strconv.Unquote(lit.Value)
-			if _, tracked := counts[value]; err == nil && tracked {
-				counts[value]++
+	counts := make(map[string]int)
+	for _, key := range readOnlyAskMetadata {
+		counts[key] = 0
+	}
+	for _, f := range files["homeask"].Files {
+		ast.Inspect(f, func(n ast.Node) bool {
+			if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				value, err := strconv.Unquote(lit.Value)
+				if _, tracked := counts[value]; err == nil && tracked {
+					counts[value]++
+				}
 			}
-		}
-		return true
-	})
+			return true
+		})
+	}
 	for key, count := range counts {
 		if count != 1 {
 			t.Errorf("%s policy declared %d times; want one shared source", key, count)
@@ -66,7 +74,7 @@ func TestMetadataPolicyIdentityAndDescription(t *testing.T) {
 
 func TestFilersRejectMetadataAtDescription(t *testing.T) {
 	for _, lane := range []string{"exact", "update"} {
-		for _, key := range []string{"subject_key", "signals"} {
+		for _, key := range readOnlyAskMetadata {
 			for _, value := range []any{subjectVectors(t)[1].Metadata[key], nil} {
 				t.Run(fmt.Sprintf("%s/%s/null=%v", lane, key, value == nil), func(t *testing.T) {
 					f := newFake(t, registryOnCreate)

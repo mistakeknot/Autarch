@@ -78,7 +78,7 @@ func parseSubjectKey(raw any) (*SubjectKey, error) {
 	s := &SubjectKey{Type: typ}
 	switch typ {
 	case "pr":
-		if _, err := metadataObject(raw, []string{"type", "repo", "number", "head", "round"}, "subject_key"); err != nil {
+		if _, err := metadataObject(raw, []string{"type", "repo", "number", "head", "round"}, subjectKeyMetadata); err != nil {
 			return nil, err
 		}
 		s.Repo, _ = m["repo"].(string)
@@ -105,7 +105,7 @@ func parseSubjectKey(raw any) (*SubjectKey, error) {
 			s.Round = &n
 		}
 	case "script":
-		if _, err := metadataObject(raw, []string{"type", "script_sha"}, "subject_key"); err != nil {
+		if _, err := metadataObject(raw, []string{"type", "script_sha"}, subjectKeyMetadata); err != nil {
 			return nil, err
 		}
 		s.ScriptSHA, _ = m["script_sha"].(string)
@@ -118,7 +118,7 @@ func parseSubjectKey(raw any) (*SubjectKey, error) {
 	return s, nil
 }
 func parseSignals(raw any) (*Signals, error) {
-	m, err := metadataObject(raw, []string{"schema", "kind", "approval", "evidence", "conditions", "failed", "checked_at"}, "signals")
+	m, err := metadataObject(raw, []string{"schema", "kind", "approval", "evidence", "conditions", "failed", "checked_at"}, signalsMetadata)
 	if err != nil {
 		return nil, err
 	}
