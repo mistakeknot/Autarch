@@ -31,6 +31,73 @@ describe("v7 pick handler persistence", () => {
     db.prepare(`INSERT INTO pick_actions(${keys.join(',')}) VALUES (${keys.map(k=>'@'+k).join(',')})`).run(row);
   }
 
+  function rejectsReplacement(db: Database.Database, table: string, changes: Record<string, unknown>) {
+    const before = db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all() as Record<string, unknown>[];
+    const row = {...before[0], ...changes};
+    const keys = Object.keys(row);
+    expect(()=>db.prepare(`INSERT OR REPLACE INTO ${table}(${keys.join(',')}) VALUES (${keys.map(k=>'@'+k).join(',')})`).run(row)).toThrow();
+    expect(db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()).toEqual(before);
+  }
+
+  for (const disposition of ['pending', 'fallback', 'cancelled']) {
+    for (const key of ['pick_id', 'decision_id']) {
+      it(`REPLACE preserves ${disposition} action by ${key}`, () => {
+        const db = new Database(file); migrate(db);
+        action(db,{disposition,relay_text:'Exact\ntext',relay_sha256:'digest',evaluation_json:'{ "audit": true }',
+          ruling_op:'ruling',relay_op:'relay',fallback_op:'fallback',receipt_op:'receipt',status_op:'status',updated_at:'audit'});
+        rejectsReplacement(db,'pick_actions',{[key === 'pick_id' ? 'decision_id' : 'pick_id']:'replacement',
+          revision:'changed',disposition:'pending',evaluation_json:null,ruling_op:null,relay_op:null,
+          fallback_op:null,receipt_op:null,status_op:null,relay_text:'changed',relay_sha256:'changed'});
+        db.close();
+      });
+    }
+  }
+
+  for (const state of ['pending','failed','recorded']) {
+    it(`REPLACE preserves ${state} note fence identity and evidence`, () => {
+      const db = new Database(file); migrate(db);
+      db.prepare(`INSERT INTO pick_note_fences(decision_id,task_id,generation,note_id,created_at,posting_state,
+        posting_attempted_at,posted_at,comment_id,last_error) VALUES ('d','task',1,'note','created',?,'attempt','posted','comment','error')`).run(state);
+      rejectsReplacement(db,'pick_note_fences',{task_id:'changed',generation:2,posting_state:'pending',
+        posting_attempted_at:null,posted_at:null,comment_id:null,last_error:null});
+      db.close();
+    });
+  }
+
+  it("REPLACE preserves control epoch and owner scope evidence", () => {
+    const db = new Database(file); migrate(db);
+    db.exec(`UPDATE pick_handler_control SET mode='live',epoch=5,owner_enablement_json='{ "decision": "synthetic" }',
+      reviewed_build='build',reviewed_scope_json='{ "scope": true }',enabled_cells_json='["instruction:none"]',updated_at='audit'`);
+    rejectsReplacement(db,'pick_handler_control',{mode:'off',epoch:0,enabled_cells_json:'[]',reviewed_build:'changed',updated_at:null});
+    db.close();
+  });
+
+  for (const kind of ['pick-relay','pick-receipt']) {
+    for (const state of ['pending','done']) {
+      for (const replacementKind of ['wake',kind]) {
+        it(`REPLACE preserves ${state} ${kind} against ${replacementKind}`, () => {
+          const db = new Database(file); migrate(db);
+          db.prepare(`INSERT INTO obligations(id,decision_id,kind,state,next_try_at,updated_at,allow_reroute,allow_batch,require_message_id,
+            handler_next_try_at,payload) VALUES ('protected','d',?,?,'9999-12-31T23:59:59.999Z','audit',0,0,1,'2030-01-01T00:00:00Z','Exact payload')`).run(kind,state);
+          rejectsReplacement(db,'obligations',{kind:replacementKind,state:'pending',decision_id:'changed',payload:'changed',
+            next_try_at:replacementKind === 'wake' ? '2000-01-01T00:00:00Z' : '9999-12-31T23:59:59.999Z',updated_at:'changed'});
+          db.close();
+        });
+      }
+    }
+  }
+
+  it("legacy obligation UPSERT preserves defaults and updates existing rows", () => {
+    const db = new Database(file); migrate(db);
+    const upsert = db.prepare(`INSERT INTO obligations(id,decision_id,kind,next_try_at,updated_at,payload)
+      VALUES ('legacy','d','wake',?,'time',?) ON CONFLICT(id) DO UPDATE SET next_try_at=excluded.next_try_at,payload=excluded.payload`);
+    upsert.run('first','original');
+    upsert.run('second','updated');
+    expect(db.prepare('SELECT kind,next_try_at,payload,allow_reroute,allow_batch,require_message_id,handler_next_try_at FROM obligations').all())
+      .toEqual([{kind:'wake',next_try_at:'second',payload:'updated',allow_reroute:1,allow_batch:1,require_message_id:0,handler_next_try_at:null}]);
+    db.close();
+  });
+
   for (const kind of ['pick-relay', 'pick-receipt']) {
     const invalidPolicies = kind === 'pick-relay'
       ? [{}, {allow_reroute:1,allow_batch:0,require_message_id:1}, {allow_reroute:0,allow_batch:1,require_message_id:1}, {allow_reroute:0,allow_batch:0,require_message_id:0}]
@@ -80,6 +147,9 @@ describe("v7 pick handler persistence", () => {
   });
 
   for (const [captured, deadline] of [
+    ['5', '6'],
+    ['5', '2030-01-01T00:00:00Z'],
+    ['0001-01-01T00:00:00Z', '2000000'],
     ['garbage', 'zzzz'],
     ['2000-99-99T00:00:00Z', '2030-01-01T00:00:00Z'],
     ['2030-01-01T00:00:00Z', 'zzzz'],
@@ -138,28 +208,29 @@ describe("v7 pick handler persistence", () => {
 
   for (const field of ['owner_enablement_json', 'reviewed_scope_json']) {
     for (const value of ['null', 'true', '123', '"text"', '[1,2]']) {
-      it(`live control rejects ${field} ${value} on insert and update`, () => {
+      it(`live control rejects ${field} ${value} on update and accepts objects`, () => {
         const db = new Database(file); migrate(db);
         const row = {owner_enablement_json:'{"decision":"synthetic"}',reviewed_scope_json:'{}',[field]:value};
-        // REPLACE exercises INSERT constraints despite the seeded singleton.
-        expect(()=>db.prepare(`INSERT OR REPLACE INTO pick_handler_control(id,mode,epoch,owner_enablement_json,reviewed_build,reviewed_scope_json,enabled_cells_json)
-          VALUES (1,'live',1,@owner_enablement_json,'build',@reviewed_scope_json,'["instruction:none"]')`).run(row)).toThrow();
-        expect(()=>db.prepare(`UPDATE pick_handler_control SET mode='live',epoch=1,owner_enablement_json=@owner_enablement_json,
-          reviewed_build='build',reviewed_scope_json=@reviewed_scope_json,enabled_cells_json='["instruction:none"]'`).run(row)).toThrow();
+        const update = db.prepare(`UPDATE pick_handler_control SET mode='live',epoch=1,owner_enablement_json=@owner_enablement_json,
+          reviewed_build='build',reviewed_scope_json=@reviewed_scope_json,enabled_cells_json='["instruction:none"]'`);
+        expect(()=>update.run(row)).toThrow(/CHECK constraint failed/);
+        update.run({owner_enablement_json:'{}',reviewed_scope_json:'{}'});
+        expect(db.prepare('SELECT mode,owner_enablement_json,reviewed_scope_json FROM pick_handler_control').get())
+          .toEqual({mode:'live',owner_enablement_json:'{}',reviewed_scope_json:'{}'});
         db.close();
       });
     }
   }
 
-  it("live control rejects duplicate cells on insert and update and accepts distinct cells", () => {
+  it("live control rejects duplicate cells on update and accepts distinct cells", () => {
     const db = new Database(file); migrate(db);
-    const insert = db.prepare(`INSERT OR REPLACE INTO pick_handler_control(id,mode,epoch,owner_enablement_json,reviewed_build,reviewed_scope_json,enabled_cells_json)
-      VALUES (1,'live',1,'{"decision":"synthetic"}','build','{}',?)`);
-    expect(()=>insert.run('["instruction:none","instruction:none"]')).toThrow();
+    const enable = db.prepare(`UPDATE pick_handler_control SET mode='live',epoch=1,owner_enablement_json='{"decision":"synthetic"}',
+      reviewed_build='build',reviewed_scope_json='{}',enabled_cells_json=?`);
+    expect(()=>enable.run('["instruction:none","instruction:none"]')).toThrow('unsupported pick handler cell');
     const update = db.prepare(`UPDATE pick_handler_control SET mode='live',epoch=2,owner_enablement_json='{"decision":"next"}',
       reviewed_build='build',reviewed_scope_json='{}',enabled_cells_json=?`);
-    expect(()=>update.run('["ruling-only:none","ruling-only:none"]')).toThrow();
-    insert.run('["instruction:none","ruling-only:none"]');
+    expect(()=>update.run('["ruling-only:none","ruling-only:none"]')).toThrow('unsupported pick handler cell');
+    enable.run('["instruction:none","ruling-only:none"]');
     update.run('["instruction:github-pr","ruling-only:github-pr"]');
     expect(db.prepare("SELECT mode,epoch FROM pick_handler_control").get()).toEqual({mode:'live',epoch:2});
     db.close();

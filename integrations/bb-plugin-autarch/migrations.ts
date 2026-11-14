@@ -421,8 +421,10 @@ CREATE TABLE pick_actions (
   capture_mode TEXT NOT NULL CHECK (capture_mode IN ('off','shadow','live')),
   capture_epoch INTEGER NOT NULL CHECK (capture_epoch >= 0),
   policy_version INTEGER NOT NULL CHECK (policy_version > 0),
-  captured_at TEXT NOT NULL CHECK (julianday(captured_at) IS NOT NULL),
-  evaluation_deadline_at TEXT NOT NULL CHECK (julianday(evaluation_deadline_at) IS NOT NULL
+  captured_at TEXT NOT NULL CHECK (captured_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*'
+    AND julianday(captured_at) IS NOT NULL),
+  evaluation_deadline_at TEXT NOT NULL CHECK (evaluation_deadline_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*'
+    AND julianday(evaluation_deadline_at) IS NOT NULL
     AND julianday(evaluation_deadline_at) > julianday(captured_at)),
   evaluation_json TEXT CHECK (evaluation_json IS NULL OR json_valid(evaluation_json)),
   evaluation_started_at TEXT,
@@ -439,6 +441,9 @@ CREATE TABLE pick_actions (
 );
 CREATE INDEX pick_actions_generation ON pick_actions(task_id, generation);
 CREATE INDEX pick_actions_deadline ON pick_actions(disposition, evaluation_deadline_at);
+CREATE TRIGGER pick_actions_no_replace BEFORE INSERT ON pick_actions
+WHEN EXISTS (SELECT 1 FROM pick_actions WHERE pick_id=NEW.pick_id OR decision_id=NEW.decision_id)
+BEGIN SELECT RAISE(ABORT, 'pick action identity already exists'); END;
 CREATE TRIGGER pick_actions_terminal BEFORE UPDATE ON pick_actions
 WHEN OLD.disposition IN ('fallback','cancelled') AND NEW.disposition IS NOT OLD.disposition
 BEGIN SELECT RAISE(ABORT, 'pick action disposition is terminal'); END;
@@ -479,6 +484,9 @@ CREATE TABLE pick_note_fences (
   PRIMARY KEY (decision_id, note_id)
 );
 CREATE INDEX pick_note_fences_generation ON pick_note_fences(task_id, generation);
+CREATE TRIGGER pick_note_fences_no_replace BEFORE INSERT ON pick_note_fences
+WHEN EXISTS (SELECT 1 FROM pick_note_fences WHERE decision_id=NEW.decision_id AND note_id=NEW.note_id)
+BEGIN SELECT RAISE(ABORT, 'pick note fence identity already exists'); END;
 CREATE TRIGGER pick_note_fences_identity BEFORE UPDATE ON pick_note_fences
 WHEN OLD.decision_id IS NOT NEW.decision_id OR OLD.task_id IS NOT NEW.task_id
   OR OLD.generation IS NOT NEW.generation OR OLD.note_id IS NOT NEW.note_id OR OLD.created_at IS NOT NEW.created_at
@@ -523,6 +531,9 @@ BEGIN SELECT RAISE(ABORT, 'live enablement requires new owner evidence'); END;
 CREATE TRIGGER pick_handler_no_delete BEFORE DELETE ON pick_handler_control
 BEGIN SELECT RAISE(ABORT, 'pick handler control is permanent'); END;
 INSERT INTO pick_handler_control(id) VALUES (1);
+CREATE TRIGGER pick_handler_control_no_replace BEFORE INSERT ON pick_handler_control
+WHEN EXISTS (SELECT 1 FROM pick_handler_control)
+BEGIN SELECT RAISE(ABORT, 'pick handler control already exists'); END;
 
 ALTER TABLE obligations ADD COLUMN allow_reroute INTEGER NOT NULL DEFAULT 1 CHECK (allow_reroute IN (0,1));
 ALTER TABLE obligations ADD COLUMN allow_batch INTEGER NOT NULL DEFAULT 1 CHECK (allow_batch IN (0,1));
@@ -530,6 +541,9 @@ ALTER TABLE obligations ADD COLUMN require_message_id INTEGER NOT NULL DEFAULT 0
 ALTER TABLE obligations ADD COLUMN handler_next_try_at TEXT;
 CREATE INDEX obligations_handler_due ON obligations(state, handler_next_try_at)
   WHERE kind IN ('pick-relay','pick-receipt');
+CREATE TRIGGER obligations_handler_no_replace BEFORE INSERT ON obligations
+WHEN EXISTS (SELECT 1 FROM obligations WHERE id=NEW.id AND kind IN ('pick-relay','pick-receipt'))
+BEGIN SELECT RAISE(ABORT, 'protected obligation identity already exists'); END;
 CREATE TRIGGER obligations_handler_insert BEFORE INSERT ON obligations
 WHEN NEW.kind IN ('pick-relay','pick-receipt') AND NEW.next_try_at != '9999-12-31T23:59:59.999Z'
   OR (NEW.kind = 'pick-relay' AND (NEW.allow_reroute != 0 OR NEW.allow_batch != 0 OR NEW.require_message_id != 1))
