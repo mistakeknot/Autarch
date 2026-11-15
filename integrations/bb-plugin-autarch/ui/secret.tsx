@@ -1,0 +1,100 @@
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { useSdk } from "@get-bb/plugin-sdk/app";
+import type { SecretMetadata } from "../secret.js";
+
+// This context reads metadata only. Responses containing values go solely to the session SDK.
+export const SecretMetadataContext = createContext<((taskId: string) => Promise<SecretMetadata | null>) | null>(null);
+export function useCardSecret(taskId?: string | null, supplied?: SecretMetadata, revision?: string): { metadata: SecretMetadata | null; allowFreeText: boolean } {
+  const load = useContext(SecretMetadataContext);
+  const [found, setFound] = useState<{ task: string; revision?: string; metadata: SecretMetadata | null; failed: boolean } | null>(null);
+  useEffect(() => {
+    if (!taskId || !load) return;
+    let alive = true;
+    void load(taskId).then(
+      metadata => { if (alive) setFound({ task: taskId, revision, metadata, failed: false }); },
+      () => { if (alive) setFound({ task: taskId, revision, metadata: null, failed: true }); },
+    );
+    return () => { alive = false; };
+  }, [taskId, load, revision]);
+  if (supplied) return { metadata: supplied, allowFreeText: false };
+  if (!taskId || !load) return { metadata: null, allowFreeText: true };
+  if (!found || found.task !== taskId || found.revision !== revision || found.failed) return { metadata: null, allowFreeText: false };
+  return { metadata: found.metadata, allowFreeText: found.metadata === null };
+}
+type Sdk = ReturnType<typeof useSdk>;
+type Interaction = Awaited<ReturnType<Sdk["threads"]["interactions"]["list"]>>[number];
+export type SecretState = { kind: "expired" } | { kind: "submitted" } | { kind: "waiting"; id: string; consumer: string; expires: number };
+const SECRET_REQUEST_MAX_TTL_MS = 3_600_000;
+export function secretState(metadata: SecretMetadata, interactions: readonly Interaction[], now: number): SecretState {
+  const matches = interactions.flatMap(i => {
+    if (i.threadId !== metadata.thread || i.origin?.kind !== "plugin" || i.origin.rendererId !== "secret-request" || i.origin.pluginId !== "secrets" || i.payload.kind !== "plugin") return [];
+    const d = i.payload.data as Record<string, unknown> | null;
+    if (!d || typeof d !== "object") return [];
+    const destination = d.destination as { path?: unknown; consumer?: unknown } | undefined;
+    const fields = d.fields as { name?: unknown }[] | undefined;
+    if (d.threadId !== metadata.thread || d.project !== metadata.project || destination?.path !== metadata.path || typeof destination.consumer !== "string" || !Array.isArray(fields)) return [];
+    const names = fields.map(f => f?.name);
+    if (names.length !== metadata.names.length || new Set(names).size !== names.length || metadata.names.some(n => !names.includes(n))) return [];
+    return [{ i, consumer: destination.consumer, expires: d.expiresAtMs }];
+  });
+  // Never choose arbitrarily between two matching waiters.
+  if (matches.length !== 1) return { kind: "expired" };
+  const { i, consumer, expires } = matches[0]!;
+  if (i.status === "resolved" && i.resolution && "kind" in i.resolution && i.resolution.kind === "plugin_submitted") return { kind: "submitted" };
+  if (i.status !== "pending" || typeof expires !== "number" || !Number.isSafeInteger(expires) || expires <= now || expires > i.createdAt + SECRET_REQUEST_MAX_TTL_MS || typeof i.expiresAt !== "number" || i.expiresAt <= now) return { kind: "expired" };
+  return { kind: "waiting", id: i.id, consumer, expires: Math.min(expires, i.expiresAt, i.createdAt + SECRET_REQUEST_MAX_TTL_MS) };
+}
+
+export function SecretSection({ metadata }: { metadata: SecretMetadata }) {
+  const sdk = useSdk();
+  const identity = JSON.stringify(metadata);
+  const [view, setView] = useState<{ identity: string; state: SecretState } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  const form = useRef<HTMLFormElement>(null);
+  const state = view?.identity === identity ? view.state : null;
+  useEffect(() => {
+    let alive = true;
+    const refresh = async () => {
+      try {
+        const rows = await sdk.threads.interactions.list({ threadId: metadata.thread });
+        if (alive) setView(current => current?.identity === identity && current.state.kind === "submitted" ? current : { identity, state: secretState(metadata, rows, Date.now()) });
+      } catch { if (alive) setView({ identity, state: { kind: "expired" } }); }
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 5000);
+    return () => { alive = false; clearInterval(timer); form.current?.reset(); };
+  }, [sdk, identity]);
+  useEffect(() => {
+    if (state?.kind !== "waiting") return;
+    const timer = setTimeout(() => { form.current?.reset(); setRevealed({}); setView({ identity, state: { kind: "expired" } }); }, Math.max(0, state.expires - Date.now()));
+    return () => clearTimeout(timer);
+  }, [state?.kind === "waiting" ? state.expires : null, identity]);
+  if (!state) return <p role="status">Checking secret request…</p>;
+  if (state.kind === "submitted") return <p role="status" data-secret-state="submitted">Submitted to the secure writer.</p>;
+  if (state.kind === "expired") return <p role="status" data-secret-state="expired">No pending secret request, or it expired. Ask the thread to re-request.</p>;
+  return <section className="mt-3 rounded border border-border p-3" data-secret-state="waiting">
+    <p>Destination: <code>{metadata.path}</code></p><p>Project: {metadata.project}</p><p>Used by: {state.consumer}</p><p>Expires: {new Date(state.expires).toLocaleString(undefined, { timeZone: "America/Los_Angeles", timeZoneName: "short" })}</p>
+    <form ref={form} autoComplete="off" onSubmit={async event => {
+      event.preventDefault(); event.stopPropagation();
+      if (busy || Date.now() >= state.expires) { form.current?.reset(); return; }
+      const element = event.currentTarget;
+      const values: Record<string, string> = Object.create(null);
+      for (const name of metadata.names) values[name] = (element.elements.namedItem(name) as HTMLInputElement).value;
+      element.reset(); setRevealed({}); setError(false);
+      if (Object.values(values).some(v => !v || v.length > 16384 || /[\r\n\x00]/.test(v))) { for (const name of metadata.names) delete values[name]; setError(true); return; }
+      setBusy(true);
+      try {
+        const result = await sdk.threads.interactions.respond({ threadId: metadata.thread, interactionId: state.id, value: { values } });
+        // Keep only the state, never a response payload or error object.
+        setView({ identity, state: secretState(metadata, [result], Date.now()) });
+      } catch { setError(true); }
+      finally { for (const name of metadata.names) delete values[name]; setBusy(false); }
+    }}>
+      {metadata.names.map(name => <div key={name} className="mt-3"><label htmlFor={`secret-${state.id}-${name}`}>{name}</label><div className="flex gap-2"><input id={`secret-${state.id}-${name}`} name={name} type={revealed[name] === true ? "text" : "password"} autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} required disabled={busy} className="min-w-0 grow rounded border border-border bg-background p-2" /><button type="button" disabled={busy} aria-label={`${revealed[name] === true ? "Hide" : "Show"} ${name}`} aria-pressed={revealed[name] === true} onClick={() => setRevealed(r => ({ ...r, [name]: r[name] !== true }))}>{revealed[name] === true ? "Hide" : "Show"}</button></div></div>)}
+      {error ? <p role="alert">Submission did not complete. Check the request and enter the values again.</p> : null}
+      <button type="submit" disabled={busy} className="mt-3 rounded border border-border px-3 py-2">{busy ? "Submitting…" : "Submit securely"}</button>
+    </form>
+  </section>;
+}

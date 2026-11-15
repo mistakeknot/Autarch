@@ -1,3 +1,4 @@
+import { parseSecret, type SecretMetadata } from "./secret.js";
 import { validateOnPickJSON } from "./onpick.js";
 import { parseSubjectKey, parseSignals, type SubjectKey, type Signals } from "./card-metadata.js";
 // The card convention (v1): how a tasks card's description text carries a Home ask.
@@ -44,6 +45,7 @@ export interface Card {
   /** "mycroft" for a threadless card, otherwise "". */
   pull: "" | "mycroft";
   root_run: RootRun | null;
+  secret?: SecretMetadata | null;
   /** The optional home-move/v1 block: what mk owes. Never executed; commands are derived from its fields. */
   move: Move | null;
   /** The home-ask/v2 object as written. */
@@ -82,12 +84,13 @@ export function parseCard(description: string): Card {
   const askBodies: string[] = [];
   const rootBodies: string[] = [];
   const moveBodies: string[] = [];
+  const secretBodies: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     if (line.startsWith("```")) {
       const info = line.slice(3).trim();
-      const special = info === "home-ask" || info === "root-run" || info === "home-move";
+      const special = info === "home-ask" || info === "root-run" || info === "home-move" || info === "home-secret";
       const body: string[] = [];
       let closed = false;
       for (i++; i < lines.length; i++) {
@@ -99,7 +102,7 @@ export function parseCard(description: string): Card {
       }
       if (special) {
         if (!closed) fail(`unterminated ${info} block`);
-        (info === "home-ask" ? askBodies : info === "home-move" ? moveBodies : rootBodies).push(body.join("\n"));
+        (info === "home-secret" ? secretBodies : info === "home-ask" ? askBodies : info === "home-move" ? moveBodies : rootBodies).push(body.join("\n"));
         continue;
       }
       // An ordinary code fence is prose, and nothing inside it is a field.
@@ -131,7 +134,9 @@ export function parseCard(description: string): Card {
   if (moveBodies.length > 1) fail("more than one home-move block");
   const move = moveBodies.length === 1 ? parseMove(moveBodies[0]!) : null;
 
-  const card: Card = { question, blocks, request, pull, root_run, move, ask, ...(subject_key ? { subject_key } : {}), ...(signals ? { signals } : {}) };
+  if (secretBodies.length > 1) fail("more than one home-secret block");
+  const secret = secretBodies.length ? parseSecret(secretBodies[0]!) : null;
+  const card: Card = { ...(secret ? { secret } : {}), question, blocks, request, pull, root_run, move, ask, ...(subject_key ? { subject_key } : {}), ...(signals ? { signals } : {}) };
   if (subject_key?.type === "script") {
     if (!root_run || root_run.sha256 !== subject_key.script_sha) fail("subject_key script_sha must equal root-run digest");
     if (typeof ask.ask_key !== "string" || !ask.ask_key) fail("script subject_key requires ask_key");
@@ -342,6 +347,7 @@ export function cardFingerprint(i: { title: string; card: Card; thread: string; 
     root_run: i.card.root_run,
     // Only when present, so every fingerprint of a card without a move is unchanged.
     ...(i.card.move ? { move: i.card.move } : {}),
+    ...(i.card.secret ? { secret: i.card.secret } : {}),
     request: i.card.request,
     asking_thread: i.thread,
     tasks_project: i.tasksProject,

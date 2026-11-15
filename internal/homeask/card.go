@@ -45,11 +45,12 @@ type RootRun struct {
 
 // Card is a parsed card description.
 type Card struct {
-	SubjectKey *SubjectKey `json:"subject_key,omitempty"`
-	Signals    *Signals    `json:"signals,omitempty"`
-	Question   string      `json:"question"`
-	Blocks     []BlockRef  `json:"blocks"`
-	Request    RequestLine `json:"request"`
+	Secret     *SecretMetadata `json:"secret,omitempty"`
+	SubjectKey *SubjectKey     `json:"subject_key,omitempty"`
+	Signals    *Signals        `json:"signals,omitempty"`
+	Question   string          `json:"question"`
+	Blocks     []BlockRef      `json:"blocks"`
+	Request    RequestLine     `json:"request"`
 	// Pull is "mycroft" for a threadless card, otherwise "".
 	Pull    string         `json:"pull"`
 	RootRun *RootRun       `json:"root_run"`
@@ -88,18 +89,19 @@ var (
 func ParseCard(description string) (Card, error) {
 	lines := strings.Split(strings.ReplaceAll(description, "\r\n", "\n"), "\n")
 	var (
-		prose      []string
-		blocksText []string
-		requests   []string
-		askBodies  []string
-		rootBodies []string
-		moveBodies []string
+		prose        []string
+		blocksText   []string
+		requests     []string
+		askBodies    []string
+		rootBodies   []string
+		moveBodies   []string
+		secretBodies []string
 	)
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 		if strings.HasPrefix(line, "```") {
 			info := strings.TrimSpace(line[3:])
-			special := info == "home-ask" || info == "root-run" || info == "home-move"
+			special := info == "home-ask" || info == "root-run" || info == "home-move" || info == "home-secret"
 			var body []string
 			closed := false
 			for i++; i < len(lines); i++ {
@@ -115,6 +117,8 @@ func ParseCard(description string) (Card, error) {
 				}
 				if info == "home-ask" {
 					askBodies = append(askBodies, strings.Join(body, "\n"))
+				} else if info == "home-secret" {
+					secretBodies = append(secretBodies, strings.Join(body, "\n"))
 				} else if info == "home-move" {
 					moveBodies = append(moveBodies, strings.Join(body, "\n"))
 				} else {
@@ -197,6 +201,16 @@ func ParseCard(description string) (Card, error) {
 		return Card{}, errors.New("more than one home-move block")
 	}
 
+	if len(secretBodies) > 1 {
+		return Card{}, errors.New("more than one home-secret block")
+	}
+	if len(secretBodies) == 1 {
+		m, err := ParseSecret(secretBodies[0])
+		if err != nil {
+			return Card{}, err
+		}
+		c.Secret = m
+	}
 	if c.SubjectKey != nil && c.SubjectKey.Type == "script" {
 		if c.RootRun == nil || c.SubjectKey.ScriptSHA != c.RootRun.SHA256 {
 			return Card{}, errors.New("subject_key script_sha must equal root-run digest")
