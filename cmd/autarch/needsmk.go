@@ -236,7 +236,7 @@ func needsMkFileCmd() *cobra.Command {
 		Use:   "file",
 		Short: "File a needs-mk card from the asking thread; prints the card as one JSON line",
 		Long: `Run inside the asking thread ($BB_THREAD_ID is required): the filer posts the
-routing comment from it. AUTARCH_CARD_WEEKLY_BUDGET sets the weekly budget (default 25).
+routing comment from it. AUTARCH_CARD_WEEKLY_BUDGET sets the weekly budget (default 50).
 AUTARCH_CARD_STATE_DIR overrides the local XDG state directory.
 --non-blocking queues a card until needs-mk release, reserving its slot now.
 --urgent or --keep-list marks a budget exception. Success prints JSON with a non-empty card_key (--json is also accepted).
