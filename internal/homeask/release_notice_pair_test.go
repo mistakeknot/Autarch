@@ -127,7 +127,12 @@ func releaseUpdateEntryError(t *testing.T, outcome string) error {
 		refusal, lookupFailure := false, false
 		for _, cause := range joined.Unwrap() {
 			refusal = refusal || (errors.Is(cause, errNoCardWritten) && errors.Is(cause, wantCause))
-			lookupFailure = lookupFailure || errors.Is(cause, ErrHomeDown)
+			if errors.Is(cause, ErrHomeDown) {
+				if errors.Is(cause, errNoCardWritten) {
+					t.Fatalf("operational resolveErr branch contains no-write proof: %v", cause)
+				}
+				lookupFailure = true
+			}
 		}
 		if !refusal || !lookupFailure {
 			t.Fatalf("missing no-write refusal or operational resolveErr branch: %v", entryErr)
