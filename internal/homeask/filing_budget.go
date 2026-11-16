@@ -225,7 +225,7 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		if priorErr == nil {
 			oldHeld, hadHeld := prior[r.Key]
 			priorDone()
-			if hadHeld && oldHeld.Held {
+			if hadHeld && oldHeld.Held && !oldHeld.Attempted {
 				if oldHeld.Identity != identity || oldHeld.Request.Thread != r.Thread || oldHeld.Request.Owner != r.Owner {
 					return CardResult{}, errReused
 				}
@@ -383,8 +383,9 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 
 // ReleaseReport includes delivered groups and a diagnostic for every failed request.
 type ReleaseReport struct {
-	Groups   map[string][]CardResult `json:"groups"`
-	Failures map[string]string       `json:"failures"`
+	OwnerAttention map[string]string       `json:"owner_attention,omitempty"`
+	Groups         map[string][]CardResult `json:"groups"`
+	Failures       map[string]string       `json:"failures"`
 }
 
 // Release sends held cards in type order. Terminal refusals are recorded and
@@ -439,6 +440,9 @@ func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) 
 	groups := report.Groups
 	var failures []error
 	for _, key := range keys {
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
 		result, typ, e := f.releaseOne(ctx, key)
 		if result.ID != "" {
 			if e == nil {
@@ -454,11 +458,21 @@ func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) 
 		}
 		if e != nil {
 			report.Failures[key] = e.Error()
+			var ownerErr *releaseOwnerError
+			if errors.As(e, &ownerErr) {
+				if report.OwnerAttention == nil {
+					report.OwnerAttention = map[string]string{}
+				}
+				report.OwnerAttention[key] = ownerErr.Error()
+			}
 			failures = append(failures, fmt.Errorf("request %s: %w", key, e))
 			continue
 		}
 	}
-	return report, errors.Join(failures...)
+	if len(failures) > 0 {
+		return report, &ReleaseEntryErrors{Errors: failures}
+	}
+	return report, nil
 }
 func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, string, error) {
 	dir, err := f.stateDir()
@@ -479,8 +493,32 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		unlock()
 		return CardResult{}, "", nil
 	}
+	// Advisory early-out avoids checks and wakes for cards that cannot be displayed.
+	// Admission is still checked authoritatively under the fleet gate below.
+	fullBeforeChecks, capErr := f.dailyFull(state, e.Request)
+	if capErr != nil {
+		unlock()
+		return CardResult{}, "", capErr
+	}
+	if fullBeforeChecks {
+		unlock()
+		return CardResult{}, "", nil
+	}
 	unlock()
 	r := e.Request
+	if r.Owner != "" {
+		if ownerErr := f.checkOwnerLive(ctx, r.Owner); ownerErr != nil {
+			if errors.Is(ownerErr, ErrInvalid) {
+				attention := &releaseOwnerError{owner: r.Owner, cause: ownerErr}
+				if e.Attempted {
+					recovered, recoveryErr := f.resolveTerminal(ctx, key, attention)
+					return recovered, r.Type, errors.Join(attention, recoveryErr)
+				}
+				return CardResult{}, r.Type, attention
+			}
+			return CardResult{}, r.Type, ownerErr
+		}
+	}
 	if f.pilot("linkcheck") {
 		if v := f.checkLinks(ctx, r); len(v) > 0 {
 			wakeErr := f.wakeLinkOwner(ctx, key, r, v)
