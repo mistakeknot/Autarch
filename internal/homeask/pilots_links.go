@@ -34,7 +34,7 @@ type ArtifactLinkChecker struct {
 
 var pilotURL = regexp.MustCompile("https://[^\\s<>\"'`]+")
 var pilotPR = regexp.MustCompile(`(?i)(?:https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)|([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+))`)
-var pilotPRHead = regexp.MustCompile(`(?i)^[ \t]*(?:\([ \t]*)?(?:at|head(?:[ \t]+sha)?)[ \t:=]+([0-9a-f]{8,64})\b`)
+var pilotPRHead = regexp.MustCompile("(?i)^[ \\t]*[)`\\]>]*[ \\t]*(?:\\([ \\t]*)?(?:at|head(?:[ \\t]+sha)?)[ \\t:=]+`?([0-9a-f]{8,64})\\b")
 var scriptLine = regexp.MustCompile(`(?m)(?:bash[ \t]+|script:[ \t]*)(/[^\s"` + "`" + `]+)`)
 var fullSHA = regexp.MustCompile(`\b[0-9a-fA-F]{64}\b`)
 

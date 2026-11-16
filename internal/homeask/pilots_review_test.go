@@ -423,3 +423,16 @@ func TestReviewRegistryReplayPrecedesLocalRefusal(t *testing.T) {
 		})
 	}
 }
+func TestReviewExplicitPRHeadsInVisibleFormatting(t *testing.T) {
+	for _, text := range []string{"example/demo#12 at fedcba0987654321", "`example/demo#12` head `fedcba0987654321`", "[PR](https://github.com/example/demo/pull/12) at fedcba0987654321"} {
+		t.Run(text, func(t *testing.T) {
+			r := testReq()
+			r.Ask["question"] = text
+			c := ArtifactLinkChecker{PR: func(context.Context, string) (string, error) { return "abcdef0123456789", nil }}
+			v := c.Check(context.Background(), r)
+			if len(v) != 1 || !strings.Contains(v[0].Reason, "changed:") {
+				t.Fatalf("explicit head was not checked: %v", v)
+			}
+		})
+	}
+}
