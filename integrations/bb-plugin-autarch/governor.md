@@ -5,10 +5,14 @@ mk-z0lht.1). Installation defaults `quota_governor_mode` to `off`: it does not
 sample quota, create governor tables, edit policy, set limits or write inboxes.
 Citadel's Settings panel shows its status and updates through realtime events.
 
-Configure the governed host using `QUOTA_GOVERNOR_HOST` or `bb_host` in the JSON
-file named by `QUOTA_GOVERNOR_CONFIG`. A missing host leaves the service inert;
-the local hostname must match. JSON overrides retain the script's shallow
-merge semantics and policy defaults. State and floor default to
+Configure the governed host with the `quota_governor_host` plugin setting;
+its default is empty. Resolution uses the non-empty setting first, then
+`QUOTA_GOVERNOR_HOST`, then `bb_host` in the JSON file named by
+`QUOTA_GOVERNOR_CONFIG`. Empty or whitespace-only settings fall back to the
+environment or file. A missing host leaves the service inert; the local hostname
+must match. Plugin settings are read on each tick, so no server environment
+change is needed. JSON overrides otherwise retain the script's shallow merge
+semantics and policy defaults. State and floor default to
 `$HOME/.local/state/quota-governor`, operator policy to
 `$HOME/.config/aleph-orchestration/operator.toml`, and inbox storage to
 `$BB_DATA_DIR/thread-storage` when set. Otherwise it discovers the real machine
@@ -22,8 +26,10 @@ panel. A missing root or zero writable recipients blocks the transition without
 applying or rolling back operator policy or host limits.
 `QUOTA_GOVERNOR_PROJECT_ROOT` overrides the protected card's project root;
 its default is the Sylveste directory beneath the user's projects directory.
-The card destination must be supplied by `card_project` or
-`QUOTA_GOVERNOR_CARD_PROJECT`; an unset destination holds protected work and
+The card destination uses the same precedence: the non-empty
+`quota_governor_card_project` plugin setting (default empty), then
+`QUOTA_GOVERNOR_CARD_PROJECT`, then `card_project` in the config file.
+An unset destination holds protected work and
 reports the error without writing a card file. Malformed override JSON or a
 non-object override is an error, never a fallback to policy defaults.
 

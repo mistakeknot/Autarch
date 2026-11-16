@@ -23,12 +23,16 @@ export async function readOverrides(path: string, readText = (p: string) => fs.r
   }
   catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return null; throw e; }
 }
-export async function loadConfig(env: NodeJS.ProcessEnv = process.env, read = readOverrides): Promise<Config> {
+export type GovernorSettings = { quota_governor_mode?: string; quota_governor_host?: string; quota_governor_card_project?: string };
+export async function loadConfig(env: NodeJS.ProcessEnv = process.env, read = readOverrides, settings: GovernorSettings = {}): Promise<Config> {
   const home = homedir();
   const base = { ...structuredClone(DEFAULTS), bb_host: env.QUOTA_GOVERNOR_HOST ?? "", state_dir: join(home, ".local/state/quota-governor"), operator_toml: join(home, ".config/aleph-orchestration/operator.toml"), storage_root: env.BB_DATA_DIR ? join(env.BB_DATA_DIR, "thread-storage") : "" };
   const overrides = env.QUOTA_GOVERNOR_CONFIG ? await read(env.QUOTA_GOVERNOR_CONFIG) : null;
   if (overrides !== null && (typeof overrides !== "object" || Array.isArray(overrides))) throw Error("Governor override config must be an object");
-  return Object.assign(base, overrides ?? {});
+  const cfg = Object.assign(base, overrides ?? {});
+  cfg.bb_host = settings.quota_governor_host?.trim() || env.QUOTA_GOVERNOR_HOST?.trim() || cfg.bb_host;
+  cfg.card_project = settings.quota_governor_card_project?.trim() || env.QUOTA_GOVERNOR_CARD_PROJECT?.trim() || cfg.card_project;
+  return cfg;
 }
 export function resolveStorageRoot(cfg: Config, roots = docRoots): Config {
   const config = { ...cfg };
@@ -55,7 +59,8 @@ export function homeAnswer(db: Database.Database, key: string): "a" | "b" | null
   return row?.option_id === "a" || row?.option_id === "b" ? row.option_id : null;
 }
 export async function fileProtectedCard(cfg: Config, level: number, pace: number | null, renewal: number, vizier: string, runFile: Exec, disk: AtomicFS, env: NodeJS.ProcessEnv = process.env): Promise<string> {
-  const project = (env.QUOTA_GOVERNOR_CARD_PROJECT ?? cfg.card_project).trim();
+  // loadConfig has already resolved setting > environment > file precedence.
+  const project = cfg.card_project.trim();
   if (!project) throw Error("Governor card project is required (card_project or QUOTA_GOVERNOR_CARD_PROJECT)");
   const lv = cfg.levels[level];
   const ask = {
@@ -142,8 +147,8 @@ export interface GovernorHost {
   realtime: { publish(channel: string, data: Record<string, unknown>): unknown };
   log: { warn(message: string): unknown };
 }
-export function wireGovernor(bb: GovernorHost, handle: { ready(): boolean; store(): { db: Database.Database } }, settings: () => Promise<{ quota_governor_mode: string }>, deps: { config?: () => Promise<Config>; roots?: typeof docRoots; hostname?: () => string } = {}): () => View {
-  const config = deps.config ?? (() => loadConfig());
+export function wireGovernor(bb: GovernorHost, handle: { ready(): boolean; store(): { db: Database.Database } }, settings: () => Promise<GovernorSettings & { quota_governor_mode: string }>, deps: { config?: () => Promise<Config>; roots?: typeof docRoots; hostname?: () => string } = {}): () => View {
+  const config = deps.config ?? (async () => loadConfig(process.env, readOverrides, await settings()));
   const hostName = deps.hostname ?? hostname;
   let governor: Governor | null = null;
   let last: View = { mode: "off" };

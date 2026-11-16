@@ -116,6 +116,22 @@ it("merges runtime config overrides without embedding a host", async () => {
   expect((await loadConfig({ QUOTA_GOVERNOR_HOST: "governed" }, async () => null)).bb_host).toBe("governed");
   expect((await loadConfig({ QUOTA_GOVERNOR_CONFIG: "/fake/config" }, async () => ({ good_readings: 3, bb_host: "configured" }))).good_readings).toBe(3);
 });
+it.each([
+  [{ quota_governor_host: "setting-host", quota_governor_card_project: "setting-project" }, { QUOTA_GOVERNOR_HOST: "env-host", QUOTA_GOVERNOR_CARD_PROJECT: "env-project" }, "setting-host", "setting-project"],
+  [{ quota_governor_host: " ", quota_governor_card_project: "" }, { QUOTA_GOVERNOR_HOST: "env-host", QUOTA_GOVERNOR_CARD_PROJECT: "env-project" }, "env-host", "env-project"],
+  [{}, {}, "file-host", "file-project"],
+  [{}, { QUOTA_GOVERNOR_HOST: "", QUOTA_GOVERNOR_CARD_PROJECT: " " }, "file-host", "file-project"],
+  [{ quota_governor_host: "setting-host" }, { QUOTA_GOVERNOR_CARD_PROJECT: "env-project" }, "setting-host", "env-project"],
+] as const)("resolves plugin settings, environment and file in order: %j", async (settings, env, host, project) => {
+  const cfg = await loadConfig({ ...env, QUOTA_GOVERNOR_CONFIG: "fixture" }, async () => ({ bb_host: "file-host", card_project: "file-project" }), settings);
+  expect([cfg.bb_host, cfg.card_project]).toEqual([host, project]);
+});
+it("does not let the filer override an already resolved plugin card destination", async () => {
+  let project = "";
+  const disk = { mkdir: async () => {}, writeFile: async () => {}, rename: async () => {} };
+  await fileProtectedCard({ ...DEFAULTS, state_dir: "/fixture", card_project: "setting-project" }, 2, 1.8, 0, "vizier", async (_file, args) => { project = args[args.indexOf("--project") + 1]; return { stdout: '{"card_key":"CARD"}' }; }, disk, { QUOTA_GOVERNOR_CARD_PROJECT: "env-project" });
+  expect(project).toBe("setting-project");
+});
 it("registers an abortable service and leaves the database untouched while off", async () => {
   let start!: (signal: AbortSignal) => Promise<void>;
   const handle = { ready: vi.fn(() => true), store: vi.fn(() => { throw Error("unexpected store access"); }) };
