@@ -20,6 +20,7 @@ const docResult = z.union([
 const conversationView = z.object({ task_id: z.string(), comments: list, unread: z.number(), stale: z.boolean(), last_ok_at: z.string().nullable(), options: list });
 
 export const homeMethods = {
+  pilotMetrics: { input: z.null(), output: z.object({ metrics: list }) },
   quotaGovernor: { input: z.null(), output: jsonReadModel },
   pickAction: { input: PickActionQuerySchema, output: result },
   evidenceImage: { input: z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict(), output: result },
@@ -113,6 +114,7 @@ export const homeMethods = {
 export type CliMapping = { verb: string; summary: string } | { rpcOnly: string };
 
 export const homeCliMap = {
+  pilotMetrics: { rpcOnly: "read-only pilot pick observations from the plugin store for reports" },
   quotaGovernor: { rpcOnly: "read-only quota governor status for Citadel" },
   pickAction: { verb: "pick-action", summary: "Read the original pick action and delivery evidence for one exact generation" },
   evidenceImage: { rpcOnly: "read-only local evidence image by content hash" },

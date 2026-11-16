@@ -94,6 +94,9 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 			return *r
 		}
 	}
+	if strings.Join(args, " ") == "plugin rpc call autarch pilotMetrics --json" {
+		return okRes(map[string]any{"metrics": []any{}})
+	}
 	thread := ""
 	for _, kv := range env {
 		if strings.HasPrefix(kv, "BB_THREAD_ID=") {

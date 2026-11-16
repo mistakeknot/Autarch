@@ -32,6 +32,16 @@ function fakeBb(threads: object = {}) {
 const serve = { projects: async () => [], health: async () => ({ build: { commit: "abc" } }), healthy: async () => true } as unknown as ServeClient;
 
 describe("wireHome", () => {
+  it("reads stored pilot observations without modifying them", async () => {
+    const db = new Database(":memory:"); const f = fakeBb(); const handle = createStoreHandle(() => db, {});
+    const home = wireHome(f.bb, handle, cfg, { serve });
+    const metric = { time: "2026-11-15T12:00:00Z", event_id: "pick:fixture", event: "picked" };
+    handle.store().recordPilotMetric(metric);
+    const before = handle.store().events();
+    expect(await home.handlers.pilotMetrics(null)).toEqual({ metrics: [metric] });
+    expect(handle.store().events()).toEqual(before);
+    f.disposers.forEach(d => d());
+  });
   it("registers the CLI, the feed, the event listeners and the services", () => {
     const db = new Database(":memory:");
     const handle = createStoreHandle(() => db, {});
@@ -42,7 +52,7 @@ describe("wireHome", () => {
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
     expect(Object.keys(home.handlers).sort()).toEqual(["actIdea", "archive", "bringBack", "cardState", "catchup", "clearIdeaDigest", "clickTiming", "conversation", "conversationUnread",
-      "dismiss", "evidenceImage", "fileIdea", "health", "ideaProjects", "ideas", "later", "learn", "learnSet", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "note", "openTarget", "override", "pick", "pickAction", "queue", "readDoc", "requestUpdate", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "stats", "unlater", "updateInfo", "waiting"]);
+      "dismiss", "evidenceImage", "fileIdea", "health", "ideaProjects", "ideas", "later", "learn", "learnSet", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "note", "openTarget", "override", "pick", "pickAction", "pilotMetrics", "queue", "readDoc", "requestUpdate", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "stats", "unlater", "updateInfo", "waiting"]);
     f.disposers.forEach((d) => d());
   });
 

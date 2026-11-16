@@ -318,6 +318,52 @@ func TestPilotReportPacificAndPrivacy(t *testing.T) {
 	}
 }
 
+func TestPilotReportIncludesStoredPicksAndDeduplicatesLegacyRows(t *testing.T) {
+	d := t.TempDir()
+	metric := `{"time":"2026-11-02T12:00:00Z","event":"picked","event_id":"pick:example","option_kind":"needs-context","pasted_error":true}`
+	if err := os.WriteFile(filepath.Join(d, "pilots-metrics.jsonl"), []byte(metric+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	f := &CardFiler{StateDir: d, Run: func(_ context.Context, _ []string, args ...string) BBResult {
+		if strings.Join(args, " ") != "plugin rpc call autarch pilotMetrics --json" {
+			t.Fatalf("unexpected call %v", args)
+		}
+		calls++
+		return BBResult{Stdout: []byte(`{"metrics":[` + metric + `]}`)}
+	}}
+	var out bytes.Buffer
+	if err := f.PilotReport(&out, "2026-11-01"); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || !strings.Contains(out.String(), "2026-11-02 0 0 0 1 1") {
+		t.Fatal(out.String(), calls)
+	}
+	if err := os.Remove(filepath.Join(d, "pilots-metrics.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := f.PilotReport(&out, "2026-11-01"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "2026-11-02 0 0 0 1 1") {
+		t.Fatal(out.String())
+	}
+}
+
+func TestPilotReportLabelsUnavailableStoredMetrics(t *testing.T) {
+	for _, response := range []BBResult{{Err: fmt.Errorf("offline")}, {Stdout: []byte(`{}`)}} {
+		f := &CardFiler{StateDir: t.TempDir(), Run: func(context.Context, []string, ...string) BBResult { return response }}
+		var out bytes.Buffer
+		if err := f.PilotReport(&out, ""); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), "Plugin pick metrics unavailable; report includes local metrics only.") {
+			t.Fatal(out.String())
+		}
+	}
+}
+
 func TestPilotAbsentExactLegacyState(t *testing.T) {
 	f := newFake(t, registryOnCreate).filer()
 	r := testReq()

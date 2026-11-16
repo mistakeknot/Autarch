@@ -1,5 +1,6 @@
 // mk-bzi8s.5: best-effort, privacy-preserving observations; never a pick gate.
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import type { Store } from "./store.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -7,11 +8,12 @@ export interface PilotPickMetric {
   requestKey: string; cardKey: string; project: string; pickId: string; time: string;
   optionKind: string; other: boolean; reason?: string | null;
 }
+export type PilotMetric = { time: string; event_id: string; [key: string]: unknown };
 /** pasted-error-v1 is a heuristic, not a diagnosis. Never persist the input text. */
 export function pastedErrorV1(text: string): boolean {
   return /(?:^\s*(?:error:|[A-Za-z_$][\w.$]*(?:Error|Exception):)\s*\S|^\s*Traceback \(most recent call last\):\s*$|^\s*stack trace:\s*$|^\s*at\s+[^\r\n]*\.(?:[cm]?[jt]sx?|java|py|go|rs):\d+(?::\d+)?\)?\s*$|^\s*(?:exit(?:ed)?(?:\s+(?:with|status|code))*|Process exited with code)\s*[:=]?\s*\d+[.!]?\s*$)/im.test(text);
 }
-export function recordPilotPick(input: PilotPickMetric, env: NodeJS.ProcessEnv = process.env): void {
+export function recordPilotPick(input: PilotPickMetric, store: Pick<Store, "recordPilotMetric">, env: NodeJS.ProcessEnv = process.env): void {
   if (env.AUTARCH_NEEDSMK_PILOTS_OFF === "1") return;
   const dir = env.AUTARCH_CARD_STATE_DIR || join(env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "autarch", "needsmk");
   let pilots: Record<string, { enabled?: boolean; until?: string }>;
@@ -32,11 +34,5 @@ export function recordPilotPick(input: PilotPickMetric, env: NodeJS.ProcessEnv =
     option_kind: input.optionKind, other: input.other, free_text_length: Array.from(text).length,
     pasted_error: pastedErrorV1(text), heuristic: "pasted-error-v1",
   };
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const path = join(dir, "pilots-metrics.jsonl");
-  // Reconcile retries find the stable pick identity; append is one O_APPEND write.
-  try {
-    if (readFileSync(path, "utf8").split("\n").some(line => { try { return JSON.parse(line).event_id === metric.event_id; } catch { return false; } })) return;
-  } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
-  appendFileSync(path, JSON.stringify(metric) + "\n", { mode: 0o600 });
+  store.recordPilotMetric(metric);
 }

@@ -944,7 +944,7 @@ export class Service {
           const request = this.db.prepare("SELECT request_key FROM card_requests WHERE task_id = ?").get(d.task_id) as { request_key: string } | undefined;
           recordPilotPick({ requestKey: request?.request_key ?? d.request_id, cardKey: ruling.card_key ?? String(d.task_id), project: d.project,
             pickId: pick.pick_id, time: pick.picked_at, optionKind: option?.kind ?? (option?.instruction ? "instruction" : "ruling-only"),
-            other: !option && isOwnWordsId(pick.option_id), reason: pick.reason });
+            other: !option && isOwnWordsId(pick.option_id), reason: pick.reason }, this.store);
         }
       } catch { this.deps.log?.("pilot pick metric unavailable"); }
       if (this.deps.rulingsLedger) appendRuling(this.deps.rulingsLedger, this.ledgerPickOf(d, ask, pick));

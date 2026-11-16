@@ -2,6 +2,7 @@ package homeask
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 )
 
 type PilotMetric struct {
+	EventID        string    `json:"event_id,omitempty"`
 	Time           time.Time `json:"time"`
 	Event          string    `json:"event"`
 	RequestKey     string    `json:"request_key"`
@@ -94,24 +96,49 @@ func (f *CardFiler) PilotReport(w io.Writer, since string) error {
 		return e
 	}
 	file, e := os.Open(filepath.Join(d, "pilots-metrics.jsonl"))
-	if os.IsNotExist(e) {
+	if e != nil && !os.IsNotExist(e) {
+		return e
+	}
+	metrics := []PilotMetric{}
+	if file != nil {
+		defer file.Close()
+		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 4096), 1024*1024)
+		line := 0
+		for scanner.Scan() {
+			line++
+			var m PilotMetric
+			if e = json.Unmarshal(scanner.Bytes(), &m); e != nil {
+				return fmt.Errorf("metric line %d: %w", line, e)
+			}
+			metrics = append(metrics, m)
+		}
+		if e = scanner.Err(); e != nil {
+			return e
+		}
+	}
+	// Home owns pick observations; the filer still owns delivery observations.
+	var stored struct {
+		Metrics *[]PilotMetric `json:"metrics"`
+	}
+	if e := f.call(context.Background(), "", &stored, "plugin", "rpc", "call", "autarch", "pilotMetrics", "--json"); e != nil || stored.Metrics == nil {
+		fmt.Fprintln(w, "Plugin pick metrics unavailable; report includes local metrics only.")
+	} else {
+		metrics = append(metrics, (*stored.Metrics)...)
+	}
+	if len(metrics) == 0 {
 		fmt.Fprintln(w, "No pilot metrics.")
 		fmt.Fprintln(w, "Time to playable build is not visible to the filer.")
 		return nil
 	}
-	if e != nil {
-		return e
-	}
-	defer file.Close()
 	days := map[string]*dayMetrics{}
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 4096), 1024*1024)
-	line := 0
-	for scanner.Scan() {
-		line++
-		var m PilotMetric
-		if e = json.Unmarshal(scanner.Bytes(), &m); e != nil {
-			return fmt.Errorf("metric line %d: %w", line, e)
+	seen := map[string]bool{}
+	for _, m := range metrics {
+		if m.EventID != "" {
+			if seen[m.EventID] {
+				continue
+			}
+			seen[m.EventID] = true
 		}
 		if m.Time.Before(from) {
 			continue
@@ -152,9 +179,6 @@ func (f *CardFiler) PilotReport(w io.Writer, since string) error {
 				v.LinkFail++
 			}
 		}
-	}
-	if e = scanner.Err(); e != nil {
-		return e
 	}
 	keys := make([]string, 0, len(days))
 	for k := range days {
