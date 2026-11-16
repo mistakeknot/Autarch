@@ -64,7 +64,11 @@ func (f *CardFiler) dailyFull(s filingState, r CardRequest) (bool, error) {
 	n := 0
 	seen := map[string]bool{}
 	for key, v := range s {
-		if !ordinary(v.Request) {
+		// Recovery reuses its already-admitted slot; it does not consume a second delivery.
+		if key == r.Key && v.Held && (v.DeliveredAt != "" || v.DeliveryPendingAt != "") {
+			continue
+		}
+		if v.Uncharged || !ordinary(v.Request) {
 			continue
 		}
 		at := v.DeliveredAt
@@ -99,16 +103,23 @@ func (f *CardFiler) noteDelivery(key string, result CardResult) error {
 	if !ok {
 		return nil
 	}
+	first := v.DeliveredAt == ""
 	if v.DeliveredAt == "" {
 		v.DeliveredAt = f.clock().Format(time.RFC3339Nano)
 	}
 	v.DeliveryPendingAt = ""
 	v.DeliveredCard = result.ID
+	if result.CardKey != "" {
+		v.DeliveredCardKey = result.CardKey
+	}
 	v.DeliveredKey = result.Key
 	v.DeliveredProject = result.Project
-	v.Held = false
 	s[key] = v
-	return saveFilingState(p, s)
+	err := saveFilingState(p, s)
+	if err == nil && first {
+		f.pilotEvent(v.Request, "delivered", "", "")
+	}
+	return err
 }
 
 // defaultUnderVetoWindowRule is deliberately a no-op pending a later rule.

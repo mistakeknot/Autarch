@@ -135,6 +135,9 @@ func TestPilotRecheckDryRunNoWrites(t *testing.T) {
 	d, _ := f.stateDir()
 	before, _ := os.ReadFile(filepath.Join(d, "filings.json"))
 	f.Run = func(ctx context.Context, env []string, args ...string) BBResult {
+		if len(args) > 1 && strings.Join(args[:2], " ") == "home list" {
+			return okRes([]ListRow{{TaskID: "T1", Thread: r.Thread}})
+		}
 		if len(args) > 3 && strings.Join(args[:3], " ") == "home get --card" {
 			return okRes(CardView{TaskID: args[3], State: "open", CardKey: "TEST-1"})
 		}
@@ -147,5 +150,44 @@ func TestPilotRecheckDryRunNoWrites(t *testing.T) {
 	after, _ := os.ReadFile(filepath.Join(d, "filings.json"))
 	if !bytes.Equal(before, after) || bb.count("thread", "tell") != 0 {
 		t.Fatal("dry-run mutated")
+	}
+}
+
+type fixedPilotLinks struct{}
+
+func (fixedPilotLinks) Check(context.Context, CardRequest) []LinkFailure {
+	return []LinkFailure{{Item: "https://preview.invalid/gone", Reason: "HTTP 502"}}
+}
+func TestPilotRecheckIncludesCardsOutsideLocalFilingState(t *testing.T) {
+	bb := newFake(t, registryOnCreate)
+	f := bb.filer()
+	r := testReq()
+	r.Ask["question"] = "See https://preview.invalid/gone ?"
+	res, e := f.FileCard(context.Background(), r)
+	if e != nil {
+		t.Fatal(e)
+	}
+	d, _ := f.stateDir()
+	os.WriteFile(filepath.Join(d, "filings.json"), []byte("{}"), 0600)
+	f.Links = fixedPilotLinks{}
+	f.Run = func(ctx context.Context, env []string, args ...string) BBResult {
+		if len(args) > 1 && strings.Join(args[:2], " ") == "home list" {
+			return okRes([]ListRow{{TaskID: res.ID, Thread: r.Thread}})
+		}
+		if len(args) > 3 && strings.Join(args[:3], " ") == "home get --card" {
+			return okRes(CardView{TaskID: res.ID, State: "open", AskingThread: r.Thread, CardKey: "TEST-3"})
+		}
+		return bb.run(ctx, env, args...)
+	}
+	var out bytes.Buffer
+	if e := f.RecheckLinks(context.Background(), &out, true); e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(out.String(), "https://preview.invalid/gone") {
+		t.Fatalf("open card outside state was missed: %s", out.String())
+	}
+	raw, _ := os.ReadFile(filepath.Join(d, "filings.json"))
+	if string(raw) != "{}" {
+		t.Fatal("dry-run changed state")
 	}
 }

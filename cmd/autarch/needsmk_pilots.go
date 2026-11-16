@@ -24,6 +24,10 @@ func needsMkPilotsCmd() *cobra.Command {
 			return nil
 		}})
 	}
+	var since string
+	report := &cobra.Command{Use: "report", Short: "Count pilot events by Pacific day", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error { return newCardFiler().PilotReport(c.OutOrStdout(), since) }}
+	report.Flags().StringVar(&since, "since", "", "First Pacific day (YYYY-MM-DD)")
+	c.AddCommand(report)
 	return c
 }
 

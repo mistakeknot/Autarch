@@ -121,6 +121,25 @@ func (c ArtifactLinkChecker) Check(ctx context.Context, r CardRequest) []LinkFai
 			}
 		}
 	}
+	var walkScripts func(any)
+	walkScripts = func(v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			if path, ok := x["path"].(string); ok {
+				if hash, ok := x["sha256"].(string); ok && filepath.IsAbs(path) && fullSHA.MatchString(hash) {
+					scripts[path] = hash
+				}
+			}
+			for _, v := range x {
+				walkScripts(v)
+			}
+		case []any:
+			for _, v := range x {
+				walkScripts(v)
+			}
+		}
+	}
+	walkScripts(r.Move)
 	if r.RootRun != nil {
 		scripts[r.RootRun.Script] = r.RootRun.SHA256
 	}
@@ -232,6 +251,9 @@ func (f *CardFiler) wakeLinkOwner(ctx context.Context, key string, r CardRequest
 	s[key] = entry
 	e = saveFilingState(p, s)
 	done()
+	if e == nil && entry.Held {
+		f.pilotEvent(r, "held", "", "link-check: "+failureText(v))
+	}
 	if e != nil {
 		return e
 	}
@@ -249,56 +271,44 @@ func (f *CardFiler) RecheckLinks(ctx context.Context, w io.Writer, dry bool) err
 	if e != nil {
 		return e
 	}
-	b, e := os.ReadFile(filepath.Join(d, "filings.json"))
-	if os.IsNotExist(e) {
-		fmt.Fprintln(w, "No filing state.")
-		return nil
-	}
-	if e != nil {
-		return e
-	}
 	s := filingState{}
-	if e = json.Unmarshal(b, &s); e != nil {
+	b, e := os.ReadFile(filepath.Join(d, "filings.json"))
+	if e != nil && !os.IsNotExist(e) {
 		return e
+	}
+	if e == nil {
+		if e = json.Unmarshal(b, &s); e != nil {
+			return e
+		}
 	}
 	if !dry && !f.pilot("linkcheck") {
 		fmt.Fprintln(w, "linkcheck pilot is off; no checks or wakes")
 		return nil
 	}
-	keys := make([]string, 0, len(s))
-	for k := range s {
-		keys = append(keys, k)
+	// Home is the authority for open delivered cards, including cards predating this state log.
+	var rows []ListRow
+	if e = f.callEnv(ctx, unscopedEnv(""), &rows, "home", "list", "--json"); e != nil {
+		return e
 	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		entry := s[key]
-		if entry.Held || entry.Refunded {
+	sort.Slice(rows, func(i, j int) bool { return rows[i].TaskID < rows[j].TaskID })
+	seen := map[string]bool{}
+	for _, row := range rows {
+		id := row.TaskID
+		if id == "" || seen[id] {
 			continue
 		}
-		id := entry.DeliveredCard
-		if id == "" {
-			a, e := f.registry(ctx, key)
-			if e != nil {
-				fmt.Fprintf(w, "%s lookup error: %v\n", key, e)
-				continue
-			}
-			id = a.TaskID
-		}
-		if id == "" {
-			continue
-		}
+		seen[id] = true
 		view, e := f.Card(ctx, id)
 		if e != nil {
-			fmt.Fprintf(w, "%s read error: %v\n", key, e)
+			fmt.Fprintf(w, "%s read error: %v\n", id, e)
 			continue
 		}
 		if view.State != "open" || view.DecisionState == "picked" || view.DecisionState == "ruled" {
 			continue
 		}
-		r := entry.Request
 		shown, e := f.show(ctx, id)
 		if e != nil {
-			fmt.Fprintf(w, "%s read error: %v\n", key, e)
+			fmt.Fprintf(w, "%s read error: %v\n", id, e)
 			continue
 		}
 		if shown.Task.Status == "done" || shown.Task.Status == "canceled" {
@@ -306,8 +316,20 @@ func (f *CardFiler) RecheckLinks(ctx context.Context, w io.Writer, dry bool) err
 		}
 		card, e := ParseCard(shown.Task.Description)
 		if e != nil {
-			fmt.Fprintf(w, "%s parse error: %v\n", key, e)
+			fmt.Fprintf(w, "%s parse error: %v\n", view.CardKey, e)
 			continue
+		}
+		key := card.Request.Key
+		entry, known := s[key]
+		r := entry.Request
+		if !known {
+			r = CardRequest{Key: key, Project: shown.Task.ProjectID, Thread: view.AskingThread}
+			if r.Thread == "" {
+				r.Thread = row.Thread
+			}
+		}
+		if view.AskingThread != "" {
+			r.Owner = view.AskingThread
 		}
 		r.Ask = card.Ask
 		r.Title = shown.Task.Title
@@ -321,9 +343,28 @@ func (f *CardFiler) RecheckLinks(ctx context.Context, w io.Writer, dry bool) err
 			c = ArtifactLinkChecker{}
 		}
 		v := c.Check(ctx, r)
-		fmt.Fprintf(w, "%s %s %s\n", view.CardKey, key, failureText(v))
+		result := "pass"
+		if len(v) > 0 {
+			result = "fail"
+		}
+		fmt.Fprintf(w, "%s %s %s %s\n", view.CardKey, key, result, failureText(v))
 		if !dry {
-			f.pilotEvent(r, "link-check", map[bool]string{true: "fail", false: "pass"}[len(v) > 0], failureText(v))
+			if !known {
+				current, p, done, e := f.openState()
+				if e != nil {
+					return e
+				}
+				if _, ok := current[key]; !ok {
+					ident, _ := RequestIdentity(r)
+					current[key] = filingEntry{Request: r, Identity: ident, Project: strings.ToLower(row.Project), Uncharged: true, DeliveredCard: id, DeliveredCardKey: view.CardKey, DeliveredAt: row.FiledAt}
+					e = saveFilingState(p, current)
+				}
+				done()
+				if e != nil {
+					return e
+				}
+			}
+			f.pilotEvent(r, "link-check", result, failureText(v))
 			if len(v) > 0 {
 				if e = f.wakeLinkOwner(ctx, key, r, v); e != nil {
 					return e

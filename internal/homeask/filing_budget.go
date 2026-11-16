@@ -53,6 +53,7 @@ func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
 }
 
 type filingEntry struct {
+	DeliveredCardKey  string      `json:"delivered_card_key,omitempty"`
 	FiledAt           string      `json:"filed_at,omitempty"`
 	DeliveredAt       string      `json:"delivered_at,omitempty"`
 	DeliveryPendingAt string      `json:"delivery_pending_at,omitempty"`
@@ -325,7 +326,9 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		if err = saveFilingState(path, state); err != nil {
 			return CardResult{}, err
 		}
+		f.pilotEvent(r, "filed", "", "")
 		if held {
+			f.pilotEvent(r, "held", "", reason)
 			if full && f.Warn != nil {
 				f.Warn("held: daily-cap reached; queued for ranked release")
 			}
@@ -405,6 +408,9 @@ func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) 
 	for _, key := range keys {
 		result, typ, e := f.releaseOne(ctx, key)
 		if result.ID != "" {
+			if e == nil {
+				f.pilotEvent(state[key].Request, "released", "", "")
+			}
 			if typ == "" {
 				typ = state[key].Request.Type
 			}
