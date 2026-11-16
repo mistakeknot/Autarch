@@ -1,7 +1,10 @@
+// @vitest-environment jsdom
 // The one count on screen (bead mk-yjp7): the strip, the tab and the sidebar badge all read the same
 // `waiting` figure, and the strip says what it counts so a mismatch with another list can be explained.
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
@@ -31,10 +34,82 @@ describe("waiting strip", () => {
     expect(html).not.toContain("Not in that number");
   });
 
-  it("prints the definition so a mismatch with another list is explainable", () => {
+  it("offers an info button instead of a text disclosure", () => {
     const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} definition={W.definition} />);
-    expect(html).toContain("What this counts");
-    expect(html).toContain("Does not count cards on hold or set aside for later");
+    expect(html).toContain('aria-label="What this counts"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("<details");
+    expect(html).not.toContain("<summary");
+  });
+});
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+describe("waiting definition popover (mk-thfym)", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+  beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => root.render(<QueueTabs tab="decide" onTab={noop} counts={null} line={W.line} definition={W.definition} />));
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  });
+  const button = () => {
+    const found = host.querySelector<HTMLButtonElement>('button[aria-label="What this counts"]');
+    expect(found).not.toBeNull();
+    return found!;
+  };
+  const toggle = async () => {
+    await act(async () => { button().click(); await new Promise(resolve => setTimeout(resolve, 0)); });
+  };
+
+  it("toggles by click/tap, keeps the original definition and wires its accessible description", async () => {
+    const control = button();
+    expect(control.textContent?.trim()).toBe("");
+    expect(control.tabIndex).toBe(0);
+    expect(control.getAttribute("aria-expanded")).toBe("false");
+    await toggle();
+    expect(control.getAttribute("aria-expanded")).toBe("true");
+    const id = control.getAttribute("aria-controls");
+    expect(id).toBeTruthy();
+    expect(control.getAttribute("aria-describedby")).toBe(id);
+    expect(document.getElementById(id!)?.textContent).toBe(W.definition);
+    await toggle();
+    expect(control.getAttribute("aria-expanded")).toBe("false");
+    expect(document.getElementById(id!)).toBeNull();
+  });
+
+  it("closes on Escape and returns keyboard focus to the info button", async () => {
+    const control = button();
+    act(() => control.focus());
+    expect(document.activeElement).toBe(control);
+    await toggle();
+    const popup = document.getElementById(control.getAttribute("aria-controls")!);
+    expect(popup).not.toBeNull();
+    act(() => popup!.focus());
+    await act(async () => {
+      document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    expect(control.getAttribute("aria-expanded")).toBe("false");
+    await vi.waitFor(() => expect(document.activeElement).toBe(control));
+  });
+
+  it("closes when the user clicks outside", async () => {
+    await toggle();
+    await act(async () => {
+      document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+      document.body.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+      document.body.click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    expect(button().getAttribute("aria-expanded")).toBe("false");
   });
 });
 
