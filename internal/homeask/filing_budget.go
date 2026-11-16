@@ -217,20 +217,17 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	if f.anyPilot() {
 		// Per-request serialization makes a held retry independent of volatile proofs.
 		prior, _, priorDone, priorErr := f.openState()
-		if priorErr != nil {
-			return CardResult{}, priorErr
-		}
-		oldHeld, hadHeld := prior[r.Key]
-		priorDone()
-		if hadHeld && oldHeld.Refunded {
-			return CardResult{}, fmt.Errorf("%w: request retired: %s; file the corrected ask with a new request key", ErrInvalid, oldHeld.TerminalReason)
-		}
-		if hadHeld && oldHeld.Held {
-			if oldHeld.Identity != identity || oldHeld.Request.Thread != r.Thread || oldHeld.Request.Owner != r.Owner {
-				return CardResult{}, errReused
+		if priorErr == nil {
+			oldHeld, hadHeld := prior[r.Key]
+			priorDone()
+			if hadHeld && oldHeld.Held {
+				if oldHeld.Identity != identity || oldHeld.Request.Thread != r.Thread || oldHeld.Request.Owner != r.Owner {
+					return CardResult{}, errReused
+				}
+				return CardResult{Key: r.Key, Queued: true, Replay: true}, nil
 			}
-			return CardResult{Key: r.Key, Queued: true, Replay: true}, nil
 		}
+		// Other state errors/refusals remain after canonical registry replay, as before.
 	}
 	askKey, _ := r.Ask["ask_key"].(string)
 	updateLane := update && (askKey != "" || supersedes != "")

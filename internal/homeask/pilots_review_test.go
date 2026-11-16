@@ -390,3 +390,36 @@ func TestReviewUnknownGitHubMetric(t *testing.T) {
 		t.Fatalf("unknown URL was not reported as unknown: %v %s %s", e, b, warn)
 	}
 }
+func TestReviewRegistryReplayPrecedesLocalRefusal(t *testing.T) {
+	for _, mode := range []string{"refunded", "unreadable"} {
+		t.Run(mode, func(t *testing.T) {
+			bb := newFake(t, registryOnCreate)
+			f := bb.filer()
+			r := testReq()
+			if _, e := f.FileCard(context.Background(), r); e != nil {
+				t.Fatal(e)
+			}
+			enablePilot(t, f, "daycap")
+			s, p, done, e := f.openState()
+			if e != nil {
+				t.Fatal(e)
+			}
+			v := s[r.Key]
+			v.Refunded = true
+			s[r.Key] = v
+			if e = saveFilingState(p, s); e != nil {
+				t.Fatal(e)
+			}
+			done()
+			if mode == "unreadable" {
+				if e = os.WriteFile(p, []byte("{broken"), 0600); e != nil {
+					t.Fatal(e)
+				}
+			}
+			res, e := f.FileCard(context.Background(), r)
+			if e != nil || !res.Replay || res.ID == "" || bb.count("tasks", "create") != 1 {
+				t.Fatalf("local state masked existing canonical card: %+v %v", res, e)
+			}
+		})
+	}
+}
