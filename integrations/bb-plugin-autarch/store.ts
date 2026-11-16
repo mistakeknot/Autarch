@@ -488,15 +488,16 @@ export class Store {
       if (initialized && this.setting(key) !== undefined) return;
       if (!initialized) watermark = 0;
       const appended = this.db.prepare(`SELECT seq,
-        CASE WHEN type = 'pilot-pick-metric' AND json_valid(detail_json)
+        CASE WHEN json_valid(detail_json)
           THEN json_extract(detail_json, '$.event_id') END AS id
-        FROM events WHERE seq > ? ORDER BY seq`).all(watermark) as { seq: number; id: unknown }[];
+        FROM events WHERE seq > ? AND type = 'pilot-pick-metric' ORDER BY seq`).all(watermark) as { seq: number; id: unknown }[];
       // Index every pilot ID in the delta, not just this pick: advancing past an
       // unkeyed rollback event would otherwise hide it from a later retry.
       for (const row of appended) {
         if (typeof row.id === "string") this.setSetting(prefix + row.id, "1");
-        watermark = row.seq;
       }
+      // Skip unrelated rows without materializing them; MAX uses the rowid endpoint (mk-bzi8s.24).
+      watermark = (this.db.prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM events").get() as { seq: number }).seq;
       if (!initialized) this.setSetting(ready, "1");
       if (this.setting(key) === undefined) {
         watermark = this.event("pilot-pick-metric", null, metric);
