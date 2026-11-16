@@ -1,3 +1,4 @@
+import { recordPilotPick } from "./pilotmetrics.js";
 // The Home decision service: file, pick once, reconcile the ruling file, wake and feed.
 // Every state change goes through one Store transaction; this layer maps outcomes to
 // HTTP-shaped results and never holds state of its own.
@@ -938,6 +939,14 @@ export class Service {
       if (threads.length > 0) ruling.mentions = threads;
       // The ledger comes first: it does not depend on the project having a root, so a pick on an unbound project still
       // reaches it. A retry after a later failure finds its line and writes nothing.
+      try {
+        if (d.source === "card" && pick.by === "mk") {
+          const request = this.db.prepare("SELECT request_key FROM card_requests WHERE task_id = ?").get(d.task_id) as { request_key: string } | undefined;
+          recordPilotPick({ requestKey: request?.request_key ?? d.request_id, cardKey: ruling.card_key ?? String(d.task_id), project: d.project,
+            pickId: pick.pick_id, time: pick.picked_at, optionKind: option?.kind ?? (option?.instruction ? "instruction" : "ruling-only"),
+            other: !option && isOwnWordsId(pick.option_id), reason: pick.reason });
+        }
+      } catch { this.deps.log?.("pilot pick metric unavailable"); }
       if (this.deps.rulingsLedger) appendRuling(this.deps.rulingsLedger, this.ledgerPickOf(d, ask, pick));
       const target = rulingPath({ scope: estate ? "estate" : "project", decision_id: d.id, subject: ruling.subject, date: pick.picked_at.slice(0, 10) });
       writeRuling({ path: d.project_root ?? "", dev: d.root_dev ?? "", ino: d.root_ino ?? "", fsid: d.root_fsid ?? null }, target.dirs, target.file, renderRuling(ruling));

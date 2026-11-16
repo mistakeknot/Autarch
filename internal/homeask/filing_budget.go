@@ -53,21 +53,27 @@ func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
 }
 
 type filingEntry struct {
-	DeliveredCard    string      `json:"delivered_card,omitempty"`
-	DeliveredKey     string      `json:"delivered_key,omitempty"`
-	DeliveredProject string      `json:"delivered_project,omitempty"`
-	CreationKey      string      `json:"creation_key,omitempty"`
-	Uncharged        bool        `json:"uncharged,omitempty"`
-	Refunded         bool        `json:"refunded,omitempty"`
-	TerminalReason   string      `json:"terminal_reason,omitempty"`
-	Request          CardRequest `json:"request"`
-	Identity         string      `json:"identity"`
-	Project          string      `json:"project"`
-	Week             string      `json:"week"`
-	Attempted        bool        `json:"attempted,omitempty"`
-	Held             bool        `json:"held"`
-	Supersedes       string      `json:"supersedes,omitempty"`
-	Update           bool        `json:"update"`
+	DeliveredCardKey  string      `json:"delivered_card_key,omitempty"`
+	FiledAt           string      `json:"filed_at,omitempty"`
+	DeliveredAt       string      `json:"delivered_at,omitempty"`
+	DeliveryPendingAt string      `json:"delivery_pending_at,omitempty"`
+	LinkFailureSet    string      `json:"link_failure_set,omitempty"`
+	HeldReason        string      `json:"held_reason,omitempty"`
+	DeliveredCard     string      `json:"delivered_card,omitempty"`
+	DeliveredKey      string      `json:"delivered_key,omitempty"`
+	DeliveredProject  string      `json:"delivered_project,omitempty"`
+	CreationKey       string      `json:"creation_key,omitempty"`
+	Uncharged         bool        `json:"uncharged,omitempty"`
+	Refunded          bool        `json:"refunded,omitempty"`
+	TerminalReason    string      `json:"terminal_reason,omitempty"`
+	Request           CardRequest `json:"request"`
+	Identity          string      `json:"identity"`
+	Project           string      `json:"project"`
+	Week              string      `json:"week"`
+	Attempted         bool        `json:"attempted,omitempty"`
+	Held              bool        `json:"held"`
+	Supersedes        string      `json:"supersedes,omitempty"`
+	Update            bool        `json:"update"`
 }
 type filingState map[string]filingEntry
 
@@ -143,6 +149,7 @@ func saveFilingState(path string, state filingState) error {
 	}
 	return os.Rename(tmp.Name(), path)
 }
+
 // defaultWeeklyBudget is the ordinary cards per Home project per ISO week when
 // neither CardFiler.WeeklyBudget nor AUTARCH_CARD_WEEKLY_BUDGET is set (mk-bzi8s).
 const defaultWeeklyBudget = 50
@@ -212,6 +219,21 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	if err != nil {
 		return CardResult{}, err
 	}
+	if f.anyPilot() {
+		// Per-request serialization makes a held retry independent of volatile proofs.
+		prior, _, priorDone, priorErr := f.openState()
+		if priorErr == nil {
+			oldHeld, hadHeld := prior[r.Key]
+			priorDone()
+			if hadHeld && oldHeld.Held {
+				if oldHeld.Identity != identity || oldHeld.Request.Thread != r.Thread || oldHeld.Request.Owner != r.Owner {
+					return CardResult{}, errReused
+				}
+				return CardResult{Key: r.Key, Queued: true, Replay: true}, nil
+			}
+		}
+		// Other state errors/refusals remain after canonical registry replay, as before.
+	}
 	askKey, _ := r.Ask["ask_key"].(string)
 	updateLane := update && (askKey != "" || supersedes != "")
 	uncharged := updateLane
@@ -239,6 +261,14 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		}
 		lookupUnlock()
 	}
+	if f.pilot("linkcheck") {
+		if v := f.checkLinks(ctx, r); len(v) > 0 {
+			return CardResult{}, fmt.Errorf("%w: link-check: %s", ErrInvalid, failureText(v))
+		}
+	}
+	if err := f.checkColdRead(ctx, r); err != nil {
+		return CardResult{}, err
+	}
 	if updateLane && r.NonBlocking {
 		uncharged, err = f.hasUpdateTarget(ctx, r, supersedes)
 		if err != nil {
@@ -250,6 +280,12 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 			return CardResult{}, err
 		}
 	}
+	// Slow validation above never holds the fleet gate. Only admission and delivery do.
+	gateDone, e := f.deliveryGate()
+	if e != nil {
+		return CardResult{}, e
+	}
+	defer gateDone()
 	state, path, unlock, err := f.openState()
 	if err != nil {
 		return CardResult{}, fmt.Errorf("%w: filing state: %v", ErrHomeDown, err)
@@ -291,11 +327,32 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		if !uncharged && used >= limit && !r.Urgent && r.KeepList == "" {
 			return CardResult{}, fmt.Errorf("%w: weekly card budget of %d reached; decide by your stated default, log the decision on your bead, show mk the result in the next build; use --urgent or --keep-list only for an exception", ErrInvalid, limit)
 		}
-		state[r.Key] = filingEntry{Request: r, Identity: identity, Project: project, Week: wk, Held: r.NonBlocking, Supersedes: supersedes, Update: update, Uncharged: uncharged}
+		full, e := f.dailyFull(state, r)
+		if e != nil {
+			return CardResult{}, e
+		}
+		held := r.NonBlocking || full
+		reason := ""
+		if full {
+			reason = "daily-cap"
+		} else if held && f.anyPilot() {
+			reason = "non-blocking"
+		}
+		state[r.Key] = filingEntry{Request: r, Identity: identity, Project: project, Week: wk, Held: held, HeldReason: reason, Supersedes: supersedes, Update: update, Uncharged: uncharged}
+		if f.anyPilot() {
+			v := state[r.Key]
+			v.FiledAt = f.clock().Format(time.RFC3339Nano)
+			state[r.Key] = v
+		}
 		if err = saveFilingState(path, state); err != nil {
 			return CardResult{}, err
 		}
-		if r.NonBlocking {
+		f.pilotEvent(r, "filed", "", "")
+		if held {
+			f.pilotEvent(r, "held", "", reason)
+			if full && f.Warn != nil {
+				f.Warn("held: daily-cap reached; queued for ranked release")
+			}
 			return CardResult{Key: r.Key, Queued: true}, nil
 		}
 	}
@@ -320,6 +377,7 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		done()
 		err = errors.Join(err, e)
 	}
+	err = errors.Join(err, f.noteDelivery(r.Key, result))
 	return result, err
 }
 
@@ -338,6 +396,17 @@ func (f *CardFiler) Release(ctx context.Context) (map[string][]CardResult, error
 
 func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) {
 	report := ReleaseReport{Groups: map[string][]CardResult{}, Failures: map[string]string{}}
+	// One configuration read per release; expiry is still evaluated at each admission.
+	scoped := *f
+	pilots, pilotErr := f.Pilots()
+	scoped.pilotSnapshot = pilots
+	if pilotErr != nil {
+		scoped.pilotSnapshot = Pilots{}
+		if f.Warn != nil {
+			f.Warn("pilots disabled: " + pilotErr.Error())
+		}
+	}
+	f = &scoped
 	state, _, unlock, err := f.openState()
 	if err != nil {
 		return report, err
@@ -349,7 +418,18 @@ func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) 
 			keys = append(keys, key)
 		}
 	}
+	rankByBlocks := f.pilot("daycap")
 	sort.Slice(keys, func(i, j int) bool {
+		if rankByBlocks {
+			a, b := state[keys[i]], state[keys[j]]
+			if len(a.Request.Blocks) != len(b.Request.Blocks) {
+				return len(a.Request.Blocks) > len(b.Request.Blocks)
+			}
+			if a.FiledAt != b.FiledAt {
+				return a.FiledAt < b.FiledAt
+			}
+			return keys[i] < keys[j]
+		}
 		a, b := state[keys[i]].Request.Type, state[keys[j]].Request.Type
 		if a == b {
 			return keys[i] < keys[j]
@@ -361,6 +441,9 @@ func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) 
 	for _, key := range keys {
 		result, typ, e := f.releaseOne(ctx, key)
 		if result.ID != "" {
+			if e == nil {
+				f.pilotEvent(state[key].Request, "released", "", "")
+			}
 			if typ == "" {
 				typ = state[key].Request.Type
 			}
@@ -398,6 +481,12 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	}
 	unlock()
 	r := e.Request
+	if f.pilot("linkcheck") {
+		if v := f.checkLinks(ctx, r); len(v) > 0 {
+			wakeErr := f.wakeLinkOwner(ctx, key, r, v)
+			return CardResult{}, r.Type, errors.Join(fmt.Errorf("link-check: %s", failureText(v)), wakeErr)
+		}
+	}
 	if f.Check != nil {
 		if _, _, err = f.PrepareAsk(ctx, r.Project, fmt.Sprint(r.Ask["project"]), fmt.Sprint(r.Ask["project_root"])); err != nil {
 			if errors.Is(err, ErrInvalid) {
@@ -410,10 +499,29 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 			return CardResult{}, "", err
 		}
 	}
+	gateDone, err := f.deliveryGate()
+	if err != nil {
+		return CardResult{}, "", err
+	}
+	defer gateDone()
 	var result CardResult
 	state, path, unlock, err = f.openState()
 	if err != nil {
 		return CardResult{}, "", err
+	}
+	e, ok = state[key]
+	if !ok || !e.Held {
+		unlock()
+		return CardResult{}, "", nil
+	}
+	full, capErr := f.dailyFull(state, e.Request)
+	if capErr != nil {
+		unlock()
+		return CardResult{}, "", capErr
+	}
+	if full {
+		unlock()
+		return CardResult{}, "", nil
 	}
 	e.Attempted = true
 	state[key] = e
@@ -449,6 +557,10 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	e = state[key] // Preserve creation admission saved by the delivery callback.
 	e.Held = false
 	e.DeliveredCard = result.ID
+	if f.anyPilot() && e.DeliveredAt == "" {
+		e.DeliveredAt = f.clock().Format(time.RFC3339Nano)
+	}
+	e.DeliveryPendingAt = ""
 	state[key] = e
 	err = saveFilingState(path, state)
 	typ := r.Type
@@ -571,6 +683,9 @@ func (f *CardFiler) chargeCreation(r CardRequest, creationKey string) error {
 		return fmt.Errorf("%w: missing creation reservation", ErrInvalid)
 	}
 	entry.CreationKey = creationKey
+	if f.pilot("daycap") && entry.DeliveredAt == "" {
+		entry.DeliveryPendingAt = f.clock().Format(time.RFC3339Nano)
+	}
 	if !entry.Uncharged {
 		state[r.Key] = entry
 		return saveFilingState(path, state)
