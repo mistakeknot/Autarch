@@ -205,11 +205,6 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	if e = os.MkdirAll(dir, 0700); e != nil {
 		return CardResult{}, e
 	}
-	gateDone, e := f.deliveryGate()
-	if e != nil {
-		return CardResult{}, e
-	}
-	defer gateDone()
 	deliveryUnlock, e := lockFile(filepath.Join(dir, "delivery-"+r.Key+".lock"))
 	if e != nil {
 		return CardResult{}, e
@@ -218,6 +213,24 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	identity, err := RequestIdentity(r)
 	if err != nil {
 		return CardResult{}, err
+	}
+	if f.anyPilot() {
+		// Per-request serialization makes a held retry independent of volatile proofs.
+		prior, _, priorDone, priorErr := f.openState()
+		if priorErr != nil {
+			return CardResult{}, priorErr
+		}
+		oldHeld, hadHeld := prior[r.Key]
+		priorDone()
+		if hadHeld && oldHeld.Refunded {
+			return CardResult{}, fmt.Errorf("%w: request retired: %s; file the corrected ask with a new request key", ErrInvalid, oldHeld.TerminalReason)
+		}
+		if hadHeld && oldHeld.Held {
+			if oldHeld.Identity != identity || oldHeld.Request.Thread != r.Thread || oldHeld.Request.Owner != r.Owner {
+				return CardResult{}, errReused
+			}
+			return CardResult{Key: r.Key, Queued: true, Replay: true}, nil
+		}
 	}
 	askKey, _ := r.Ask["ask_key"].(string)
 	updateLane := update && (askKey != "" || supersedes != "")
@@ -265,6 +278,12 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 			return CardResult{}, err
 		}
 	}
+	// Slow validation above never holds the fleet gate. Only admission and delivery do.
+	gateDone, e := f.deliveryGate()
+	if e != nil {
+		return CardResult{}, e
+	}
+	defer gateDone()
 	state, path, unlock, err := f.openState()
 	if err != nil {
 		return CardResult{}, fmt.Errorf("%w: filing state: %v", ErrHomeDown, err)
@@ -432,11 +451,6 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	if err != nil {
 		return CardResult{}, "", err
 	}
-	gateDone, err := f.deliveryGate()
-	if err != nil {
-		return CardResult{}, "", err
-	}
-	defer gateDone()
 	keyUnlock, err := lockFile(filepath.Join(dir, "delivery-"+key+".lock"))
 	if err != nil {
 		return CardResult{}, "", err
@@ -448,15 +462,6 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	}
 	e, ok := state[key]
 	if !ok || !e.Held {
-		unlock()
-		return CardResult{}, "", nil
-	}
-	full, capErr := f.dailyFull(state, e.Request)
-	if capErr != nil {
-		unlock()
-		return CardResult{}, "", capErr
-	}
-	if full {
 		unlock()
 		return CardResult{}, "", nil
 	}
@@ -480,10 +485,29 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 			return CardResult{}, "", err
 		}
 	}
+	gateDone, err := f.deliveryGate()
+	if err != nil {
+		return CardResult{}, "", err
+	}
+	defer gateDone()
 	var result CardResult
 	state, path, unlock, err = f.openState()
 	if err != nil {
 		return CardResult{}, "", err
+	}
+	e, ok = state[key]
+	if !ok || !e.Held {
+		unlock()
+		return CardResult{}, "", nil
+	}
+	full, capErr := f.dailyFull(state, e.Request)
+	if capErr != nil {
+		unlock()
+		return CardResult{}, "", capErr
+	}
+	if full {
+		unlock()
+		return CardResult{}, "", nil
 	}
 	e.Attempted = true
 	state[key] = e

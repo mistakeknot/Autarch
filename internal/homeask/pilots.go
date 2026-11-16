@@ -220,7 +220,15 @@ func (f *CardFiler) checkColdRead(ctx context.Context, r CardRequest) error {
 			}
 		}
 		if !found {
-			return fmt.Errorf("%w: add Precedent: <past ruling it resembles, or none> to the question", ErrInvalid)
+			gap := "add Precedent: <past ruling it resembles, or none> to the question"
+			f.pilotEvent(r, "cold-read", "fail", gap)
+			if r.Urgent || r.KeepList != "" {
+				if f.Warn != nil {
+					f.Warn("cold-read: " + gap)
+				}
+				return nil
+			}
+			return fmt.Errorf("%w: %s", ErrInvalid, gap)
 		}
 	}
 	desc, _, e := r.Description()

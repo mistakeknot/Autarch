@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,11 +28,13 @@ type LinkChecker interface {
 type ArtifactLinkChecker struct {
 	Client *http.Client
 	PR     func(context.Context, string) (string, error)
+	// Unknown reports repository URLs that cannot be checked without GitHub authentication.
+	Unknown func(string)
 }
 
 var pilotURL = regexp.MustCompile("https://[^\\s<>\"'`]+")
 var pilotPR = regexp.MustCompile(`(?:https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)|([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+))`)
-var pilotSHA = regexp.MustCompile(`\b[0-9a-fA-F]{8,64}\b`)
+var pilotPRHead = regexp.MustCompile(`(?i)^[ \t]*(?:\([ \t]*)?(?:at|head(?:[ \t]+sha)?)[ \t:=]+([0-9a-f]{8,64})\b`)
 var scriptLine = regexp.MustCompile(`(?m)(?:bash[ \t]+|script:[ \t]*)(/[^\s"` + "`" + `]+)`)
 var fullSHA = regexp.MustCompile(`\b[0-9a-fA-F]{64}\b`)
 
@@ -98,15 +101,12 @@ func (c ArtifactLinkChecker) Check(ctx context.Context, r CardRequest) []LinkFai
 			if v(6) != "" {
 				ref = v(6) + "#" + v(8)
 			}
-			start := strings.LastIndex(s[:m[0]], "\n") + 1
-			end := strings.Index(s[m[1]:], "\n")
-			if end < 0 {
-				end = len(s)
-			} else {
-				end += m[1]
+			// Bind the head to this reference, never another digest elsewhere on its line.
+			hashes := prs[ref]
+			if head := pilotPRHead.FindStringSubmatch(s[m[1]:]); len(head) > 0 {
+				hashes = append(hashes, head[1])
 			}
-			near := s[start:m[0]] + " " + s[m[1]:end]
-			prs[ref] = append(prs[ref], pilotSHA.FindAllString(near, -1)...)
+			prs[ref] = hashes
 		}
 		lines := strings.Split(s, "\n")
 		for i, l := range lines {
@@ -155,6 +155,15 @@ func (c ArtifactLinkChecker) Check(ctx context.Context, r CardRequest) []LinkFai
 		return nil
 	}
 	for u := range urls {
+		parsed, parseErr := url.Parse(u)
+		if parseErr == nil && strings.EqualFold(parsed.Hostname(), "github.com") && len(strings.Split(strings.Trim(parsed.Path, "/"), "/")) >= 2 {
+			// Anonymous GitHub 404 is ambiguous for private repositories. PR existence
+			// and explicit heads are checked below with authenticated gh; other paths are unknown.
+			if !pilotPR.MatchString(u) && c.Unknown != nil {
+				c.Unknown(u)
+			}
+			continue
+		}
 		req, e := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 		if e == nil {
 			var resp *http.Response
@@ -211,23 +220,93 @@ func failureText(failures []LinkFailure) string {
 	}
 	return strings.Join(out, "; ")
 }
-func (f *CardFiler) checkLinks(ctx context.Context, r CardRequest) []LinkFailure {
+func (f *CardFiler) linkResults(ctx context.Context, r CardRequest) ([]LinkFailure, []string) {
 	c := f.Links
+	var unknown []string
 	if c == nil {
-		c = ArtifactLinkChecker{}
+		c = ArtifactLinkChecker{Unknown: func(item string) { unknown = append(unknown, item) }}
 	}
 	v := c.Check(ctx, r)
-	result := "pass"
+	sort.Strings(unknown)
+	return v, unknown
+}
+func linkResult(v []LinkFailure, unknown []string) (string, string) {
 	if len(v) > 0 {
-		result = "fail"
+		return "fail", failureText(v)
 	}
-	f.pilotEvent(r, "link-check", result, failureText(v))
+	if len(unknown) > 0 {
+		return "unknown", "GitHub repository URLs need authenticated validation: " + strings.Join(unknown, ", ")
+	}
+	return "pass", ""
+}
+func (f *CardFiler) checkLinks(ctx context.Context, r CardRequest) []LinkFailure {
+	v, unknown := f.linkResults(ctx, r)
+	result, reason := linkResult(v, unknown)
+	f.pilotEvent(r, "link-check", result, reason)
+	if len(v) == 0 {
+		if e := f.clearLinkFailure(r.Key); e != nil && f.Warn != nil {
+			f.Warn("link recovery state unavailable: " + e.Error())
+		}
+	}
+	if len(unknown) > 0 && f.Warn != nil {
+		f.Warn(reason)
+	}
 	return v
 }
+func (f *CardFiler) clearLinkFailure(key string) error {
+	s, p, done, e := f.openState()
+	if e != nil {
+		return e
+	}
+	defer done()
+	v, ok := s[key]
+	if !ok || v.LinkFailureSet == "" {
+		return nil
+	}
+	v.LinkFailureSet = ""
+	s[key] = v
+	return saveFilingState(p, s)
+}
 
-// Notification identity excludes unstable OS/network error text; URL and status remain visible.
+// Failure classes are stable across resolver addresses, timings and OS messages.
+func failureClass(v LinkFailure) string {
+	r := strings.ToLower(v.Reason)
+	switch {
+	case strings.Contains(r, "sha256 changed"):
+		return "sha-mismatch"
+	case strings.HasPrefix(r, "changed:"):
+		return "changed-head"
+	case strings.Contains(r, "no such file"), strings.Contains(r, "file does not exist"):
+		return "missing-file"
+	case strings.Contains(r, "http 404"):
+		return "dead-404"
+	case strings.Contains(r, "http 410"):
+		return "dead-410"
+	case regexp.MustCompile(`http 5[0-9][0-9]`).MatchString(r):
+		return "dead-5xx"
+	case regexp.MustCompile(`http 4[0-9][0-9]`).MatchString(r):
+		return "dead-4xx"
+	case strings.HasPrefix(v.Item, "https://"):
+		return "dead-conn"
+	case filepath.IsAbs(v.Item):
+		return "file-unavailable"
+	default:
+		return "pr-unavailable"
+	}
+}
 func failureSet(v []LinkFailure) string {
-	b, _ := json.Marshal(v)
+	pairs := make([]string, 0, len(v))
+	for _, f := range v {
+		pairs = append(pairs, f.Item+"\x00"+failureClass(f))
+	}
+	sort.Strings(pairs)
+	unique := pairs[:0]
+	for _, p := range pairs {
+		if len(unique) == 0 || unique[len(unique)-1] != p {
+			unique = append(unique, p)
+		}
+	}
+	b, _ := json.Marshal(unique)
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
@@ -338,16 +417,9 @@ func (f *CardFiler) RecheckLinks(ctx context.Context, w io.Writer, dry bool) err
 		if card.Move != nil {
 			r.Move = card.Move.Raw
 		}
-		c := f.Links
-		if c == nil {
-			c = ArtifactLinkChecker{}
-		}
-		v := c.Check(ctx, r)
-		result := "pass"
-		if len(v) > 0 {
-			result = "fail"
-		}
-		fmt.Fprintf(w, "%s %s %s %s\n", view.CardKey, key, result, failureText(v))
+		v, unknown := f.linkResults(ctx, r)
+		result, reason := linkResult(v, unknown)
+		fmt.Fprintf(w, "%s %s %s %s\n", view.CardKey, key, result, reason)
 		if !dry {
 			if !known {
 				current, p, done, e := f.openState()
@@ -364,7 +436,12 @@ func (f *CardFiler) RecheckLinks(ctx context.Context, w io.Writer, dry bool) err
 					return e
 				}
 			}
-			f.pilotEvent(r, "link-check", result, failureText(v))
+			f.pilotEvent(r, "link-check", result, reason)
+			if len(v) == 0 {
+				if e = f.clearLinkFailure(key); e != nil {
+					return e
+				}
+			}
 			if len(v) > 0 {
 				if e = f.wakeLinkOwner(ctx, key, r, v); e != nil {
 					return e
