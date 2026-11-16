@@ -6,7 +6,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 )
+
+var unusableBBCLIWarning sync.Once
 
 // ResolveBBBinary honors the configured CLI before PATH and the user-local install.
 func ResolveBBBinary() (string, error) {
@@ -18,7 +21,9 @@ func ResolveBBBinary() (string, error) {
 		if executable(path) {
 			return path, nil
 		}
-		fmt.Fprintln(os.Stderr, "warning: BB_CLI is unusable; checking PATH and the user-local install")
+		unusableBBCLIWarning.Do(func() {
+			fmt.Fprintln(os.Stderr, "warning: BB_CLI is unusable; checking PATH and the user-local install")
+		})
 	}
 	if path, err := exec.LookPath("bb"); err == nil {
 		return path, nil

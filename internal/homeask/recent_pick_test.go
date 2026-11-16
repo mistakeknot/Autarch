@@ -75,6 +75,30 @@ func TestUnreadablePickTimeDiagnostic(t *testing.T) {
 	}
 }
 
+func TestRecentPickRefusesReopenedCard(t *testing.T) {
+	bb, f, state := updateRig(t)
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	f.Now = func() time.Time { return now }
+	r := testReq()
+	r.Ask["ask_key"] = "stable"
+	if _, err := f.FileOrUpdateCard(context.Background(), r, ""); err != nil {
+		t.Fatal(err)
+	}
+	// The task has been reopened and Home no longer reports it as picked.
+	bb.tasks[0].Status = "todo"
+	*state = "open"
+	bb.tasks[0].Comments = append(bb.tasks[0].Comments, Comment{Kind: "user", Body: "Ruled: chosen", CreatedAt: now.Add(-time.Hour).Format(time.RFC3339Nano)})
+	before := bb.tasks[0].Desc
+	r.Key = "retry"
+	_, err := f.FileOrUpdateCard(context.Background(), r, "")
+	if !errors.Is(err, ErrAlreadyRuled) || !errors.Is(err, errNoCardWritten) {
+		t.Fatalf("reopened card must refuse without writing: %v", err)
+	}
+	if bb.count("tasks", "create") != 1 || bb.count("tasks", "update") != 0 || bb.tasks[0].Desc != before {
+		t.Fatal("reopened card was created or edited")
+	}
+}
+
 func TestRecentPickedClosedCardCannotRefile(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
