@@ -1149,7 +1149,7 @@ func (f *CardFiler) tasksProject(homeProject string) (string, error) {
 
 // File implements Filer for an ask from a thread: the card is filed and routed to a.Thread. The
 // Request key is a.RequestID, else a UUIDv5 of the ask's identity, so a blind retry is idempotent.
-// It returns the card's task id.
+// It returns the card's task id, or a HeldError carrying the queued request key.
 func (f *CardFiler) File(ctx context.Context, a Ask) (string, error) {
 	if a.Asker == "mycroft" {
 		return "", fmt.Errorf("%w: legacy threadless asks are refused", ErrInvalid)
@@ -1181,6 +1181,9 @@ func (f *CardFiler) File(ctx context.Context, a Ask) (string, error) {
 		}
 	}
 	res, err := f.FileCard(ctx, CardRequest{Project: project, Title: titleOf(a), Ask: wire, Key: key, Thread: a.Thread})
+	if err == nil && res.Queued {
+		return "", &HeldError{RequestKey: res.Key}
+	}
 	return res.ID, err
 }
 

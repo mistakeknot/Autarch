@@ -202,6 +202,34 @@ func TestDecideFileUsesTheConfiguredTasksProjectBinding(t *testing.T) {
 	}
 }
 
+func TestDecideFileReportsHeldRequest(t *testing.T) {
+	s := &stubBB{}
+	withCardFiler(t, s, func(f *homeask.CardFiler) {
+		f.Now = func() time.Time { return time.Date(2026, 11, 16, 18, 0, 0, 0, time.UTC) }
+	})
+	t.Setenv("BB_THREAD_ID", "")
+	var ask map[string]any
+	if err := json.Unmarshal([]byte(askJSON("thr-x")), &ask); err != nil {
+		t.Fatal(err)
+	}
+	ask["request_id"] = "held-request"
+	raw, err := json.Marshal(ask)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := runDecide(t, string(raw), "file")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("held request needs explicit queue output: %q: %v", out, err)
+	}
+	if result["queued"] != true || result["request"] != "held-request" || result["id"] != nil || !strings.Contains(out, "queued for the Thursday batch") || s.creates != 0 {
+		t.Fatalf("held request reported as filed: %s creates=%d", out, s.creates)
+	}
+}
+
 func TestDecideCommitThenLostAnswerSucceedsOnTheFirstRun(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "")
 	s := &stubBB{loseCreateAnswer: true}

@@ -248,7 +248,8 @@ Ordinary cards filed Monday 00:00 through Thursday before 12:00 Pacific are also
 held for the Thursday batch. Urgent, keep-list, merge and root-run cards bypass
 this weekday hold. Release inside that window leaves ordinary cards queued;
 schedule release at Thursday noon or later. Counted slots stay in their filing week.
---urgent or --keep-list marks a budget exception. Success prints JSON with a non-empty card_key (--json is also accepted).
+--urgent or --keep-list marks a budget exception. Delivered cards print JSON with a non-empty card_key;
+held cards print queued:true and their request key instead (--json is also accepted).
 --urgent exempts the budget; --urgency blocker only controls phone push and does not exempt the budget.
 Exempt cards are recorded separately and never consume ordinary slots; needs-mk budget shows both tallies.
 After filing, waits up to 30 seconds for Home's index. If the key remains missing, exits 4

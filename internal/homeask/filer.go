@@ -24,6 +24,14 @@ type Filer interface {
 	File(ctx context.Context, a Ask) (string, error)
 }
 
+// HeldError reports an accepted queue entry without claiming a card was filed.
+// Legacy string-ID consumers can distinguish it from a delivered card.
+type HeldError struct{ RequestKey string }
+
+func (e *HeldError) Error() string {
+	return "request " + e.RequestKey + " is queued for the Thursday batch; no card has been filed"
+}
+
 // ListRow is one waiting ask as `bb home list --json` prints it.
 type ListRow struct {
 	TaskID   string `json:"task_id,omitempty"`

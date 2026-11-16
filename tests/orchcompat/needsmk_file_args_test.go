@@ -444,7 +444,7 @@ func TestMoveFiling(t *testing.T) {
 		t.Run(c.name+" move alone", func(t *testing.T) {
 			e := newEnv(t)
 			e.cwd = shared.alpha
-			r := e.autarch("needs-mk", "file", "--project", "P1", "--title", "Do the thing", "--move", moveFile(e, c.move))
+			r := e.autarch("needs-mk", "file", "--urgent", "--project", "P1", "--title", "Do the thing", "--move", moveFile(e, c.move))
 			wantCode(t, r, 0)
 			if r.Stderr != c.stderr {
 				t.Errorf("stderr = %q, want %q", r.Stderr, c.stderr)

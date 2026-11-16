@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -140,6 +141,8 @@ func decideFileCmd() *cobra.Command {
 		Long: `Files a tasks card routed to the asking thread (see also: autarch needs-mk file). The
 tasks project is --tasks-project, else AUTARCH_TASKS_PROJECTS (<home project>=<tasks project>,...),
 else AUTARCH_TASKS_PROJECT. Legacy threadless (mycroft) asks are refused.
+An ordinary card held for the Thursday batch prints queued JSON with its request key
+and message instead of a card id.
 
 Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
 (re-run the same command; it is idempotent), 5 already ruled.`,
@@ -174,6 +177,10 @@ Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
 				return err
 			}
 			id, err := f.File(ctx, a)
+			var held *homeask.HeldError
+			if errors.As(err, &held) {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"queued": true, "request": held.RequestKey, "message": held.Error()})
+			}
 			if err != nil {
 				return err
 			}
