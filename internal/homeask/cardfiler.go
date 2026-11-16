@@ -56,15 +56,16 @@ type BBRunner func(ctx context.Context, env []string, args ...string) BBResult
 
 // CardFiler files cards. The zero value works: it runs `bb` from PATH.
 type CardFiler struct {
-	ColdReader   ColdReader
-	Links        LinkChecker
-	StateDir     string           // persistent filing state; default XDG_STATE_HOME/autarch/needsmk
-	WeeklyBudget int              // zero uses AUTARCH_CARD_WEEKLY_BUDGET or 25
-	Now          func() time.Time // test clock; default time.Now
-	Bin          string           // default "bb"
-	Timeout      time.Duration    // per bb call, default 10 s
-	Run          BBRunner         // default: exec Bin
-	LockDir      string           // default ${XDG_RUNTIME_DIR:-/tmp}/autarch-needsmk-<uid>
+	pilotSnapshot Pilots // release-scoped configuration, nil outside release
+	ColdReader    ColdReader
+	Links         LinkChecker
+	StateDir      string           // persistent filing state; default XDG_STATE_HOME/autarch/needsmk
+	WeeklyBudget  int              // zero uses AUTARCH_CARD_WEEKLY_BUDGET or 25
+	Now           func() time.Time // test clock; default time.Now
+	Bin           string           // default "bb"
+	Timeout       time.Duration    // per bb call, default 10 s
+	Run           BBRunner         // default: exec Bin
+	LockDir       string           // default ${XDG_RUNTIME_DIR:-/tmp}/autarch-needsmk-<uid>
 	// TasksProjects maps a Home project name (case-insensitive) to the tasks project (id, key
 	// prefix or name) File files its cards into. It is the operator's binding:
 	// the filer never guesses a tasks project from names (a name match is only the poller's

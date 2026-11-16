@@ -33,7 +33,7 @@ type ArtifactLinkChecker struct {
 }
 
 var pilotURL = regexp.MustCompile("https://[^\\s<>\"'`]+")
-var pilotPR = regexp.MustCompile(`(?:https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)|([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+))`)
+var pilotPR = regexp.MustCompile(`(?i)(?:https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)|([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+))`)
 var pilotPRHead = regexp.MustCompile(`(?i)^[ \t]*(?:\([ \t]*)?(?:at|head(?:[ \t]+sha)?)[ \t:=]+([0-9a-f]{8,64})\b`)
 var scriptLine = regexp.MustCompile(`(?m)(?:bash[ \t]+|script:[ \t]*)(/[^\s"` + "`" + `]+)`)
 var fullSHA = regexp.MustCompile(`\b[0-9a-fA-F]{64}\b`)
@@ -199,12 +199,9 @@ func (c ArtifactLinkChecker) Check(ctx context.Context, r CardRequest) []LinkFai
 		}
 	}
 	for p, want := range scripts {
-		b, e := os.ReadFile(p)
-		if e == nil {
-			h := sha256.Sum256(b)
-			if !strings.EqualFold(hex.EncodeToString(h[:]), want) {
-				e = fmt.Errorf("sha256 changed")
-			}
+		actual, e := hashPilotScript(p)
+		if e == nil && !strings.EqualFold(actual, want) {
+			e = fmt.Errorf("sha256 changed")
 		}
 		if e != nil {
 			failures = append(failures, LinkFailure{p, e.Error()})
@@ -213,6 +210,43 @@ func (c ArtifactLinkChecker) Check(ctx context.Context, r CardRequest) []LinkFai
 	sort.Slice(failures, func(i, j int) bool { return failures[i].Item < failures[j].Item })
 	return failures
 }
+
+const maxPilotScriptBytes int64 = 8 << 20
+
+func hashPilotScript(path string) (string, error) {
+	info, e := os.Lstat(path)
+	if e != nil {
+		return "", e
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("script must be a regular file")
+	}
+	file, e := os.Open(path)
+	if e != nil {
+		return "", e
+	}
+	defer file.Close()
+	info, e = file.Stat()
+	if e != nil {
+		return "", e
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("script must be a regular file")
+	}
+	if info.Size() > maxPilotScriptBytes {
+		return "", fmt.Errorf("script exceeds %d byte limit", maxPilotScriptBytes)
+	}
+	h := sha256.New()
+	n, e := io.Copy(h, io.LimitReader(file, maxPilotScriptBytes+1))
+	if e != nil {
+		return "", e
+	}
+	if n > maxPilotScriptBytes {
+		return "", fmt.Errorf("script exceeds %d byte limit", maxPilotScriptBytes)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 func failureText(failures []LinkFailure) string {
 	out := make([]string, 0, len(failures))
 	for _, v := range failures {

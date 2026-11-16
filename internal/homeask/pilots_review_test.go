@@ -1,9 +1,14 @@
 package homeask
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -21,7 +26,7 @@ func TestReviewPrivateGitHubURLNotAnonymousDead(t *testing.T) {
 		return &http.Response{StatusCode: 404, Body: http.NoBody, Header: make(http.Header)}, nil
 	})}, PR: func(context.Context, string) (string, error) { prs++; return "abcdef0123456789", nil }}
 	r := testReq()
-	r.Ask["question"] = "See https://github.com/example/private/blob/main/notes.md and https://github.com/example/private/tree/main and https://github.com/example/private and https://github.com/example/private/pull/12"
+	r.Ask["question"] = "See https://github.com/example/private/blob/main/notes.md and https://github.com/example/private/tree/main and https://github.com/example/private and https://github.com/example/private/pull/12 and https://GITHUB.COM/example/private/pull/12"
 	v := c.Check(context.Background(), r)
 	if len(v) != 0 || calls != 0 || prs != 1 {
 		t.Fatalf("private GitHub URLs must not use anonymous GET: failures=%v GETs=%d PRs=%d", v, calls, prs)
@@ -211,3 +216,177 @@ func TestReviewSlowChecksOutsideDeliveryGate(t *testing.T) {
 type reviewCold func(context.Context, string) ([]byte, error)
 
 func (f reviewCold) Read(ctx context.Context, s string) ([]byte, error) { return f(ctx, s) }
+func TestReviewScriptBoundsAndRegularFiles(t *testing.T) {
+	for _, kind := range []string{"oversize", "directory"} {
+		t.Run(kind, func(t *testing.T) {
+			p := t.TempDir()
+			want := "regular"
+			if kind == "oversize" {
+				p = filepath.Join(p, "large.sh")
+				file, e := os.Create(p)
+				if e != nil {
+					t.Fatal(e)
+				}
+				if e = file.Truncate(9 << 20); e != nil {
+					t.Fatal(e)
+				}
+				file.Close()
+				want = "limit"
+			}
+			r := testReq()
+			r.RootRun = &RootRun{Script: p, SHA256: strings.Repeat("0", 64)}
+			v := (ArtifactLinkChecker{}).Check(context.Background(), r)
+			if len(v) != 1 || !strings.Contains(v[0].Reason, want) {
+				t.Fatalf("must reject script by %s: %v", want, v)
+			}
+		})
+	}
+}
+func TestReviewColdReadInheritedPipeBounded(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture")
+	}
+	p := filepath.Join(t.TempDir(), "fake-claude")
+	script := `#!/bin/sh
+case " $* " in
+ *" auth status "*) printf '%s' '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}' ;;
+ *) printf '%s' '{"decision":"Choose","options":{},"undefined_terms":[],"verdict":"clear"}'; sleep 2 & ;;
+esac
+`
+	if e := os.WriteFile(p, []byte(script), 0700); e != nil {
+		t.Fatal(e)
+	}
+	start := time.Now()
+	_, e := (ClaudeColdReader{Bin: p}).Read(context.Background(), "example")
+	if time.Since(start) > 1500*time.Millisecond || e == nil {
+		t.Fatalf("inherited pipe was not bounded: duration=%s err=%v", time.Since(start), e)
+	}
+}
+func TestReviewReleaseUsesPilotSnapshot(t *testing.T) {
+	t.Setenv(EnvCardDailyCap, "1")
+	f := newFake(t, registryOnCreate).filer()
+	for _, key := range []string{"a", "b"} {
+		r := testReq()
+		r.Key = key
+		r.NonBlocking = true
+		if _, e := f.FileCard(context.Background(), r); e != nil {
+			t.Fatal(e)
+		}
+	}
+	enablePilot(t, f, "daycap")
+	dir, _ := f.stateDir()
+	once := false
+	f.Now = func() time.Time {
+		if !once {
+			once = true
+			os.WriteFile(filepath.Join(dir, "pilots.json"), []byte("{}"), 0600)
+		}
+		return time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	}
+	groups, e := f.Release(context.Background())
+	if e != nil || len(groups["other"]) != 1 {
+		t.Fatalf("release reread mutable pilots mid-sort/run: %v %v", groups, e)
+	}
+}
+
+// The pre-pilot serialized shape, independent of the current filingEntry additions.
+type reviewLegacyEntry struct {
+	DeliveredCard    string      `json:"delivered_card,omitempty"`
+	DeliveredKey     string      `json:"delivered_key,omitempty"`
+	DeliveredProject string      `json:"delivered_project,omitempty"`
+	CreationKey      string      `json:"creation_key,omitempty"`
+	Uncharged        bool        `json:"uncharged,omitempty"`
+	Refunded         bool        `json:"refunded,omitempty"`
+	TerminalReason   string      `json:"terminal_reason,omitempty"`
+	Request          CardRequest `json:"request"`
+	Identity         string      `json:"identity"`
+	Project          string      `json:"project"`
+	Week             string      `json:"week"`
+	Attempted        bool        `json:"attempted,omitempty"`
+	Held             bool        `json:"held"`
+	Supersedes       string      `json:"supersedes,omitempty"`
+	Update           bool        `json:"update"`
+}
+
+func TestReviewAbsentPilotsDirectAndReleaseBytes(t *testing.T) {
+	for _, mode := range []string{"direct", "release"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newFake(t, registryOnCreate).filer()
+			f.Now = func() time.Time { return time.Date(2026, 1, 5, 12, 0, 0, 0, time.UTC) }
+			r := testReq()
+			r.NonBlocking = mode == "release"
+			res, e := f.FileCard(context.Background(), r)
+			if e != nil {
+				t.Fatal(e)
+			}
+			ident, _ := RequestIdentity(r)
+			entry := reviewLegacyEntry{CreationKey: r.Key, Request: r, Identity: ident, Project: "autarch", Week: "2026-W02"}
+			if mode == "direct" {
+				want := fmt.Sprintf(`{"card":"T1","request":%q,"project":"P1","replay":false}`, r.Key)
+				got, _ := json.Marshal(res)
+				if string(got) != want {
+					t.Fatalf("direct result bytes: %s != %s", got, want)
+				}
+			} else {
+				groups, e := f.Release(context.Background())
+				if e != nil {
+					t.Fatal(e)
+				}
+				want := fmt.Sprintf(`{"other":[{"card":"T1","request":%q,"project":"P1","replay":false}]}`, r.Key)
+				got, _ := json.Marshal(groups)
+				if string(got) != want {
+					t.Fatalf("release result bytes: %s != %s", got, want)
+				}
+				entry.DeliveredCard = "T1"
+				entry.Attempted = true
+			}
+			want, _ := json.Marshal(map[string]reviewLegacyEntry{r.Key: entry})
+			d, _ := f.stateDir()
+			got, e := os.ReadFile(filepath.Join(d, "filings.json"))
+			if e != nil || !bytes.Equal(got, want) {
+				t.Fatalf("legacy state bytes changed: %v\nwant %s\ngot %s", e, want, got)
+			}
+			if _, e := os.Stat(filepath.Join(d, "pilots-metrics.jsonl")); !os.IsNotExist(e) {
+				t.Fatal("absent pilots wrote metrics", e)
+			}
+		})
+	}
+}
+func TestReviewHeldRetrySkipsColdReader(t *testing.T) {
+	f := newFake(t, registryOnCreate).filer()
+	r := testReq()
+	r.NonBlocking = true
+	if _, e := f.FileCard(context.Background(), r); e != nil {
+		t.Fatal(e)
+	}
+	enablePilot(t, f, "coldread")
+	calls := 0
+	f.ColdReader = reviewCold(func(context.Context, string) ([]byte, error) {
+		calls++
+		return []byte(`{"decision":"Choose","options":{},"undefined_terms":["missing"],"verdict":"unclear"}`), nil
+	})
+	res, e := f.FileCard(context.Background(), r)
+	if e != nil || !res.Queued || !res.Replay || calls != 0 {
+		t.Fatalf("held retry invoked reader: %+v %v calls=%d", res, e, calls)
+	}
+	r.Title = "Different ask"
+	if _, e = f.FileCard(context.Background(), r); e == nil || calls != 0 {
+		t.Fatal("held replay accepted changed identity", e, calls)
+	}
+}
+func TestReviewUnknownGitHubMetric(t *testing.T) {
+	f := newFake(t, registryOnCreate).filer()
+	enablePilot(t, f, "linkcheck")
+	r := testReq()
+	r.Ask["question"] = "Read https://github.com/example/private/blob/main/notes.md ?"
+	var warn string
+	f.Warn = func(s string) { warn += s }
+	if _, e := f.FileCard(context.Background(), r); e != nil {
+		t.Fatal(e)
+	}
+	d, _ := f.stateDir()
+	b, e := os.ReadFile(filepath.Join(d, "pilots-metrics.jsonl"))
+	if e != nil || !strings.Contains(string(b), `"result":"unknown"`) || strings.Contains(string(b), `"result":"pass"`) || !strings.Contains(warn, "authenticated") {
+		t.Fatalf("unknown URL was not reported as unknown: %v %s %s", e, b, warn)
+	}
+}

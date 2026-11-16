@@ -21,3 +21,7 @@ describe("pilot pick metrics", () => {
     expect(pastedErrorV1("Please choose blue")).toBe(false);
   });
 });
+
+it("does not classify ordinary prose as pasted errors", () => {
+  for (const text of ["at 10:30 tomorrow", "We can discuss the stack trace later", "The error: label could be clearer", "Traceback is the title of a book", "exit code 2 is the choice we discussed"]) expect(pastedErrorV1(text)).toBe(false);
+});

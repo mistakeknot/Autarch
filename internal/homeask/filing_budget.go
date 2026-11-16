@@ -394,6 +394,17 @@ func (f *CardFiler) Release(ctx context.Context) (map[string][]CardResult, error
 
 func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) {
 	report := ReleaseReport{Groups: map[string][]CardResult{}, Failures: map[string]string{}}
+	// One configuration read per release; expiry is still evaluated at each admission.
+	scoped := *f
+	pilots, pilotErr := f.Pilots()
+	scoped.pilotSnapshot = pilots
+	if pilotErr != nil {
+		scoped.pilotSnapshot = Pilots{}
+		if f.Warn != nil {
+			f.Warn("pilots disabled: " + pilotErr.Error())
+		}
+	}
+	f = &scoped
 	state, _, unlock, err := f.openState()
 	if err != nil {
 		return report, err
@@ -405,8 +416,9 @@ func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) 
 			keys = append(keys, key)
 		}
 	}
+	rankByBlocks := f.pilot("daycap")
 	sort.Slice(keys, func(i, j int) bool {
-		if f.pilot("daycap") {
+		if rankByBlocks {
 			a, b := state[keys[i]], state[keys[j]]
 			if len(a.Request.Blocks) != len(b.Request.Blocks) {
 				return len(a.Request.Blocks) > len(b.Request.Blocks)

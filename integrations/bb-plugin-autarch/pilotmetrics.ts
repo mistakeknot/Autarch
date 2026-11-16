@@ -9,7 +9,7 @@ export interface PilotPickMetric {
 }
 /** pasted-error-v1 is a heuristic, not a diagnosis. Never persist the input text. */
 export function pastedErrorV1(text: string): boolean {
-  return /(?:\berror:|Traceback|\bstack trace\b|^\s*at\s+\S+.*:\d+|^\s*(?:exit(?:ed)?(?:\s+(?:with|status|code))*|Process exited with code)\s*[:=]?\s*\d+)/im.test(text);
+  return /(?:^\s*(?:error:|[A-Za-z_$][\w.$]*(?:Error|Exception):)\s*\S|^\s*Traceback \(most recent call last\):\s*$|^\s*stack trace:\s*$|^\s*at\s+[^\r\n]*\.(?:[cm]?[jt]sx?|java|py|go|rs):\d+(?::\d+)?\)?\s*$|^\s*(?:exit(?:ed)?(?:\s+(?:with|status|code))*|Process exited with code)\s*[:=]?\s*\d+[.!]?\s*$)/im.test(text);
 }
 export function recordPilotPick(input: PilotPickMetric, env: NodeJS.ProcessEnv = process.env): void {
   if (env.AUTARCH_NEEDSMK_PILOTS_OFF === "1") return;
