@@ -959,7 +959,7 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.rpc.register(rpcContract, {
     ...home.handlers,
-    quotaGovernor: () => governorView(),
+    quotaGovernor: () => homeMethods.quotaGovernor.output.parse(governorView()),
   });
 
   // Cleanup on reload/disable/shutdown; hooks run LIFO. The sanctioned place
