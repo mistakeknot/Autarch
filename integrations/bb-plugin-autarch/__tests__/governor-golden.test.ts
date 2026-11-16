@@ -1,5 +1,6 @@
 import { it, expect } from "vitest";
 import Database from "better-sqlite3";
+import { readFileSync } from "node:fs";
 import { z } from "zod";
 import golden from "./fixtures/governor-golden.json";
 import { DEFAULTS, choose, applyFloor, measurePace, editOperator, readFloor, type Config, type Account, type Samples, type Operator } from "../governor-policy.js";
@@ -20,6 +21,13 @@ it("contains recent CLI and upstream protected-card/pending step evidence", () =
   expect(steps.some(c => JSON.stringify(c.args[0]).includes('"pending":true'))).toBe(true);
   expect(steps.some(c => JSON.stringify(c.result).includes('"answered":"a"'))).toBe(true);
   expect(steps.some(c => JSON.stringify(c.result).includes('"renewals":3'))).toBe(true);
+});
+it("documents retained recent sample history accurately", () => {
+  const recent = golden.cases.filter(c => c.kind === "cli" && c.args[4] === "recent");
+  const retained = recent.filter(c => Object.values(history.parse(c.args[5])).some(points => points.length > 0));
+  const doc = readFileSync(new URL("../governor.md", import.meta.url), "utf8");
+  expect(doc).toContain(`${recent.length} use recent pace`);
+  expect(doc).toContain(`${retained.length} retain non-empty history and ${recent.length - retained.length} stale cases load empty history`);
 });
 
 it(`matches ${golden.cases.length} Python policy and CLI dry-run observations`, async () => {
@@ -61,7 +69,7 @@ it(`matches ${golden.cases.length} Python policy and CLI dry-run observations`, 
         answer: async () => z.enum(["a", "b"]).nullable().parse(take("card_answer").result),
         fileCard: async () => z.string().parse(take("file_card").result),
         apply: async (_cfg, level, force) => { const op = take("apply_operator"); expect([op.level, op.force]).toEqual([level, force]); expect(take("apply_bb_limit").level).toBe(level); },
-        notify: async () => { while (events[eventIndex]?.kind === "append_inbox") take("append_inbox"); },
+        prepareNotify: async () => ({ skipped: [], send: async () => { while (events[eventIndex]?.kind === "append_inbox") take("append_inbox"); return []; } }),
         writeThrottle: async () => {}, publish: () => {},
       };
       const g = new Governor(store, io); await g.tick();

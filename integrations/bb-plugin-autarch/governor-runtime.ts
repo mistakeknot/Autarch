@@ -2,14 +2,14 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import * as fs from "node:fs/promises";
+import { constants } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { z } from "zod";
-import { Governor, GovernorStore, atomicJson, setHostLimit, type AtomicFS, type Mode, type View } from "./governor.js";
+import { Governor, GovernorStore, atomicJson, setHostLimit, type AtomicFS, type Mode, type View, type NoticePlan } from "./governor.js";
 import { DEFAULTS, editOperator, findVizier, recipients, type Account, type Config, type Thread } from "./governor-policy.js";
 import type { PluginsLike } from "./tasks.js";
-import type { StoreHandle } from "./store.js";
 import { docRoots } from "./docread.js";
 
 export type Exec = (file: string, args: string[], options?: { timeout?: number; env?: NodeJS.ProcessEnv; signal?: AbortSignal }) => Promise<{ stdout: string }>;
@@ -23,12 +23,19 @@ export async function readOverrides(path: string, readText = (p: string) => fs.r
   }
   catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return null; throw e; }
 }
-export async function loadConfig(env: NodeJS.ProcessEnv = process.env, read = readOverrides, roots = docRoots): Promise<Config> {
+export type GovernorSettings = { quota_governor_mode?: string; quota_governor_host?: string; quota_governor_card_project?: string };
+export async function loadConfig(env: NodeJS.ProcessEnv = process.env, read = readOverrides, settings: GovernorSettings = {}): Promise<Config> {
   const home = homedir();
   const base = { ...structuredClone(DEFAULTS), bb_host: env.QUOTA_GOVERNOR_HOST ?? "", state_dir: join(home, ".local/state/quota-governor"), operator_toml: join(home, ".config/aleph-orchestration/operator.toml"), storage_root: env.BB_DATA_DIR ? join(env.BB_DATA_DIR, "thread-storage") : "" };
   const overrides = env.QUOTA_GOVERNOR_CONFIG ? await read(env.QUOTA_GOVERNOR_CONFIG) : null;
   if (overrides !== null && (typeof overrides !== "object" || Array.isArray(overrides))) throw Error("Governor override config must be an object");
-  const config = Object.assign(base, overrides ?? {});
+  const cfg = Object.assign(base, overrides ?? {});
+  cfg.bb_host = settings.quota_governor_host?.trim() || env.QUOTA_GOVERNOR_HOST?.trim() || cfg.bb_host;
+  cfg.card_project = settings.quota_governor_card_project?.trim() || env.QUOTA_GOVERNOR_CARD_PROJECT?.trim() || cfg.card_project;
+  return cfg;
+}
+export function resolveStorageRoot(cfg: Config, roots = docRoots): Config {
+  const config = { ...cfg };
   if (!config.storage_root) {
     const found = roots();
     if (found.length !== 1) throw Error("Governor thread-storage root is missing or ambiguous; configure storage_root");
@@ -52,7 +59,8 @@ export function homeAnswer(db: Database.Database, key: string): "a" | "b" | null
   return row?.option_id === "a" || row?.option_id === "b" ? row.option_id : null;
 }
 export async function fileProtectedCard(cfg: Config, level: number, pace: number | null, renewal: number, vizier: string, runFile: Exec, disk: AtomicFS, env: NodeJS.ProcessEnv = process.env): Promise<string> {
-  const project = (env.QUOTA_GOVERNOR_CARD_PROJECT ?? cfg.card_project).trim();
+  // loadConfig has already resolved setting > environment > file precedence.
+  const project = cfg.card_project.trim();
   if (!project) throw Error("Governor card project is required (card_project or QUOTA_GOVERNOR_CARD_PROJECT)");
   const lv = cfg.levels[level];
   const ask = {
@@ -63,7 +71,7 @@ export async function fileProtectedCard(cfg: Config, level: number, pace: number
     options: [{ id: "a", kind: "ruling-only", label: "A) Yes, cut protected work at this level" }, { id: "b", kind: "ruling-only", label: "B) No, hold at the lower level" }], recommendation: "b",
   };
   const path = join(cfg.state_dir, `card-ask-L${level}.json`);
-  await atomicJson(path, ask, disk);
+  await atomicJson(join(cfg.state_dir, `card-ask-L${level}.json`), ask, disk);
   const r = await runFile("autarch", ["needs-mk", "file", "--project", project, "--title", `Quota: cut protected work at level ${level} (${lv.name})?`, "--ask-file", path, "--vizier-owned", "--json"], { timeout: 120000, env: { ...env, BB_THREAD_ID: vizier } });
   return z.object({ card_key: z.string().min(1) }).parse(JSON.parse(r.stdout)).card_key;
 }
@@ -98,23 +106,40 @@ export async function applyOperator(cfg: Config, level: number, force: boolean, 
 }
 export interface InboxFS {
   stat(path: string): Promise<{ isDirectory(): boolean }>;
+  access(path: string, mode: number): Promise<unknown>;
   appendFile(path: string, text: string): Promise<unknown>;
 }
-export async function notifyInboxes(cfg: Config, threads: Thread[], old: number, next: number, pace: number | null, why: string, now: number, disk: InboxFS = fs): Promise<void> {
+export async function prepareInboxes(cfg: Config, threads: Thread[], old: number, next: number, pace: number | null, why: string, now: number, disk: InboxFS = fs, roots = docRoots): Promise<NoticePlan> {
+  cfg = resolveStorageRoot(cfg, roots);
   const lv = cfg.levels[next], p = (pace ?? -1).toFixed(2);
   const msg = next > old
     ? `THROTTLE (quota governor, level ${next} ${lv.name}, pooled weekly pace ${p}): no new executors, child threads, review rounds, research or background slices; finish only in-flight steps; no FYI or status replies. Merge and root-run asks already sent continue. Protected work (the one-shots, the Undersketch protected path) keeps its caps unless a card says otherwise.`
     : `THROTTLE LIFTED to level ${next} ${lv.name} (quota governor, pooled weekly pace ${p}): ${next === 0 ? "the open caps are back; resume normal work." : `caps back to level ${next}; resume normal work within them.`}`;
   const ids = recipients(threads, cfg), vz = findVizier(threads, cfg);
   if (!cfg.storage_root || !(await disk.stat(cfg.storage_root)).isDirectory()) throw Error("Governor thread-storage root is not a directory");
-  // Check every destination before the first append, so a missing recipient cannot silently drop a notice.
+  const writable = new Set<string>(), skipped: string[] = [];
+  // Read-only preflight before applying policy. A disappearing directory or a
+  // permission change after this check is reported at delivery, never rolled back.
   for (const id of [...ids, ...(vz ? [vz] : [])]) {
     if (!/^[A-Za-z0-9_-]+$/.test(id)) throw Error("Invalid thread id");
-    if (!(await disk.stat(join(cfg.storage_root, id))).isDirectory()) throw Error(`Governor recipient directory missing: ${id}`);
+    try {
+      const dir = join(cfg.storage_root, id);
+      if (!(await disk.stat(dir)).isDirectory()) throw Error("not a directory");
+      try { await disk.access(join(dir, "inbox.md"), constants.W_OK); }
+      catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; await disk.access(dir, constants.W_OK | constants.X_OK); }
+      writable.add(id);
+    } catch (e) { skipped.push(`Skipped recipient ${id}: ${String(e)}`); }
   }
+  if (!writable.size) throw Error(`No writable notification recipients; ${skipped.join("; ")}`);
   const append = (id: string, text: string) => disk.appendFile(join(cfg.storage_root, id, "inbox.md"), `${new Date(now).toISOString().slice(0, 16)}Z quota-governor ${text}\n`);
-  for (const id of ids) await append(id, msg);
-  if (vz) await append(vz, `quota level ${old} ${cfg.levels[old].name} -> ${next} ${lv.name} (pace ${p}; ${why})`);
+  return { skipped, async send() {
+    const failures: string[] = [];
+    for (const id of writable) {
+      try { await append(id, id === vz ? `quota level ${old} ${cfg.levels[old].name} -> ${next} ${lv.name} (pace ${p}; ${why})` : msg); }
+      catch (e) { failures.push(`Notification delivery failed for ${id}: ${String(e)}`); }
+    }
+    return failures;
+  } };
 }
 export interface GovernorHost {
   sdk: { threads: { list(input: { limit: number; offset: number; includeHidden: true }): Promise<unknown[]> } };
@@ -122,8 +147,9 @@ export interface GovernorHost {
   realtime: { publish(channel: string, data: Record<string, unknown>): unknown };
   log: { warn(message: string): unknown };
 }
-export function wireGovernor(bb: GovernorHost, handle: Pick<StoreHandle, "ready" | "store">, settings: () => Promise<{ quota_governor_mode: string }>, deps: { config?: () => Promise<Config> } = {}): () => View {
-  const config = deps.config ?? (() => loadConfig());
+export function wireGovernor(bb: GovernorHost, handle: { ready(): boolean; store(): { db: Database.Database } }, settings: () => Promise<GovernorSettings & { quota_governor_mode: string }>, deps: { config?: () => Promise<Config>; roots?: typeof docRoots; hostname?: () => string } = {}): () => View {
+  const config = deps.config ?? (async () => loadConfig(process.env, readOverrides, await settings()));
+  const hostName = deps.hostname ?? hostname;
   let governor: Governor | null = null;
   let last: View = { mode: "off" };
   bb.background.service("quota-governor", {
@@ -146,7 +172,7 @@ export function wireGovernor(bb: GovernorHost, handle: Pick<StoreHandle, "ready"
           last = { ...last, mode: mode as Mode, error: undefined };
           if (mode !== "off" && handle.ready()) {
             const cfg = await config();
-            if (!cfg.bb_host || hostname() !== cfg.bb_host) {
+            if (!cfg.bb_host || hostName() !== cfg.bb_host) {
               last = { ...last, error: "Inactive on this host" };
               bb.realtime.publish("quota-governor-changed", {});
             } else {
@@ -154,7 +180,7 @@ export function wireGovernor(bb: GovernorHost, handle: Pick<StoreHandle, "ready"
             if (!governor) {
               const db = handle.store().db;
               governor = new Governor(new GovernorStore(db), {
-                now: Date.now, hostname, config, mode: async () => (await settings()).quota_governor_mode as Mode,
+                now: Date.now, hostname: hostName, config, mode: async () => (await settings()).quota_governor_mode as Mode,
                 timerActive: () => timerActive(exec),
                 accounts: async () => {
                   const numeric = z.number().finite().nullable().optional();
@@ -167,9 +193,9 @@ export function wireGovernor(bb: GovernorHost, handle: Pick<StoreHandle, "ready"
                 answer: async key => homeAnswer(db, key),
                 fileCard: async (cfg, level, pace, rn) => { const vz = findVizier(await threads(), cfg); if (!vz) throw Error("Vizier thread not uniquely found"); return fileProtectedCard(cfg, level, pace, rn, vz, exec, fs); },
                 apply: async (cfg, level, force) => { await applyOperator(cfg, level, force, exec, fs); await setHostLimit(plugins, cfg.bb_host, cfg.levels[level].bb_limit, signal); },
-                notify: async (cfg, old, next, pace, why) => notifyInboxes(cfg, await threads(), old, next, pace, why, Date.now()),
+                prepareNotify: async (cfg, old, next, pace, why) => prepareInboxes(cfg, await threads(), old, next, pace, why, Date.now(), fs, deps.roots),
                 writeThrottle: (cfg, throttle) => atomicJson(join(cfg.state_dir, "throttle.json"), throttle, fs),
-                publish: view => { last = view; if (view.error) bb.log.warn(`quota-governor: ${view.error}`); bb.realtime.publish("quota-governor-changed", {}); },
+                publish: view => { last = view; if (view.error) bb.log.warn(`quota-governor: ${view.error}`); for (const warning of view.warnings ?? []) bb.log.warn(`quota-governor: ${warning}`); bb.realtime.publish("quota-governor-changed", {}); },
               });
             }
             await governor.tick();

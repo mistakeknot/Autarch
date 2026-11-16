@@ -13,7 +13,7 @@ function rig() {
     now: () => now, hostname: () => "governed", config: async () => ({ ...DEFAULTS, bb_host: "governed", pace_mode: "cumulative" }),
     mode: async () => "off", timerActive: vi.fn(async () => false), accounts: vi.fn(async () => [account()]),
     readJson: vi.fn(async () => null), inferLevel: async () => 0, answer: vi.fn(async () => null), fileCard: vi.fn(async () => "CARD"),
-    apply: vi.fn(async () => {}), notify: vi.fn(async () => {}), writeThrottle: vi.fn(async () => {}), publish: vi.fn(),
+    apply: vi.fn(async () => {}), prepareNotify: vi.fn(async () => ({ skipped: [], send: async () => [] })), writeThrottle: vi.fn(async () => {}), publish: vi.fn(),
   };
   return { db, store, io, g: new Governor(store, io) };
 }
@@ -73,7 +73,7 @@ describe("governor service", () => {
   it("shadow computes transitions and stores samples without external writes", async () => {
     const { g, io, store, db } = rig(); io.mode = async () => "shadow"; await g.tick();
     expect(g.view().decision?.new_level).toBe(1); expect(store.samples(now, DEFAULTS).a).toHaveLength(1);
-    expect(io.apply).not.toHaveBeenCalled(); expect(io.notify).not.toHaveBeenCalled(); expect(io.fileCard).not.toHaveBeenCalled(); expect(io.writeThrottle).not.toHaveBeenCalled(); db.close();
+    expect(io.apply).not.toHaveBeenCalled(); expect(io.prepareNotify).not.toHaveBeenCalled(); expect(io.fileCard).not.toHaveBeenCalled(); expect(io.writeThrottle).not.toHaveBeenCalled(); db.close();
   });
   it("migrates live state once, holds protected work, and accepts a Home pick", async () => {
     const { g, io, db } = rig(); io.mode = async () => "live";
@@ -85,14 +85,27 @@ describe("governor service", () => {
   });
   it("failed transitions roll back and preserve pending reconciliation", async () => {
     const { g, io, db } = rig(); io.mode = async () => "live"; io.apply = vi.fn(async () => { throw Error("down"); });
+    const send = vi.fn(async () => []); io.prepareNotify = async () => ({ skipped: [], send });
     await g.tick(); expect(g.view().state?.level).toBe(0); expect(g.view().state?.pending).toBe(true);
-    expect(io.notify).not.toHaveBeenCalled(); db.close();
+    expect(send).not.toHaveBeenCalled();
+    db.close();
   });
-  it("does not record a transition after an inbox notification fails", async () => {
+  it("does not apply or roll back policy when notification preflight fails on repeated ticks", async () => {
     const { g, io, db } = rig(); io.mode = async () => "live";
-    io.notify = async () => { throw Error("recipient directory missing"); };
-    await g.tick(); expect(g.view().state?.level).toBe(0); expect(g.view().error).toContain("recipient directory missing");
-    expect(g.view().decision?.applied).not.toContain("applied level 1"); db.close();
+    io.prepareNotify = async () => { throw Error("no writable recipients"); };
+    await g.tick(); await g.tick(); expect(g.view().state?.level).toBe(0); expect(g.view().error).toContain("no writable recipients");
+    expect(io.apply).not.toHaveBeenCalled(); expect(g.view().decision?.applied).not.toContain("applied level 1"); db.close();
+  });
+  it("commits before notices and never rolls back a committed level after a partial append", async () => {
+    const { g, io, store, db } = rig(); io.mode = async () => "live";
+    const sent: number[] = [];
+    io.prepareNotify = async () => ({ skipped: ["Skipped recipient missing"], send: async () => {
+      expect(store.get<{ level: number }>("live")?.level).toBe(1);
+      sent.push(1); throw Error("second append failed");
+    } });
+    await g.tick(); expect(sent).toEqual([1]); expect(g.view().state?.level).toBe(1);
+    expect(io.apply).toHaveBeenCalledTimes(1); expect(g.view().warnings).toContain("Skipped recipient missing");
+    expect(g.view().warnings?.join(" ")).toContain("second append failed"); db.close();
   });
   it("holds protected work and reports an unconfigured card project", async () => {
     const { g, io, store, db } = rig(); io.mode = async () => "live"; store.put("live", { level: 1 });

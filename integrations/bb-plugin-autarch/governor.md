@@ -5,21 +5,31 @@ mk-z0lht.1). Installation defaults `quota_governor_mode` to `off`: it does not
 sample quota, create governor tables, edit policy, set limits or write inboxes.
 Citadel's Settings panel shows its status and updates through realtime events.
 
-Configure the governed host using `QUOTA_GOVERNOR_HOST` or `bb_host` in the JSON
-file named by `QUOTA_GOVERNOR_CONFIG`. A missing host leaves the service inert;
-the local hostname must match. JSON overrides retain the script's shallow
-merge semantics and policy defaults. State and floor default to
+Configure the governed host with the `quota_governor_host` plugin setting;
+its default is empty. Resolution uses the non-empty setting first, then
+`QUOTA_GOVERNOR_HOST`, then `bb_host` in the JSON file named by
+`QUOTA_GOVERNOR_CONFIG`. Empty or whitespace-only settings fall back to the
+environment or file. A missing host leaves the service inert; the local hostname
+must match. Plugin settings are read on each tick, so no server environment
+change is needed. JSON overrides otherwise retain the script's shallow merge
+semantics and policy defaults. State and floor default to
 `$HOME/.local/state/quota-governor`, operator policy to
 `$HOME/.config/aleph-orchestration/operator.toml`, and inbox storage to
 `$BB_DATA_DIR/thread-storage` when set. Otherwise it discovers the real machine
 thread-storage directories through the same `docRoots` helper used by the document
-reader. Missing or ambiguous roots require an explicit `storage_root`. Missing
-roots or recipient directories fail notification and roll back the transition;
-the failure is logged and shown in the panel.
+reader. Discovery runs only for live notification preflight after the mode and
+host checks; off, shadow and other hosts do not need notification storage.
+Missing or ambiguous roots require an explicit `storage_root`. Before policy is
+applied, preflight requires a storage directory and at least one writable
+recipient. Missing or unwritable recipients are skipped, logged and shown in the
+panel. A missing root or zero writable recipients blocks the transition without
+applying or rolling back operator policy or host limits.
 `QUOTA_GOVERNOR_PROJECT_ROOT` overrides the protected card's project root;
 its default is the Sylveste directory beneath the user's projects directory.
-The card destination must be supplied by `card_project` or
-`QUOTA_GOVERNOR_CARD_PROJECT`; an unset destination holds protected work and
+The card destination uses the same precedence: the non-empty
+`quota_governor_card_project` plugin setting (default empty), then
+`QUOTA_GOVERNOR_CARD_PROJECT`, then `card_project` in the config file.
+An unset destination holds protected work and
 reports the error without writing a card file. Malformed override JSON or a
 non-object override is an error, never a fallback to policy defaults.
 
@@ -57,7 +67,11 @@ thread's caller identity.
 Operator changes keep backups, use bounded `execFile` calls, restore the file
 and reactivate the old generation after an orchestration failure. Transition
 failure rolls back operator and host limits; failed rollback persists a
-pending reconciliation. Pool failures do not refresh throttle freshness.
+pending reconciliation. Notices are appended only after the new level and
+throttle are committed. Delivery failures are logged and shown while delivery
+continues to other recipients; they never roll back the committed level, so a
+partial append cannot strand notices for a rolled-back policy. Preflight cannot
+prevent later directory or permission changes. Pool failures do not refresh throttle freshness.
 `throttle.json` retains the script's fields and is replaced atomically in
 live mode. Coordinator/steward and vizier notices retain the throttle/lift
 format. Inbox and card prose match the script except that its private ruling
@@ -65,8 +79,9 @@ identifier in the Undersketch path is replaced by the word "protected"; the
 project root is resolved at runtime instead of embedding a private path.
 
 Golden fixtures contain 1,270 observations from all 50 upstream Python tests,
-216 deterministic `main(--dry-run --json)` calls (180 use recent pace with
-sample history), 237 captured `step()` decisions, and 53 Python floor parsing
+216 deterministic `main(--dry-run --json)` calls (180 use recent pace;
+144 retain non-empty history and 36 stale cases load empty history),
+237 captured `step()` decisions, and 53 Python floor parsing
 observations. Step replay checks card decisions and resulting policy, card and
 pending-reconciliation state against the same recorded boundary successes and
 failures. Human-facing apply diagnostics differ from the script and are checked

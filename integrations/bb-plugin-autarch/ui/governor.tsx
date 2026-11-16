@@ -7,12 +7,14 @@ import { pythonIsoMillis } from "../governor-policy.js";
 export function pacific(ms?: number): string {
   return ms == null ? "—" : new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(ms);
 }
-export function GovernorSummary({ view }: { view: View | null }) {
-  if (!view) return <section aria-label="Quota governor"><p role="status">Loading quota governor…</p></section>;
+export function GovernorSummary({ view, error }: { view: View | null; error?: string | null }) {
+  if (!view) return <section aria-label="Quota governor"><p role="status">{error ?? "Loading quota governor…"}</p></section>;
   const { state, decision } = view;
   return <section className="rounded-lg border p-4 space-y-2" aria-label="Quota governor">
     <h3 className="font-medium">Quota governor · {view.mode}</h3>
+    {error && <p role="status">{error}</p>}
     {view.error && <p role="status">{view.error}</p>}
+    {view.warnings?.map((warning, i) => <p role="status" key={i}>{warning}</p>)}
     <p>Level {state?.level ?? "—"} {state?.throttle?.name ?? ""} · pace {decision?.pace == null ? "unknown" : decision.pace.toFixed(2)} · Executor cap: {state?.throttle?.allowed_max == null ? "open" : state.throttle.allowed_max}</p>
     <p>Last change: {pacific(state?.since == null ? undefined : state.since * 1000)} · {state?.why ?? "No change recorded"}</p>
     <p>Last run: {pacific(view.last_run)}</p>
@@ -32,5 +34,5 @@ export function GovernorPanel() {
   const refresh = useCallback(() => { void rpc.call("quotaGovernor", null).then(v => { setView(v as View); setError(null); }, e => setError(String(e))); }, [rpc]);
   useEffect(() => { refresh(); const timer = setInterval(refresh, 60000); return () => clearInterval(timer); }, [refresh]);
   useRealtime("quota-governor-changed", refresh);
-  return <>{error && <p role="status">{error}</p>}<GovernorSummary view={view} /></>;
+  return <GovernorSummary view={view} error={error} />;
 }

@@ -925,6 +925,8 @@ export default async function plugin(bb: BbPluginApi) {
   // The Home surfaces: RPC handlers, the `bb home` CLI, wakes, feed injection, serve link.
   const homeSettings = bb.settings.define({
     quota_governor_mode: { type: "string", label: "Quota governor mode (off, shadow or live)", default: "off" },
+    quota_governor_host: { type: "string", label: "Quota governor host (empty uses environment or config)", default: "" },
+    quota_governor_card_project: { type: "string", label: "Quota governor card project (empty uses environment or config)", default: "" },
     pickHandlerMode: { type: "string", label: "Pick handler mode (off or shadow)", default: "off" },
     serveAddr: { type: "string", label: "autarch serve address", default: "127.0.0.1:8110" },
     serveTokenFile: { type: "string", label: "autarch serve token file", default: "" },

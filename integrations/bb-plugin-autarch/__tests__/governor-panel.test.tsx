@@ -12,3 +12,9 @@ it("shows loading before the first status reply", () => {
   const html = renderToStaticMarkup(<GovernorSummary view={null} />);
   expect(html).toContain("Loading quota governor"); expect(html).not.toContain("· off");
 });
+it("shows first-load errors without loading, and skipped-recipient warnings", () => {
+  const failed = renderToStaticMarkup(<GovernorSummary view={null} error="Status unavailable" />);
+  expect(failed).toContain("Status unavailable"); expect(failed).not.toContain("Loading");
+  const warning = renderToStaticMarkup(<GovernorSummary view={{ mode: "live", warnings: ["Skipped recipient missing"] }} />);
+  expect(warning).toContain("Skipped recipient missing");
+});

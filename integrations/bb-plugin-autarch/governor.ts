@@ -9,14 +9,15 @@ export type Card = { key?: string; level: number; answered?: string; declined_at
 export type State = { level: number; good_streak?: number; pace?: number | null; since?: number; why?: string; updated_at?: number; pending?: boolean; card?: Card; throttle?: Throttle };
 export type Throttle = { level: number; name: string; allowed_max: number | null; cuts_protected: boolean; pace: number | null; updated_at: number; why: string };
 export type Decision = { level: number; new_level: number; pace: number | null; note: string; why: string; floor: Floor | null; held?: string | null; applied: string[] };
-export type View = { mode: Mode; state?: State; decision?: Decision; script?: unknown; last_run?: number; parts?: Part[]; error?: string };
+export type View = { mode: Mode; state?: State; decision?: Decision; script?: unknown; last_run?: number; parts?: Part[]; error?: string; warnings?: string[] };
+export type NoticePlan = { skipped: string[]; send(): Promise<string[]> };
 export interface GovernorIO {
   now(): number; hostname(): string; config(): Promise<Config>; mode(): Promise<Mode>;
   timerActive(): Promise<boolean>; accounts(): Promise<Account[]>; readJson(path: string): Promise<unknown>;
   inferLevel(cfg: Config): Promise<number>; answer(key: string): Promise<"a" | "b" | null>;
   fileCard(cfg: Config, level: number, pace: number | null, renewal: number): Promise<string>;
   apply(cfg: Config, level: number, force: boolean): Promise<void>;
-  notify(cfg: Config, old: number, next: number, pace: number | null, why: string): Promise<void>;
+  prepareNotify(cfg: Config, old: number, next: number, pace: number | null, why: string): Promise<NoticePlan>;
   writeThrottle(cfg: Config, throttle: Throttle): Promise<void>; publish(view: View): void;
 }
 // Separate tables in the plugin's SQLite database; no changes to Home's reader contract.
@@ -109,23 +110,37 @@ export class Governor {
         }
       }
       dec.new_level = next;
+      let notices: NoticePlan | undefined;
+      const warnings: string[] = [];
       if (next !== cur) {
+        let ready = mode === "shadow";
         try {
-          if (mode === "live") { await io.apply(cfg, next, false); await io.notify(cfg, cur, next, pace, why); }
-          ns.level = next; ns.since = Math.floor(now / 1000); ns.why = why; ns.good_streak = 0;
-          dec.applied.push(`${mode === "shadow" ? "shadow: would apply" : "applied"} level ${next}`);
-        } catch (e) {
-          dec.applied.push(`FAILED: ${String(e)}`);
-          try { await io.apply(cfg, cur, true); } catch { ns.pending = true; }
+          if (mode === "live") { notices = await io.prepareNotify(cfg, cur, next, pace, why); warnings.push(...notices.skipped); ready = true; }
+        } catch (e) { dec.applied.push(`FAILED: notification preflight: ${String(e)}`); }
+        if (ready) {
+          try {
+            if (mode === "live") await io.apply(cfg, next, false);
+            ns.level = next; ns.since = Math.floor(now / 1000); ns.why = why; ns.good_streak = 0;
+            dec.applied.push(`${mode === "shadow" ? "shadow: would apply" : "applied"} level ${next}`);
+          } catch (e) {
+            dec.applied.push(`FAILED: ${String(e)}`);
+            try { await io.apply(cfg, cur, true); } catch { ns.pending = true; }
+          }
         }
       }
       const lv = levels[ns.level];
       ns.throttle = { level: ns.level, name: lv.name, allowed_max: lv.allowed_max, cuts_protected: lv.cuts_protected, pace, updated_at: Math.floor(now / 1000), why };
       this.store.put(mode, ns);
-      this.current = { mode, state: ns, decision: dec, script: { state: script, throttle: await io.readJson(join(cfg.state_dir, "throttle.json")) }, last_run: now, parts };
+      this.current = { mode, state: ns, decision: dec, script: { state: script, throttle: await io.readJson(join(cfg.state_dir, "throttle.json")) }, last_run: now, parts, warnings };
       const failure = dec.applied.find(s => /FAILED/.test(s)) ?? (dec.held?.includes("card not filed") ? dec.held : undefined);
       if (failure) this.current.error = failure;
       if (mode === "live") await io.writeThrottle(cfg, ns.throttle);
+      // The persisted level and throttle now agree with policy. Notice failures
+      // must never undo that commit and strand already-delivered notices.
+      if (notices && ns.level === next && next !== cur) {
+        try { warnings.push(...await notices.send()); }
+        catch (e) { warnings.push(`Notification delivery failed after commit: ${String(e)}`); }
+      }
       this.store.put("view", this.current);
     } catch (e) { this.current.error = String(e); }
     finally { io.publish(this.current); }
