@@ -1,12 +1,14 @@
 // Bring back (bead mk-gc2xm): a decided card reopens as the next generation of the same card.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { ArchiveRowView } from "../ui/archive.js";
 import { archiveView } from "../archive.js";
 import { cleanupEnvs, opened, pollN, rig } from "./card-rig.js";
 
-afterEach(cleanupEnvs);
+afterEach(() => { cleanupEnvs(); vi.unstubAllEnvs(); });
 const labelled = (r: any, t: any) => r.fake.tasks.find((x: any) => x.id === t.id).labelIds.length > 0;
 
 async function ruled(r = rig()) {
@@ -20,6 +22,24 @@ async function ruled(r = rig()) {
 }
 
 describe("bring back", () => {
+  it.each([false, true])("records only real picks across bring-back with earlier pick=%s", async earlierPick => {
+    const r = rig();
+    vi.stubEnv("AUTARCH_CARD_STATE_DIR", r.env.dir);
+    vi.stubEnv("AUTARCH_NEEDSMK_PILOTS_OFF", "");
+    writeFileSync(join(r.env.dir, "pilots.json"), JSON.stringify({ daycap: { enabled: true, until: "2099-01-01T00:00:00Z" } }));
+    const { t, g1 } = await opened(r);
+    if (earlierPick) expect(r.mkPick(g1.id, "earlier-answer")).toMatchObject({ ok: true });
+    r.edit(t, { status: "done" });
+    await pollN(r, 3);
+    const before = earlierPick ? ["pick:earlier-answer"] : [];
+    expect(r.svc.store.pilotMetrics().map(m => m.event_id)).toEqual(before);
+    const out = r.dele.bringBack(t.id, g1.id, "thr_a", {});
+    if (!out.ok) throw new Error(out.error);
+    expect(r.svc.store.pilotMetrics().map(m => m.event_id)).toEqual(before);
+    await pollN(r, 5);
+    expect(r.mkPick(out.decision_id, "fresh-round-answer")).toMatchObject({ ok: true });
+    expect(r.svc.store.pilotMetrics().map(m => m.event_id)).toEqual([...before, "pick:fresh-round-answer"]);
+  });
   it.each(["done", "canceled"])("reopens a %s card without a pick as a fresh round, preserving comments and retry identity", async status => {
     const r = rig();
     const { t, g1 } = await opened(r);
@@ -164,8 +184,7 @@ describe("Archive row button", () => {
     const html = renderToStaticMarkup(createElement(ArchiveRowView, { row, onBringBack: () => {}, error: "boom" }));
     expect(html).toContain("data-archive-bringback=\"AUTA-1\"");
     expect(html).toContain("boom");
-    const noPick = renderToStaticMarkup(createElement(ArchiveRowView, { row: { ...row, no_pick: true, option_id: null, by: null }, onBringBack: () => {} }));
-    expect(noPick).toContain("data-archive-bringback");
-    expect(noPick).toContain("without a pick");
+    const noPick = renderToStaticMarkup(createElement(ArchiveRowView, { row: { ...row, state: "closed", no_pick: true, option_id: null, by: null }, onBringBack: () => {} }));
+    expect(noPick).toMatch(/<button\b[^>]*data-archive-bringback=[^>]*>Bring back<\/button>/);
   });
 });

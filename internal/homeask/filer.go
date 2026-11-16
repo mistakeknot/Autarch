@@ -5,7 +5,7 @@ import (
 	"errors"
 )
 
-// Typed outcomes of a filing. The autarch CLI maps them to exit codes 2, 3, 4 and 5.
+// Typed outcomes of a filing. The autarch CLI maps them to distinct exit codes.
 var (
 	// ErrInvalid: the ask is malformed, or its request id belongs to a different ask.
 	ErrInvalid = errors.New("invalid ask")
@@ -26,10 +26,22 @@ type Filer interface {
 
 // HeldError reports an accepted queue entry without claiming a card was filed.
 // Legacy string-ID consumers can distinguish it from a delivered card.
-type HeldError struct{ RequestKey string }
+type HeldError struct {
+	RequestKey string
+	Reason     string
+}
 
 func (e *HeldError) Error() string {
-	return "request " + e.RequestKey + " is queued for the Thursday batch; no card has been filed"
+	message := "is queued until needs-mk release"
+	switch e.Reason {
+	case "weekday-window":
+		message = "is queued for the Thursday batch"
+	case "daily-cap":
+		message = "is queued because the daily card cap was reached"
+	case "non-blocking":
+		message = "is queued by --non-blocking until needs-mk release"
+	}
+	return "request " + e.RequestKey + " " + message + "; no card has been filed"
 }
 
 // ListRow is one waiting ask as `bb home list --json` prints it.

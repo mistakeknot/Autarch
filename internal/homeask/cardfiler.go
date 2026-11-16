@@ -167,6 +167,7 @@ type CardResult struct {
 	ownerAttention string      // successful recovery can still need owner handoff
 	Budget         *CardBudget `json:"budget,omitempty"`
 	Queued         bool        `json:"queued,omitempty"`
+	HoldReason     string      `json:"-"` // delivery metadata for the typed held outcome
 	ID             string      `json:"card"`
 	Key            string      `json:"request"`
 	Project        string      `json:"project,omitempty"`
@@ -1182,7 +1183,7 @@ func (f *CardFiler) File(ctx context.Context, a Ask) (string, error) {
 	}
 	res, err := f.FileCard(ctx, CardRequest{Project: project, Title: titleOf(a), Ask: wire, Key: key, Thread: a.Thread})
 	if err == nil && res.Queued {
-		return "", &HeldError{RequestKey: res.Key}
+		return "", &HeldError{RequestKey: res.Key, Reason: res.HoldReason}
 	}
 	return res.ID, err
 }

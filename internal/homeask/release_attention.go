@@ -61,3 +61,38 @@ func (f *CardFiler) PrintReleaseOwnerAttention(w io.Writer) error {
 	}
 	return nil
 }
+
+// DismissReleaseOwnerAttention acknowledges a notice without cancelling a request
+// or changing its delivery, ownership, terminal state or budget reservation.
+func (f *CardFiler) DismissReleaseOwnerAttention(key string) error {
+	if err := CheckRequestKey(key); err != nil {
+		return err
+	}
+	dir, err := f.stateDir()
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	keyDone, err := lockFile(filepath.Join(dir, "delivery-"+key+".lock"))
+	if err != nil {
+		return err
+	}
+	defer keyDone()
+	state, path, done, err := f.openState()
+	if err != nil {
+		return err
+	}
+	defer done()
+	entry, ok := state[key]
+	if !ok {
+		return fmt.Errorf("%w: no request %s", ErrInvalid, key)
+	}
+	if entry.OwnerAttention == "" {
+		return nil
+	}
+	entry.OwnerAttention = ""
+	state[key] = entry
+	return saveFilingState(path, state)
+}

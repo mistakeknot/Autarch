@@ -76,6 +76,14 @@ type filingEntry struct {
 }
 type filingState map[string]filingEntry
 
+func (e filingEntry) heldResult(key string, replay bool) CardResult {
+	reason := e.HeldReason
+	if reason == "" && e.Request.NonBlocking {
+		reason = "non-blocking"
+	}
+	return CardResult{Key: key, Queued: true, Replay: replay, HoldReason: reason}
+}
+
 func (f *CardFiler) stateDir() (string, error) {
 	if f.StateDir != "" {
 		return f.StateDir, nil
@@ -228,7 +236,7 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 				if oldHeld.Identity != identity || oldHeld.Request.Thread != r.Thread || oldHeld.Request.Owner != r.Owner {
 					return CardResult{}, errReused
 				}
-				return CardResult{Key: r.Key, Queued: true, Replay: true}, nil
+				return oldHeld.heldResult(r.Key, true), nil
 			}
 		}
 		// Other state errors/refusals remain after canonical registry replay, as before.
@@ -268,9 +276,8 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	if err := f.checkColdRead(ctx, r); err != nil {
 		return CardResult{}, err
 	}
-	// Use one admission instant for the hold decision and its budget reservation.
-	admittedAt := f.clock()
-	windowHeld := weeklyHold(admittedAt, r)
+	// Check queue prerequisites before waiting for admission.
+	windowHeld := weeklyHold(f.clock(), r)
 	if updateLane && (r.NonBlocking || windowHeld) {
 		uncharged, err = f.hasUpdateTarget(ctx, r, supersedes)
 		if err != nil {
@@ -310,9 +317,25 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		return CardResult{}, errReused
 	}
 	if exists && old.Held {
-		return CardResult{Key: r.Key, Queued: true, Replay: true}, nil
+		return old.heldResult(r.Key, true), nil
 	}
 	if !exists {
+		// Gate and state-lock waits can cross a policy boundary. Reserve using the
+		// admission time under both locks, rather than the earlier validation time.
+		admittedAt := f.clock()
+		nowHeld := weeklyHold(admittedAt, r)
+		if nowHeld && !windowHeld && updateLane && !r.NonBlocking {
+			// A newly queued update needs the read-only checks skipped before the
+			// wait. In particular, a missing target must reserve a creation slot.
+			uncharged, err = f.hasUpdateTarget(ctx, r, supersedes)
+			if err != nil {
+				return CardResult{}, err
+			}
+			if err := f.CheckUI(r); err != nil {
+				return CardResult{}, err
+			}
+		}
+		windowHeld = nowHeld
 		week := pacificBudgetWeek(admittedAt)
 		project := strings.ToLower(fmt.Sprint(r.Ask["project"]))
 		used := ordinaryReservations(state, project, week)
@@ -347,7 +370,7 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 			if full && f.Warn != nil {
 				f.Warn("held: daily-cap reached; queued for ranked release")
 			}
-			return CardResult{Key: r.Key, Queued: true}, nil
+			return state[r.Key].heldResult(r.Key, false), nil
 		}
 	}
 
@@ -504,20 +527,12 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		unlock()
 		return CardResult{}, "", nil
 	}
-	if weeklyHold(f.clock(), e.Request) {
-		unlock()
-		return CardResult{}, "", nil
-	}
-	// Advisory early-out avoids checks and wakes for cards that cannot be displayed.
-	// Admission is still checked authoritatively under the fleet gate below.
+	// Snapshot the cap to skip link and preflight checks when delivery is full.
+	// Owner notices must still be refreshed; admission is rechecked under the fleet gate.
 	fullBeforeChecks, capErr := f.dailyFull(state, e.Request)
 	if capErr != nil {
 		unlock()
 		return CardResult{}, "", capErr
-	}
-	if fullBeforeChecks {
-		unlock()
-		return CardResult{}, "", nil
 	}
 	unlock()
 	r := e.Request
@@ -541,6 +556,9 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 			}
 			return CardResult{}, r.Type, ownerErr
 		}
+	}
+	if fullBeforeChecks || weeklyHold(f.clock(), r) {
+		return CardResult{}, "", nil
 	}
 	if f.pilot("linkcheck") {
 		if v := f.checkLinks(ctx, r); len(v) > 0 {

@@ -44,6 +44,7 @@ func needsMkCmd() *cobra.Command {
 	cmd.AddCommand(needsMkFileCmd())
 	cmd.AddCommand(needsMkReleaseCmd())
 	cmd.AddCommand(needsMkCancelHeldCmd())
+	cmd.AddCommand(needsMkDismissOwnerNoticeCmd())
 	cmd.AddCommand(needsMkBudgetCmd())
 	cmd.AddCommand(needsMkAdoptMoveCmd())
 	cmd.AddCommand(needsMkFooterCmd())
@@ -248,8 +249,9 @@ Ordinary cards filed Monday 00:00 through Thursday before 12:00 Pacific are also
 held for the Thursday batch. Urgent, keep-list, merge and root-run cards bypass
 this weekday hold. Release inside that window leaves ordinary cards queued;
 schedule release at Thursday noon or later. Counted slots stay in their filing week.
---urgent or --keep-list marks a budget exception. Delivered cards print JSON with a non-empty card_key;
-held cards print queued:true and their request key instead (--json is also accepted).
+--urgent or --keep-list marks a budget exception. Exit 0 means filed: JSON has a non-empty card_key.
+Held cards exit 6, with queued:true, the request key and no card_key on stdout
+(--json is also accepted). Treat exit 6 as queued, not as a filed card or an uncertain write.
 --urgent exempts the budget; --urgency blocker only controls phone push and does not exempt the budget.
 Exempt cards are recorded separately and never consume ordinary slots; needs-mk budget shows both tallies.
 After filing, waits up to 30 seconds for Home's index. If the key remains missing, exits 4
@@ -293,7 +295,8 @@ or changes to the ask, including with --supersedes.
 
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created or edited;
 includes an update's pre-edit readback with no indexed project_id), 4 card created
-but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).
+but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request),
+6 accepted but held (no card filed; JSON on stdout carries queued:true and the request key).
 
 The optional ask JSON group {key, order} links cards for display. Set it at first filing:
 a group-only re-file does not change Home's stored group. A substantive edit can create a new
@@ -468,8 +471,12 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			if budget, e := filer.BudgetStatus(fmt.Sprint(ask["project"])); e == nil {
 				res.Budget = &budget
 			}
-			out, _ := json.Marshal(res)
-			fmt.Fprintln(cmd.OutOrStdout(), string(out))
+			if err := json.NewEncoder(cmd.OutOrStdout()).Encode(res); err != nil {
+				return err
+			}
+			if res.Queued {
+				return &homeask.HeldError{RequestKey: res.Key, Reason: res.HoldReason}
+			}
 			return nil
 		},
 	}

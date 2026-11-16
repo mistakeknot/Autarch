@@ -218,8 +218,8 @@ func TestDecideFileReportsHeldRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := runDecide(t, string(raw), "file")
-	if err != nil {
-		t.Fatal(err)
+	if exitCode(err) != 6 {
+		t.Fatalf("held request needs exit 6, got %d: %v", exitCode(err), err)
 	}
 	var result map[string]any
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
@@ -316,8 +316,9 @@ func TestExitCodeMapping(t *testing.T) {
 		errors.New("x"):                          1,
 		fmt.Errorf("w: %w", homeask.ErrInvalid):  2,
 		fmt.Errorf("w: %w", homeask.ErrHomeDown): 3,
-		fmt.Errorf("w: %w", homeask.ErrOutcomeUnknown): 4,
-		fmt.Errorf("w: %w", homeask.ErrAlreadyRuled):   5,
+		fmt.Errorf("w: %w", homeask.ErrOutcomeUnknown):              4,
+		fmt.Errorf("w: %w", homeask.ErrAlreadyRuled):                5,
+		fmt.Errorf("w: %w", &homeask.HeldError{RequestKey: "held"}): 6,
 	} {
 		if got := exitCode(err); got != want {
 			t.Errorf("exitCode(%v) = %d, want %d", err, got, want)
