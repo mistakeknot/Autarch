@@ -8,7 +8,18 @@ import { fsWriteUses, isFdOnly, isOpener, parse, parseFile, readOnlyFlags, rel, 
 // names, generated file names, exclusive create and lstat checks on every directory (see its header).
 // trigger.ts joined with the update trigger: it only touches or creates one named file (TRIGGER_FILE)
 // under the update directory it is given, and never writes any content to it (see its header).
+// The governor adapter writes policy, throttle state and inboxes only in explicit live mode (bead mk-z0lht.1).
 const FULL = new Set(["ruling.ts", "export.ts", "ledger.ts", "otherimages.ts", "trigger.ts"]);
+function governorWriteAllowed(use: ReturnType<typeof fsWriteUses>[number]): boolean {
+  const a = use.args?.map(s => s.replace(/\s/g, "")) ?? [];
+  if (use.api === "mkdir") return a[0] === "cfg.state_dir";
+  if (use.api === "copyFile") return a[0] === "path" && a[1]?.startsWith('join(cfg.state_dir,`operator.toml.bak-');
+  if (use.api === "writeFile") return a[0] === "`${path}.governor.tmp`" && ["old", "next"].includes(a[1]);
+  if (use.api === "rename") return a[0] === "`${path}.governor.tmp`" && a[1] === "path";
+  if (use.api === "unlink") return a[0] === "join(cfg.state_dir,f)";
+  if (use.api === "appendFile") return a[0] === 'join(cfg.storage_root,id,"inbox.md")';
+  return false;
+}
 const RDONLY_PLUS_FSYNC = new Set(["backup.ts"]);
 // settled.ts reads one coordinator's settled-for-mk.md O_RDONLY | O_NOFOLLOW and writes nothing.
 // docread.ts is the document reader: it opens one allowlisted file O_RDONLY | O_NOFOLLOW and writes nothing.
@@ -21,7 +32,8 @@ describe("fs write scope (plan Task 2.7)", () => {
     for (const f of serverSources()) {
       const name = rel(f);
       if (FULL.has(name)) continue;
-      for (const u of fsWriteUses(parseFile(f))) {
+      for (const u of fsWriteUses(parseFile(f), name === "governor-runtime.ts" ? ["disk"] : [])) {
+        if (name === "governor-runtime.ts" && governorWriteAllowed(u)) continue;
         const okRead = isOpener(u.api) && readOnlyFlags(u.flags);
         if (RDONLY_PLUS_FSYNC.has(name) && (okRead || isFdOnly(u.api))) continue;
         if (RDONLY_ONLY.has(name) && okRead) continue;
@@ -41,6 +53,14 @@ describe("fs write scope (plan Task 2.7)", () => {
     expect(uses("settled.ts")).toEqual(["openSync"]);
     expect(uses("evidencestore.ts")).toEqual(["openSync"]);
     expect(uses("trigger.ts")).toEqual(["openSync"]);
+  });
+  it("allows only governor policy/state/inbox calls and detects injected filesystem writes", () => {
+    const allowed = fsWriteUses(parseFile(serverSources().find(f => rel(f) === "governor-runtime.ts")!), ["disk"]);
+    expect(allowed.length).toBeGreaterThan(5); expect(allowed.every(governorWriteAllowed)).toBe(true);
+    for (const src of ['disk.writeFile("/unexpected", next)', 'fs.appendFile(join(cfg.storage_root,id,"other.md"), text)', 'disk.rename(path, "/unexpected")', 'disk.rm(cfg.state_dir)', 'disk.unlink(join(other,f))']) {
+      const uses = fsWriteUses(parse(`import * as fs from "node:fs/promises"; ${src}`), ["disk"]);
+      expect(uses.length).toBe(1); expect(uses.every(governorWriteAllowed), src).toBe(false);
+    }
   });
 
   describe("positive fixtures", () => {
