@@ -121,8 +121,8 @@ export async function prepareInboxes(cfg: Config, threads: Thread[], old: number
   // Read-only preflight before applying policy. A disappearing directory or a
   // permission change after this check is reported at delivery, never rolled back.
   for (const id of [...ids, ...(vz ? [vz] : [])]) {
-    if (!/^[A-Za-z0-9_-]+$/.test(id)) throw Error("Invalid thread id");
     try {
+      if (!/^[A-Za-z0-9_-]+$/.test(id)) throw Error("Invalid thread id");
       const dir = join(cfg.storage_root, id);
       if (!(await disk.stat(dir)).isDirectory()) throw Error("not a directory");
       try { await disk.access(join(dir, "inbox.md"), constants.W_OK); }
@@ -130,7 +130,7 @@ export async function prepareInboxes(cfg: Config, threads: Thread[], old: number
       writable.add(id);
     } catch (e) { skipped.push(`Skipped recipient ${id}: ${String(e)}`); }
   }
-  if (!writable.size) throw Error(`No writable notification recipients; ${skipped.join("; ")}`);
+  if (!writable.size) skipped.push("No writable notification recipients; policy will still apply");
   const append = (id: string, text: string) => disk.appendFile(join(cfg.storage_root, id, "inbox.md"), `${new Date(now).toISOString().slice(0, 16)}Z quota-governor ${text}\n`);
   return { skipped, async send() {
     const failures: string[] = [];

@@ -92,9 +92,26 @@ describe("governor service", () => {
   });
   it("does not apply or roll back policy when notification preflight fails on repeated ticks", async () => {
     const { g, io, db } = rig(); io.mode = async () => "live";
-    io.prepareNotify = async () => { throw Error("no writable recipients"); };
-    await g.tick(); await g.tick(); expect(g.view().state?.level).toBe(0); expect(g.view().error).toContain("no writable recipients");
+    io.prepareNotify = async () => { throw Error("storage root missing"); };
+    await g.tick(); await g.tick(); expect(g.view().state?.level).toBe(0); expect(g.view().error).toContain("storage root missing");
     expect(io.apply).not.toHaveBeenCalled(); expect(g.view().decision?.applied).not.toContain("applied level 1"); db.close();
+  });
+  it.each(["read", "write", "both"])("still sends committed notices after a throttle %s failure", async failure => {
+    const { g, io, store, db } = rig(); io.mode = async () => "live";
+    const send = vi.fn(async () => { expect(store.get<{ level: number }>("live")?.level).toBe(1); return []; });
+    io.prepareNotify = async () => ({ skipped: [], send });
+    if (failure !== "write") io.readJson = async path => { if (path.endsWith("throttle.json")) throw Error("throttle read denied"); return null; };
+    if (failure !== "read") io.writeThrottle = async () => { throw Error("throttle write denied"); };
+    await g.tick(); expect(send).toHaveBeenCalledTimes(1); expect(g.view().state?.level).toBe(1);
+    expect(io.apply).toHaveBeenCalledTimes(1); expect(g.view().error).toContain(failure === "write" ? "throttle write denied" : "throttle read denied");
+    if (failure === "both") expect(g.view().error).toContain("throttle write denied");
+    expect(store.get<{ error?: string }>("view")?.error).toBe(g.view().error); db.close();
+  });
+  it("applies a transition with no reachable recipients", async () => {
+    const { g, io, db } = rig(); io.mode = async () => "live";
+    io.prepareNotify = async () => ({ skipped: ["No writable notification recipients"], send: async () => [] });
+    await g.tick(); expect(g.view().state?.level).toBe(1); expect(io.apply).toHaveBeenCalledTimes(1);
+    expect(g.view().warnings).toContain("No writable notification recipients"); db.close();
   });
   it("commits before notices and never rolls back a committed level after a partial append", async () => {
     const { g, io, store, db } = rig(); io.mode = async () => "live";

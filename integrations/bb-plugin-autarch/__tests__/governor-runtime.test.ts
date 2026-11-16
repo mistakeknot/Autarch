@@ -1,8 +1,11 @@
-import { it, expect, vi } from "vitest";
+import { it, expect, vi, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import { applyOperator, homeAnswer, fileProtectedCard, loadConfig, timerActive, wireGovernor, prepareInboxes, resolveStorageRoot, readOverrides, type Exec } from "../governor-runtime.js";
 import { DEFAULTS } from "../governor-policy.js";
 import type { PluginsLike } from "../tasks.js";
+const { readFile } = vi.hoisted(() => ({ readFile: vi.fn(async (_path: unknown, ..._rest: unknown[]): Promise<string> => { throw Object.assign(Error("missing"), { code: "ENOENT" }); }) }));
+vi.mock("node:fs/promises", async importOriginal => ({ ...await importOriginal<typeof import("node:fs/promises")>(), readFile }));
+afterEach(() => { vi.unstubAllEnvs(); readFile.mockReset(); readFile.mockRejectedValue(Object.assign(Error("missing"), { code: "ENOENT" })); });
 
 it("reads a Citadel pick by the card task's decision id", async () => {
   const db = new Database(":memory:");
@@ -47,13 +50,48 @@ it("skips missing recipients and preflights a writable target without appending"
   expect(plan.skipped.join(" ")).toContain("missing"); expect(disk.appendFile).not.toHaveBeenCalled();
   await plan.send(); expect(disk.appendFile).toHaveBeenCalledTimes(1);
 });
-it("fails preflight for missing roots or zero writable recipients", async () => {
+it("allows zero writable recipients but fails preflight for a missing root", async () => {
   const threads = [{ id: "coordinator", title: "X | coordinator", providerId: "claude-code" }];
   const disk = { stat: vi.fn(async () => ({ isDirectory: () => true })), access: vi.fn(async () => { throw Error("not writable"); }), appendFile: vi.fn(async () => {}) };
-  await expect(prepareInboxes({ ...DEFAULTS, storage_root: "/fixture" }, threads, 0, 1, 1.2, "pace", 0, disk)).rejects.toThrow("No writable");
+  const plan = await prepareInboxes({ ...DEFAULTS, storage_root: "/fixture" }, threads, 0, 1, 1.2, "pace", 0, disk);
+  expect(plan.skipped.join(" ")).toContain("No writable"); expect(await plan.send()).toEqual([]);
   expect(disk.appendFile).not.toHaveBeenCalled();
   disk.stat = vi.fn(async () => { throw Error("root missing"); });
   await expect(prepareInboxes({ ...DEFAULTS, storage_root: "/fixture" }, threads, 0, 1, 1.2, "pace", 0, disk)).rejects.toThrow("root missing");
+});
+it("allows an empty recipient list and skips malformed ids without touching their paths", async () => {
+  const disk = { stat: vi.fn(async () => ({ isDirectory: () => true })), access: vi.fn(async () => {}), appendFile: vi.fn(async () => {}) };
+  const cfg = { ...DEFAULTS, storage_root: "/fixture" };
+  const empty = await prepareInboxes(cfg, [], 0, 1, 1.2, "pace", 0, disk);
+  expect(empty.skipped.join(" ")).toContain("No writable"); await empty.send(); expect(disk.appendFile).not.toHaveBeenCalled();
+  const plan = await prepareInboxes(cfg, ["../invalid", "valid"].map(id => ({ id, title: "X | coordinator", providerId: "claude-code" })), 0, 1, 1.2, "pace", 0, disk);
+  expect(plan.skipped.join(" ")).toContain("Invalid thread id"); await plan.send(); expect(disk.appendFile).toHaveBeenCalledTimes(1);
+  expect(JSON.stringify(disk.stat.mock.calls)).not.toContain("invalid");
+});
+it.each([
+  ["setting-host", "setting-host", true],
+  ["setting-host", "other-host", false],
+  ["", "env-host", true],
+] as const)("wires settings host %s through the default loader to local host %s", async (settingHost, localHost, active) => {
+  vi.stubEnv("QUOTA_GOVERNOR_CONFIG", "/fixture/config"); vi.stubEnv("QUOTA_GOVERNOR_HOST", "env-host");
+  readFile.mockImplementation(async path => {
+    if (path === "/fixture/config") return JSON.stringify({ bb_host: "file-host", state_dir: "/fixture/state" });
+    if (path === "/fixture/state/state.json") return '{"level":0}';
+    throw Object.assign(Error("missing"), { code: "ENOENT" });
+  });
+  const db = new Database(":memory:"); const controller = new AbortController(); let start!: (signal: AbortSignal) => Promise<void>;
+  const call = vi.fn(async () => []);
+  const plugins: PluginsLike = { callRpc: async args => args.outputSchema.parse(await call()) };
+  const handle = { ready: () => true, store: vi.fn(() => ({ db })) };
+  const bb = { sdk: { threads: { list: async () => [] }, plugins }, background: { service: (_name: string, opts: { start: typeof start }) => { start = opts.start; } }, realtime: { publish: () => controller.abort() }, log: { warn: vi.fn() } };
+  const settings = vi.fn(async () => ({ quota_governor_mode: "shadow", quota_governor_host: settingHost }));
+  const view = wireGovernor(bb, handle, settings, { hostname: () => localHost, roots: () => { throw Error("unexpected storage discovery"); } });
+  await start(controller.signal);
+  expect(readFile.mock.calls.some(c => c[0] === "/fixture/config")).toBe(true);
+  expect(call).toHaveBeenCalledTimes(active ? 1 : 0);
+  if (active) { expect(view().error).toBeUndefined(); expect(view().last_run).toBeTypeOf("number"); }
+  else { expect(view().error).toBe("Inactive on this host"); expect(handle.store).not.toHaveBeenCalled(); }
+  db.close();
 });
 it("checks directory writability when a recipient has no inbox yet", async () => {
   const disk = { stat: async () => ({ isDirectory: () => true }), access: vi.fn(async (path: string) => { if (path.endsWith("inbox.md")) throw Object.assign(Error("new inbox"), { code: "ENOENT" }); }), appendFile: vi.fn(async () => {}) };

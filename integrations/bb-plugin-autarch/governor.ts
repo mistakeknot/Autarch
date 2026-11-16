@@ -131,12 +131,20 @@ export class Governor {
       const lv = levels[ns.level];
       ns.throttle = { level: ns.level, name: lv.name, allowed_max: lv.allowed_max, cuts_protected: lv.cuts_protected, pace, updated_at: Math.floor(now / 1000), why };
       this.store.put(mode, ns);
-      this.current = { mode, state: ns, decision: dec, script: { state: script, throttle: await io.readJson(join(cfg.state_dir, "throttle.json")) }, last_run: now, parts, warnings };
+      const errors: string[] = [];
+      let scriptThrottle: unknown = null;
+      try { scriptThrottle = await io.readJson(join(cfg.state_dir, "throttle.json")); }
+      catch (e) { errors.push(`throttle.json read failed: ${String(e)}`); }
+      this.current = { mode, state: ns, decision: dec, script: { state: script, throttle: scriptThrottle }, last_run: now, parts, warnings };
       const failure = dec.applied.find(s => /FAILED/.test(s)) ?? (dec.held?.includes("card not filed") ? dec.held : undefined);
-      if (failure) this.current.error = failure;
-      if (mode === "live") await io.writeThrottle(cfg, ns.throttle);
-      // The persisted level and throttle now agree with policy. Notice failures
-      // must never undo that commit and strand already-delivered notices.
+      if (failure) errors.push(failure);
+      if (mode === "live") {
+        try { await io.writeThrottle(cfg, ns.throttle); }
+        catch (e) { errors.push(`throttle.json write failed: ${String(e)}`); }
+      }
+      if (errors.length) this.current.error = errors.join("; ");
+      // Policy and the persisted level now agree. A compatibility-file failure
+      // must not suppress notices, and delivery must never undo the commit.
       if (notices && ns.level === next && next !== cur) {
         try { warnings.push(...await notices.send()); }
         catch (e) { warnings.push(`Notification delivery failed after commit: ${String(e)}`); }
