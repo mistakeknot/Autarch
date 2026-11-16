@@ -29,9 +29,6 @@ func (e *ReleaseEntryErrors) DataOnly() bool {
 		return false
 	}
 	for _, err := range e.Errors {
-		if errors.Is(err, ErrAlreadyRuled) && !errors.Is(err, errNoCardWritten) {
-			return false
-		}
 		allowed, data := releaseDataError(err)
 		if !allowed || !data {
 			return false
@@ -43,15 +40,25 @@ func releaseDataError(err error) (bool, bool) {
 	if err == nil {
 		return true, false
 	}
-	if err == ErrInvalid || err == ErrAlreadyRuled {
+	if err == ErrInvalid {
 		return true, true
 	}
 	if err == errNoCardWritten {
 		return true, false
 	}
 	if many, ok := err.(interface{ Unwrap() []error }); ok {
+		// Proof applies only to sibling causes in this join. Nested joins must
+		// establish their own proof, so an unrelated branch cannot hide a race.
+		noWrite := false
+		for _, child := range many.Unwrap() {
+			noWrite = noWrite || releaseBranchIs(child, errNoCardWritten)
+		}
 		data := false
 		for _, child := range many.Unwrap() {
+			if noWrite && releaseBranchIs(child, ErrAlreadyRuled) {
+				data = true
+				continue
+			}
 			allowed, d := releaseDataError(child)
 			if !allowed {
 				return false, false
@@ -64,4 +71,15 @@ func releaseDataError(err error) (bool, bool) {
 		return releaseDataError(one.Unwrap())
 	}
 	return false, false
+}
+
+// releaseBranchIs follows single-error wrappers without crossing another join.
+func releaseBranchIs(err, target error) bool {
+	if err == target {
+		return true
+	}
+	if one, ok := err.(interface{ Unwrap() error }); ok {
+		return releaseBranchIs(one.Unwrap(), target)
+	}
+	return false
 }
