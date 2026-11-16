@@ -25,6 +25,9 @@ write to that shared state directory. `autarch needs-mk pilots report` combines
 the filer's local observations with the read-only `pilotMetrics` RPC, deduplicating
 legacy pick observations by event ID. If the plugin is unavailable, the report
 labels its results as local metrics only.
+Pick observations remain in the plugin store and are excluded from future event
+export segments. Deduplication uses the existing store keys after a one-time
+transactional scan of older observations.
 
 ## UI components
 

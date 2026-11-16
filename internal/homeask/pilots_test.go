@@ -364,6 +364,26 @@ func TestPilotReportLabelsUnavailableStoredMetrics(t *testing.T) {
 	}
 }
 
+func TestPilotReportMalformedRPCTimeKeepsLocalCounts(t *testing.T) {
+	d := t.TempDir()
+	local := `{"time":"2026-11-02T12:00:00Z","event":"delivered"}`
+	if err := os.WriteFile(filepath.Join(d, "pilots-metrics.jsonl"), []byte(local+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f := &CardFiler{StateDir: d, Run: func(context.Context, []string, ...string) BBResult {
+		// A valid row before the bad one must not leak partial RPC counts into the report.
+		return BBResult{Stdout: []byte(`{"metrics":[{"time":"2026-11-02T12:00:00Z","event":"picked","option_kind":"needs-context","pasted_error":true},{"time":"not-a-time","event":"picked"}]}`)}
+	}}
+	var out bytes.Buffer
+	if err := f.PilotReport(&out, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Plugin pick metrics unavailable; report includes local metrics only.") ||
+		!strings.Contains(out.String(), "2026-11-02 1 0 0 0 0 0 0 0 0 0\n") {
+		t.Fatal(out.String())
+	}
+}
+
 func TestPilotAbsentExactLegacyState(t *testing.T) {
 	f := newFake(t, registryOnCreate).filer()
 	r := testReq()

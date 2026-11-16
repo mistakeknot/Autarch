@@ -42,6 +42,43 @@ function runChild(crashAt: string): number | null {
 }
 
 describe("export", () => {
+  const metric = (event_id: string) => ({ time: "2026-11-15T12:00:00Z", event_id, event: "picked" });
+  it("excludes pilot payloads from mixed segments while covering the full processed range", () => {
+    const s = openStore(file);
+    s.recordPilotMetric(metric("pick:first")); fill(s, 1); s.recordPilotMetric(metric("pick:last"));
+    const r = exportEvents(s, { root, batch: 3 });
+    expect(r).toMatchObject({ exported: 1, segment: "events-2-3.jsonl", cursor: 3 });
+    const lines = readFileSync(join(r.dir, r.segment!), "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(lines.map(e => e.type)).toEqual(["filed"]);
+    expect(s.pilotMetrics()).toHaveLength(2);
+    expect(exportEvents(s, { root })).toMatchObject({ exported: 0, cursor: 3 });
+    fill(s, 1); expect(exportEvents(s, { root }).segment).toBe("events-4-4.jsonl");
+    expect(exportedKeys(r.dir).map(k => Number(k.split(":")[1]))).toEqual([2, 4]);
+    s.close();
+  });
+  it("advances through metric-only bounded batches without creating empty segments", () => {
+    const s = openStore(file);
+    for (let i = 0; i < 3; i++) s.recordPilotMetric(metric(`pick:fixture-${i}`));
+    const first = exportEvents(s, { root, batch: 2 });
+    expect(first).toEqual({ dir: join(root, s.storeId), exported: 0, cursor: 2 });
+    s.close();
+    const again = openStore(file);
+    expect(exportEvents(again, { root, batch: 2 })).toEqual({ dir: first.dir, exported: 0, cursor: 3 });
+    expect(readdirSync(first.dir)).toEqual([]);
+    expect(exportEvents(again, { root }).cursor).toBe(3); again.close();
+  });
+  for (const step of ["before-rename", "after-rename", "after-cursor"]) {
+    it(`recovers a mixed segment interrupted at ${step} without exporting pilot rows`, () => {
+      const s = openStore(file);
+      s.recordPilotMetric(metric("pick:first")); fill(s, 1); s.recordPilotMetric(metric("pick:last"));
+      expect(() => exportEvents(s, { root, hook: at => { if (at === step) throw new Error("interrupted"); } })).toThrow("interrupted");
+      s.close();
+      const again = openStore(file); fill(again, 1);
+      exportEvents(again, { root }); exportEvents(again, { root });
+      expect(exportedKeys(join(root, again.storeId)).map(k => Number(k.split(":")[1])).sort((a, b) => a - b)).toEqual([2, 4]);
+      again.close();
+    });
+  }
   it("writes an immutable segment named by its seq range, one line per event, then only new events", () => {
     const s = openStore(file);
     fill(s, 3);

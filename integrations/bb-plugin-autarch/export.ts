@@ -2,7 +2,8 @@
 // so they outlive `bb plugin remove`: events-<first_seq>-<last_seq>.jsonl, written to a
 // temp file, fsynced, renamed, and only then is the cursor advanced. At start the
 // cursor is the larger of the stored cursor and the highest last_seq among existing
-// segments, so a crash on either side of the rename neither duplicates nor loses events.
+// segments, so a crash on either side of the rename neither duplicates nor loses exported events.
+// Pilot observations stay in the store; segment ranges include any excluded rows scanned (mk-bzi8s.13).
 import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +20,7 @@ export interface ExportOptions {
   root?: string;
   /** Test seam: called at "before-rename", "after-rename", "after-cursor". */
   hook?: (step: string) => void;
-  /** Max events per segment. Default 5000. */
+  /** Max events scanned per batch, including excluded observations. Default 5000. */
   batch?: number;
 }
 
@@ -56,7 +57,7 @@ export function exportEvents(store: Store, opts: ExportOptions = {}): ExportResu
   const cursor = Math.max(stored, highest);
   if (cursor !== stored) store.setSetting(CURSOR_KEY, String(cursor));
 
-  const rows = store.db
+  const scanned = store.db
     .prepare("SELECT * FROM events WHERE seq > ? ORDER BY seq LIMIT ?")
     .all(cursor, opts.batch ?? 5000) as {
     seq: number;
@@ -65,10 +66,16 @@ export function exportEvents(store: Store, opts: ExportOptions = {}): ExportResu
     decision_id: string | null;
     detail_json: string;
   }[];
-  if (rows.length === 0) return { dir, exported: 0, cursor };
+  if (scanned.length === 0) return { dir, exported: 0, cursor };
 
+  const last = scanned[scanned.length - 1]!.seq;
+  const rows = scanned.filter(row => row.type !== "pilot-pick-metric");
+  if (rows.length === 0) {
+    store.setSetting(CURSOR_KEY, String(last));
+    opts.hook?.("after-cursor");
+    return { dir, exported: 0, cursor: last };
+  }
   const first = rows[0]!.seq;
-  const last = rows[rows.length - 1]!.seq;
   const body =
     rows
       .map((r) =>
