@@ -468,7 +468,7 @@ export class Delegation {
   // ---- bring back (bead mk-gc2xm) --------------------------------------------------
 
   /**
-   * Reopen a decided card as a new generation of the SAME card; the earlier pick and comments stay visible.
+   * Reopen an archived card as a new generation of the SAME card; any earlier pick and comments stay visible.
    * Panel (and the vizier's sweep) only: a thread cannot reopen a card. `recipient` is the live thread that
    * gets the notice: the asking thread, or the vizier when that thread is archived or gone; the caller
    * resolves it, since the thread list is not the store's to read.
@@ -485,8 +485,10 @@ export class Delegation {
     if (!d) return refuse(404, "no decision for this card");
     if (d.id !== decisionId) return refuse(409, "this card has moved on since you looked; reload the Archive");
     const pick = this.store.pick(decisionId);
-    if (!pick) return refuse(409, "this card has no recorded decision to bring back");
     if (d.source !== "card" || typeof d.task_id !== "string") return refuse(409, "only a card can be brought back");
+    if (!pick && !this.db.prepare("SELECT 1 FROM cards WHERE task_id = ? AND state = 'closed'").get(taskId)) {
+      return refuse(409, "only a closed card can be brought back without a pick");
+    }
 
     const ask = readAsk(d.body_json, { request_id: requestId, supersedes: decisionId }, d.source);
     if (!ask) return refuse(UNREADABLE_REFUSAL.status, UNREADABLE_REFUSAL.error);
@@ -523,7 +525,7 @@ export class Delegation {
         if ("existing" in res) return { ok: true, decision_id: res.existing.decision_id, replay: true };
         return refuse(409, res.reason === "already-superseded" ? "already brought back" : "this card cannot be brought back");
       }
-      const w = this.store.obligationsFor(decisionId).find((o) => o.op === `wake:${decisionId}:${pick.pick_id}`);
+      const w = pick && this.store.obligationsFor(decisionId).find((o) => o.op === `wake:${decisionId}:${pick.pick_id}`);
       if (w) this.store.voidObligation(w.id);
       // The reopened card blocks the same threads the earlier one did.
       this.db.prepare("INSERT OR IGNORE INTO decision_blocks(decision_id, ref) SELECT ?, ref FROM decision_blocks WHERE decision_id = ?").run(res.decision_id, decisionId);
@@ -536,10 +538,13 @@ export class Delegation {
           recipient,
           op: `bringback:${decisionId}`,
           payload: (
-            notice ?? [
+            notice ?? (pick ? [
               `mk brought the decision ${decisionId} back. It is open again as ${res.decision_id}, and mk is answering afresh.`,
               `Wait for that answer before acting on the earlier one. If you have already received mk's answer for ${res.decision_id}, that answer stands.`,
-            ]
+            ] : [
+              `mk brought the card ${decisionId} back. It is open again as ${res.decision_id}, and mk is answering afresh.`,
+              `No earlier pick was recorded in Citadel. Wait for mk's answer for ${res.decision_id} before acting. If you have already received that answer, it stands.`,
+            ])
           ).join("\n"),
         },
       ]);

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { ArchiveRowView } from "../ui/archive.js";
+import { archiveView } from "../archive.js";
 import { cleanupEnvs, opened, pollN, rig } from "./card-rig.js";
 
 afterEach(cleanupEnvs);
@@ -19,6 +20,42 @@ async function ruled(r = rig()) {
 }
 
 describe("bring back", () => {
+  it.each(["done", "canceled"])("reopens a %s card without a pick as a fresh round, preserving comments and retry identity", async status => {
+    const r = rig();
+    const { t, g1 } = await opened(r);
+    const comments = [...r.fake.comments];
+    r.edit(t, { status });
+    await pollN(r, 3);
+    expect(r.cardRow(t.id).state).toBe("closed");
+    expect(r.svc.store.decision(g1.id)).toMatchObject({ withdrawn_at: expect.any(String) });
+    const row = archiveView(r.db, {}).rows.find(x => x.task_id === t.id)!;
+    expect(row).toMatchObject({ no_pick: true, decision_id: g1.id });
+    expect(r.dele.bringBack(t.id, g1.id, "thr_a", { threadId: "thr_a" })).toMatchObject({ ok: false, status: 403 });
+    expect(r.dele.bringBack(t.id, "stale-generation", "thr_a", {})).toMatchObject({ ok: false, status: 409 });
+    expect(r.gens(t.id)).toHaveLength(1);
+    const out = r.dele.bringBack(t.id, row.decision_id!, "thr_a", {});
+    expect(out).toMatchObject({ ok: true, replay: false });
+    if (!out.ok) throw new Error(out.error);
+    r.restart();
+    expect(r.dele.bringBack(t.id, g1.id, "thr_a", {})).toMatchObject({ ok: true, replay: true, decision_id: out.decision_id });
+    await pollN(r, 5);
+    expect(r.cardRow(t.id).state).toBe("open");
+    expect(t.status).toBe("todo");
+    expect(labelled(r, t)).toBe(true);
+    expect(r.gens(t.id)).toHaveLength(2);
+    expect(r.gens(t.id)[1]).toMatchObject({ id: out.decision_id, generation: 2, supersedes: g1.id, withdrawn_at: null });
+    expect(r.svc.store.pick(g1.id)).toBeUndefined();
+    expect(r.svc.store.pick(out.decision_id)).toBeUndefined();
+    expect(r.fake.comments).toEqual(comments);
+    expect(archiveView(r.db, {}).rows.some(x => x.task_id === t.id)).toBe(false);
+    const notices = r.svc.store.obligationsFor(g1.id).filter(o => o.op === `bringback:${g1.id}`);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ recipient: "thr_a" });
+    expect(notices[0]!.payload).toContain("No earlier pick");
+    expect(r.mkPick(out.decision_id, "fresh-answer")).toMatchObject({ ok: true });
+    expect(r.dele.bringBack(t.id, g1.id, "thr_a", {})).toMatchObject({ ok: true, replay: true, decision_id: out.decision_id });
+    expect(r.gens(t.id)).toHaveLength(2);
+  });
   it("reopens an mk-picked, done card as generation 2 of the same card, keeping the first pick", async () => {
     const { r, t, g1 } = await ruled();
     const out = r.dele.bringBack(t.id, g1.id, "thr_a", {});
@@ -50,6 +87,22 @@ describe("bring back", () => {
     expect(refs).toContain("thread:thr_b");
   });
 
+  it("reopens an unanswered later round even when an older round had a pick", async () => {
+    const { r, t, g1 } = await ruled();
+    const second = r.dele.bringBack(t.id, g1.id, "thr_a", {});
+    if (!second.ok) throw new Error(second.error);
+    await pollN(r, 3);
+    r.edit(t, { status: "done" });
+    await pollN(r, 3);
+    expect(r.cardRow(t.id).state).toBe("closed");
+    expect(r.svc.store.pick(second.decision_id)).toBeUndefined();
+    const third = r.dele.bringBack(t.id, second.decision_id, "thr_a", {});
+    expect(third).toMatchObject({ ok: true });
+    await pollN(r, 5);
+    expect(r.cardRow(t.id).state).toBe("open");
+    expect(r.gens(t.id)).toHaveLength(3);
+  });
+
   it("is idempotent: a second call replays and adds no generation", async () => {
     const { r, t, g1 } = await ruled();
     const a = r.dele.bringBack(t.id, g1.id, "thr_a", {});
@@ -79,7 +132,7 @@ describe("bring back", () => {
     expect(r.cardRow(t.id).state).toBe("open");
   });
 
-  it("refuses a card with no pick, a thread caller and an unknown card", async () => {
+  it("refuses an open card with no pick, a thread caller and an unknown card", async () => {
     const r = rig();
     const { t, g1 } = await opened(r);
     expect(r.dele.bringBack(t.id, g1.id, "thr_a", {})).toMatchObject({ ok: false });
@@ -107,10 +160,12 @@ describe("bring back", () => {
 
 describe("Archive row button", () => {
   const row = { task_id: "t1", card_key: "AUTA-1", title: "T", project: "AUTA", state: "ruled", decided_at: "2026-10-01T00:00:00Z", pick_label: "Per day", option_id: "a", by: "mk", reason: null, generation: 1, no_pick: false, decision_id: "card-t1-g1" };
-  it("shows Bring back on a picked row, not on a row without a pick, and shows an error", () => {
+  it("shows Bring back on picked and no-pick rows, and shows an error", () => {
     const html = renderToStaticMarkup(createElement(ArchiveRowView, { row, onBringBack: () => {}, error: "boom" }));
     expect(html).toContain("data-archive-bringback=\"AUTA-1\"");
     expect(html).toContain("boom");
-    expect(renderToStaticMarkup(createElement(ArchiveRowView, { row: { ...row, no_pick: true, option_id: null, by: null }, onBringBack: () => {} }))).not.toContain("data-archive-bringback");
+    const noPick = renderToStaticMarkup(createElement(ArchiveRowView, { row: { ...row, no_pick: true, option_id: null, by: null }, onBringBack: () => {} }));
+    expect(noPick).toContain("data-archive-bringback");
+    expect(noPick).toContain("without a pick");
   });
 });

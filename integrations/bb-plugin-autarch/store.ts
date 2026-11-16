@@ -690,7 +690,8 @@ export class Store {
    * Insert a replacement for d.supersedes [D-8]. Mode "replace": both are `decide`, the
    * predecessor is unpicked, unwithdrawn, unresolved, unreplaced and has the same asker,
    * thread and project. Mode "override" (Task 1.6): the predecessor instead has a
-   * `by: vizier` pick.
+   * `by: vizier` pick. Mode "bringback" also accepts an unpicked closed card,
+   * whose predecessor may have been withdrawn when the task closed (mk-5ic33).
    */
   insertReplacement(d: DecisionInput, mode: "replace" | "override" | "bringback" = "replace"): ReplacementResult {
     return this.tx(() => {
@@ -705,17 +706,19 @@ export class Store {
         .run(d.request_id, d.identity, d.id, d.thread, at);
       if (reg.changes === 0) return { ok: false, existing: this.registry(d.request_id)! } as const;
 
+      const closedCard = "EXISTS (SELECT 1 FROM cards c WHERE c.task_id = p.task_id AND c.state = 'closed')";
       const pickCond =
         mode === "replace"
           ? "NOT EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = p.id)"
           : mode === "bringback"
-            ? "EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = p.id)"
+            ? `(EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = p.id) OR ${closedCard})`
             : `EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = p.id AND k."by" = 'vizier')`;
       const gate = `
         FROM decisions p
         WHERE p.id = @prev AND p.kind = 'decide' AND @kind = 'decide'
           AND p.asker = @asker AND p.thread = @thread AND p.project = @project
-          AND p.withdrawn_at IS NULL AND p.resolved_at IS NULL
+          AND ${mode === "bringback" ? `(p.withdrawn_at IS NULL OR ${closedCard})` : "p.withdrawn_at IS NULL"}
+          AND p.resolved_at IS NULL
           AND ${pickCond}
           AND NOT EXISTS (SELECT 1 FROM decisions r WHERE r.supersedes = p.id)`;
       const ins = this.db

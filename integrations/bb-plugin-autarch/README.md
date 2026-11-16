@@ -19,6 +19,10 @@ the vizier thread, and delegation settings.
 Try it: install the plugin, open **Citadel** in the sidebar, then run
 `bb home list` in a terminal.
 
+In Archive, **Bring back** reopens a saved question as a fresh round, including
+cards closed without a pick. Earlier answers and comments stay in history.
+Citadel notifies the asking thread, or the vizier when that thread is gone.
+
 ## UI components
 
 `components/ui/` is vendored source you own (the shadcn model): edit the

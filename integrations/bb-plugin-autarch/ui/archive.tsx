@@ -1,5 +1,5 @@
 // The Archive tab (bead mk-gc2xm): decided cards, newest first, with search and project / date / pick filters.
-// Each row with a recorded pick has a Bring back button that reopens the same card as a new generation.
+// Each row with a saved question has a Bring back button that reopens the same card as a fresh round.
 import { useEffect, useRef, useState } from "react";
 import type { ArchiveRow } from "../archive.js";
 import { ActionButton } from "./buttons.js";
@@ -33,7 +33,7 @@ export function ArchiveRowView({ row, onBringBack, busy, error }: { row: Archive
         </p>
       )}
       {error ? <p className="m-0 text-xs text-destructive" role="alert" data-archive-error>Could not bring it back: {error}</p> : null}
-      {onBringBack && !row.no_pick && row.decision_id ? (
+      {onBringBack && row.decision_id ? (
         <div>
           <ActionButton disabled={busy} onClick={() => onBringBack(row)} data-archive-bringback={row.card_key}>Bring back</ActionButton>
         </div>

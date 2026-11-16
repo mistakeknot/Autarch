@@ -7,6 +7,7 @@ import type { ServeClient } from "../serve.js";
 import { ask, makeEnv } from "./service-helpers.js";
 import { FakeSdk } from "./wakes-helpers.js";
 import { sourceSha256 } from "../scripts/source-hash.mjs";
+import { cleanupEnvs, opened, pollN, rig } from "./card-rig.js";
 
 const cfg: HomeConfig = { serveAddr: "127.0.0.1:8110", serveTokenFile: "/nope", serveProjectDirs: [], autarchBin: "autarch" };
 
@@ -32,6 +33,26 @@ function fakeBb(threads: object = {}) {
 const serve = { projects: async () => [], health: async () => ({ build: { commit: "abc" } }), healthy: async () => true } as unknown as ServeClient;
 
 describe("wireHome", () => {
+  it.each([false, true])("routes an unanswered card's bring-back notice with archived asker=%s", async archived => {
+    const r = rig();
+    try {
+      r.enableDelegation();
+      const { t, g1 } = await opened(r);
+      r.edit(t, { status: "done" });
+      await pollN(r, 3);
+      const rows = [
+        { id: "thr_a", title: "Asking thread", pinnedAt: null, archivedAt: archived ? 1 : null, deletedAt: null },
+        { id: "thr_viz", title: "Masaq' | vizier", pinnedAt: 1, archivedAt: null, deletedAt: null },
+      ];
+      const f = fakeBb({ list: async ({ offset }: { offset: number }) => rows.slice(offset), get: async ({ threadId }: { threadId: string }) => rows.find(x => x.id === threadId) });
+      const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve, sdk: new FakeSdk() });
+      try {
+        expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id })).toMatchObject({ ok: true, replay: false });
+        expect(r.svc.store.obligationsFor(g1.id).find(o => o.op === `bringback:${g1.id}`)).toMatchObject({ recipient: archived ? "thr_viz" : "thr_a" });
+        expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id })).toMatchObject({ ok: true, replay: true });
+      } finally { f.disposers.forEach(d => d()); }
+    } finally { cleanupEnvs(); }
+  });
   it("registers the CLI, the feed, the event listeners and the services", () => {
     const db = new Database(":memory:");
     const handle = createStoreHandle(() => db, {});
