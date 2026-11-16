@@ -72,10 +72,14 @@ func TestUnusableConfiguredBBWarnsOnStderr(t *testing.T) {
 		t.Run(source, func(t *testing.T) {
 			// Each case needs a fresh process to test a process-wide warning.
 			if os.Getenv("AUTARCH_TEST_BB_WARNING_PROCESS") != "1" {
-				cmd := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$")
+				cmd := exec.Command(os.Args[0], "-test.v", "-test.run=^"+t.Name()+"$")
 				cmd.Env = append(os.Environ(), "AUTARCH_TEST_BB_WARNING_PROCESS=1")
-				if out, err := cmd.CombinedOutput(); err != nil {
+				out, err := cmd.CombinedOutput()
+				if err != nil {
 					t.Fatalf("warning subprocess failed: %v\n%s", err, out)
+				}
+				if !strings.Contains(string(out), "--- PASS: "+t.Name()+" (") {
+					t.Fatalf("warning subprocess did not pass the requested test %s:\n%s", t.Name(), out)
 				}
 				return
 			}
