@@ -122,7 +122,7 @@ export class Governor {
       const lv = levels[ns.level];
       ns.throttle = { level: ns.level, name: lv.name, allowed_max: lv.allowed_max, cuts_protected: lv.cuts_protected, pace, updated_at: Math.floor(now / 1000), why };
       this.store.put(mode, ns);
-      this.current = { mode, state: ns, decision: dec, script, last_run: now, parts };
+      this.current = { mode, state: ns, decision: dec, script: { state: script, throttle: await io.readJson(join(cfg.state_dir, "throttle.json")) }, last_run: now, parts };
       const failure = dec.applied.find(s => /FAILED/.test(s)) ?? (dec.held?.includes("card not filed") ? dec.held : undefined);
       if (failure) this.current.error = failure;
       if (mode === "live") await io.writeThrottle(cfg, ns.throttle);

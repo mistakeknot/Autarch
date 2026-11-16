@@ -118,6 +118,11 @@ export function wireGovernor(bb: GovernorHost, handle: Pick<StoreHandle, "ready"
           if (!["off", "shadow", "live"].includes(mode)) throw Error("Invalid quota governor mode");
           last = { ...last, mode: mode as Mode, error: undefined };
           if (mode !== "off" && handle.ready()) {
+            const cfg = await loadConfig();
+            if (!cfg.bb_host || hostname() !== cfg.bb_host) {
+              last = { ...last, error: "Inactive on this host" };
+              bb.realtime.publish("quota-governor-changed", {});
+            } else {
             if (!plugins) throw Error("Plugin RPC unavailable");
             if (!governor) {
               const db = handle.store().db;
@@ -141,6 +146,7 @@ export function wireGovernor(bb: GovernorHost, handle: Pick<StoreHandle, "ready"
               });
             }
             await governor.tick();
+            }
           } else bb.realtime.publish("quota-governor-changed", {});
         } catch (e) { last = { ...last, error: String(e) }; bb.log.warn(`quota-governor: ${String(e)}`); bb.realtime.publish("quota-governor-changed", {}); }
         if (signal.aborted) break;
