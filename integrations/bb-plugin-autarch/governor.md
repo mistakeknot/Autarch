@@ -20,10 +20,11 @@ thread-storage directories through the same `docRoots` helper used by the docume
 reader. Discovery runs only for live notification preflight after the mode and
 host checks; off, shadow and other hosts do not need notification storage.
 Missing or ambiguous roots require an explicit `storage_root`. Before policy is
-applied, preflight requires a storage directory and at least one writable
-recipient. Missing or unwritable recipients are skipped, logged and shown in the
-panel. A missing root or zero writable recipients blocks the transition without
-applying or rolling back operator policy or host limits.
+applied, preflight requires a storage directory. Missing, malformed or unwritable
+recipients are skipped, logged and shown in the panel. Zero writable recipients
+is a warning and policy still applies, matching the script. An unavailable or
+ambiguous storage root blocks the transition without applying or rolling back
+operator policy or host limits.
 `QUOTA_GOVERNOR_PROJECT_ROOT` overrides the protected card's project root;
 its default is the Sylveste directory beneath the user's projects directory.
 The card destination uses the same precedence: the non-empty
@@ -67,8 +68,10 @@ thread's caller identity.
 Operator changes keep backups, use bounded `execFile` calls, restore the file
 and reactivate the old generation after an orchestration failure. Transition
 failure rolls back operator and host limits; failed rollback persists a
-pending reconciliation. Notices are appended only after the new level and
-throttle are committed. Delivery failures are logged and shown while delivery
+pending reconciliation. Notices are appended after the new level is committed.
+A compatibility `throttle.json` read or write failure is recorded and shown but
+does not suppress those notices; the next live tick retries the export.
+Delivery failures are logged and shown while delivery
 continues to other recipients; they never roll back the committed level, so a
 partial append cannot strand notices for a rolled-back policy. Preflight cannot
 prevent later directory or permission changes. Pool failures do not refresh throttle freshness.
