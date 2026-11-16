@@ -1,7 +1,8 @@
 import { it, expect, vi } from "vitest";
 import Database from "better-sqlite3";
-import { applyOperator, homeAnswer, fileProtectedCard, loadConfig, timerActive, wireGovernor, notifyInboxes, readOverrides, type Exec } from "../governor-runtime.js";
+import { applyOperator, homeAnswer, fileProtectedCard, loadConfig, timerActive, wireGovernor, prepareInboxes, resolveStorageRoot, readOverrides, type Exec } from "../governor-runtime.js";
 import { DEFAULTS } from "../governor-policy.js";
+import type { PluginsLike } from "../tasks.js";
 
 it("reads a Citadel pick by the card task's decision id", async () => {
   const db = new Database(":memory:");
@@ -32,22 +33,43 @@ it("refuses an unconfigured card destination before any write or command", async
   expect(exec).not.toHaveBeenCalled(); expect(fs.writeFile).not.toHaveBeenCalled();
 });
 it("resolves discovered machine thread storage and fails ambiguous roots", async () => {
-  expect((await loadConfig({}, async () => null, () => ["/fixture/machine/thread-storage"])).storage_root).toBe("/fixture/machine/thread-storage");
-  await expect(loadConfig({}, async () => null, () => [])).rejects.toThrow("thread-storage");
-  await expect(loadConfig({}, async () => null, () => ["/a", "/b"])).rejects.toThrow("thread-storage");
-  expect((await loadConfig({ QUOTA_GOVERNOR_CONFIG: "fixture" }, async () => ({ storage_root: "/configured" }), () => [])).storage_root).toBe("/configured");
+  expect(resolveStorageRoot(DEFAULTS, () => ["/fixture/machine/thread-storage"]).storage_root).toBe("/fixture/machine/thread-storage");
+  expect(() => resolveStorageRoot(DEFAULTS, () => [])).toThrow("thread-storage");
+  expect(() => resolveStorageRoot(DEFAULTS, () => ["/a", "/b"])).toThrow("thread-storage");
+  const roots = vi.fn(() => { throw Error("unexpected discovery"); });
+  expect((await loadConfig({}, async () => null)).storage_root).toBe("");
+  expect(resolveStorageRoot({ ...DEFAULTS, storage_root: "/configured" }, roots).storage_root).toBe("/configured"); expect(roots).not.toHaveBeenCalled();
 });
-it("missing storage or recipient directories fail before any inbox append", async () => {
+it("skips missing recipients and preflights a writable target without appending", async () => {
+  const threads = [{ id: "coordinator", title: "X | coordinator", providerId: "claude-code" }, { id: "missing", title: "X steward", providerId: "claude-code" }];
+  const disk = { stat: vi.fn(async (p: string) => { if (p.endsWith("missing")) throw Error("recipient missing"); return { isDirectory: () => true }; }), access: vi.fn(async () => {}), appendFile: vi.fn(async () => {}) };
+  const plan = await prepareInboxes({ ...DEFAULTS, storage_root: "/fixture" }, threads, 0, 1, 1.2, "pace", 0, disk);
+  expect(plan.skipped.join(" ")).toContain("missing"); expect(disk.appendFile).not.toHaveBeenCalled();
+  await plan.send(); expect(disk.appendFile).toHaveBeenCalledTimes(1);
+});
+it("fails preflight for missing roots or zero writable recipients", async () => {
   const threads = [{ id: "coordinator", title: "X | coordinator", providerId: "claude-code" }];
-  const disk = { stat: vi.fn(async (p: string) => { if (p.endsWith("coordinator")) throw Error("recipient missing"); return { isDirectory: () => true }; }), appendFile: vi.fn(async () => {}) };
-  await expect(notifyInboxes({ ...DEFAULTS, storage_root: "/fixture" }, threads, 0, 1, 1.2, "pace", 0, disk)).rejects.toThrow("recipient missing");
+  const disk = { stat: vi.fn(async () => ({ isDirectory: () => true })), access: vi.fn(async () => { throw Error("not writable"); }), appendFile: vi.fn(async () => {}) };
+  await expect(prepareInboxes({ ...DEFAULTS, storage_root: "/fixture" }, threads, 0, 1, 1.2, "pace", 0, disk)).rejects.toThrow("No writable");
   expect(disk.appendFile).not.toHaveBeenCalled();
   disk.stat = vi.fn(async () => { throw Error("root missing"); });
-  await expect(notifyInboxes({ ...DEFAULTS, storage_root: "/fixture" }, threads, 0, 1, 1.2, "pace", 0, disk)).rejects.toThrow("root missing");
+  await expect(prepareInboxes({ ...DEFAULTS, storage_root: "/fixture" }, threads, 0, 1, 1.2, "pace", 0, disk)).rejects.toThrow("root missing");
+});
+it("checks directory writability when a recipient has no inbox yet", async () => {
+  const disk = { stat: async () => ({ isDirectory: () => true }), access: vi.fn(async (path: string) => { if (path.endsWith("inbox.md")) throw Object.assign(Error("new inbox"), { code: "ENOENT" }); }), appendFile: vi.fn(async () => {}) };
+  const plan = await prepareInboxes({ ...DEFAULTS, storage_root: "/fixture" }, [{ id: "c", title: "X | coordinator", providerId: "claude-code" }], 0, 1, 1.2, "pace", 0, disk);
+  expect(disk.access.mock.calls.map(a => a[0])).toEqual(["/fixture/c/inbox.md", "/fixture/c"]);
+  expect(disk.appendFile).not.toHaveBeenCalled(); await plan.send(); expect(disk.appendFile).toHaveBeenCalledTimes(1);
+});
+it("reports a partial append and continues to later recipients after commit", async () => {
+  const threads = ["a", "b", "c"].map(id => ({ id, title: "X | coordinator", providerId: "claude-code" }));
+  const disk = { stat: async () => ({ isDirectory: () => true }), access: async () => {}, appendFile: vi.fn(async (p: string) => { if (p.includes("/b/")) throw Error("append denied"); }) };
+  const plan = await prepareInboxes({ ...DEFAULTS, storage_root: "/fixture" }, threads, 0, 1, 1.2, "pace", 0, disk);
+  expect((await plan.send()).join(" ")).toContain("append denied"); expect(disk.appendFile).toHaveBeenCalledTimes(3);
 });
 it("keeps script notice and card wording with only the private ruling reference replaced", async () => {
-  const disk = { stat: async () => ({ isDirectory: () => true }), appendFile: vi.fn(async (_path: string, _text: string) => {}) };
-  await notifyInboxes({ ...DEFAULTS, storage_root: "/fixture" }, [{ id: "c", title: "X | coordinator", providerId: "claude-code" }], 0, 1, 1.25, "pace", 0, disk);
+  const disk = { stat: async () => ({ isDirectory: () => true }), access: async () => {}, appendFile: vi.fn(async (_path: string, _text: string) => {}) };
+  await (await prepareInboxes({ ...DEFAULTS, storage_root: "/fixture" }, [{ id: "c", title: "X | coordinator", providerId: "claude-code" }], 0, 1, 1.25, "pace", 0, disk)).send();
   expect(disk.appendFile.mock.calls[0][1]).toContain("Protected work (the one-shots, the Undersketch protected path) keeps its caps unless a card says otherwise.");
   let body = "";
   const fs = { mkdir: async () => {}, writeFile: async (_p: string, s: string) => { body = s; }, rename: async () => {} };
@@ -102,4 +124,17 @@ it("registers an abortable service and leaves the database untouched while off",
   const controller = new AbortController(); const run = start(controller.signal);
   await Promise.resolve(); await Promise.resolve(); controller.abort(); await run;
   expect(view().mode).toBe("off"); expect(handle.store).not.toHaveBeenCalled();
+});
+it.each(["off", "other host", "shadow"])("%s does not discover notification storage", async scenario => {
+  const db = new Database(":memory:"); let start!: (signal: AbortSignal) => Promise<void>;
+  const controller = new AbortController(); const roots = vi.fn(() => { throw Error("unexpected storage discovery"); });
+  const plugins: PluginsLike = { callRpc: async args => args.outputSchema.parse([]) };
+  const handle = { ready: () => true, store: vi.fn(() => ({ db })) };
+  const bb = { sdk: { threads: { list: async () => [] }, plugins }, background: { service: (_name: string, opts: { start: typeof start }) => { start = opts.start; } }, realtime: { publish: () => controller.abort() }, log: { warn: vi.fn() } };
+  const view = wireGovernor(bb, handle, async () => ({ quota_governor_mode: scenario === "other host" ? "live" : scenario }), {
+    config: async () => ({ ...DEFAULTS, bb_host: "governed", state_dir: "/fixture/state" }), roots, hostname: () => scenario === "other host" ? "other" : "governed",
+  });
+  await start(controller.signal); expect(roots).not.toHaveBeenCalled(); expect(view().error ?? "").not.toContain("thread-storage");
+  if (scenario === "other host") expect(view().error).toBe("Inactive on this host");
+  db.close();
 });

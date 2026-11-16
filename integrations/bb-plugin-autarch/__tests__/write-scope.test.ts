@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fsWriteUses, isFdOnly, isOpener, parse, parseFile, readOnlyFlags, rel, serverSources } from "./static-scan.js";
+import { fsWriteUses, atomicJsonUses, isFdOnly, isOpener, parse, parseFile, readOnlyFlags, rel, serverSources } from "./static-scan.js";
 
 // Plan 1.3.8 and Task 2.7: fs writes live only in ruling.ts and export.ts. backup.ts may open O_RDONLY and fsync
 // (the backup itself is written by SQLite's VACUUM INTO); rootrun.ts may only open files O_RDONLY.
@@ -10,8 +10,22 @@ import { fsWriteUses, isFdOnly, isOpener, parse, parseFile, readOnlyFlags, rel, 
 // under the update directory it is given, and never writes any content to it (see its header).
 // The governor adapter writes policy, throttle state and inboxes only in explicit live mode (bead mk-z0lht.1).
 const FULL = new Set(["ruling.ts", "export.ts", "ledger.ts", "otherimages.ts", "trigger.ts"]);
-function governorWriteAllowed(use: ReturnType<typeof fsWriteUses>[number]): boolean {
+function governorWriteAllowed(use: ReturnType<typeof fsWriteUses>[number], file = "governor-runtime.ts"): boolean {
   const a = use.args?.map(s => s.replace(/\s/g, "")) ?? [];
+  if (file === "governor.ts") {
+    if (use.api === "mkdir") return a[0] === "dirname(path)";
+    if (use.api === "writeFile") return a[0] === "`${path}.tmp`" && a[1] === "JSON.stringify(obj,null,1)";
+    if (use.api === "rename") return a[0] === "`${path}.tmp`" && a[1] === "path";
+    return false;
+  }
+  if (use.api === "namespace") {
+    if (use.context?.replace(/\s/g, "") === "disk:InboxFS=fs") return true;
+    if (use.callee === "applyOperator") return use.position === 4 && a.join(",") === "cfg,level,force,exec,fs";
+    if (use.callee === "fileProtectedCard") return use.position === 6 && a.join(",") === "cfg,level,pace,rn,vz,exec,fs";
+    if (use.callee === "prepareInboxes") return use.position === 7 && a.join(",") === "cfg,awaitthreads(),old,next,pace,why,Date.now(),fs,deps.roots";
+    return use.callee === "atomicJson" && use.position === 2 && ["fs", "disk"].includes(a[2]);
+  }
+  if (use.api === "atomicJson") return (a[0] === 'join(cfg.state_dir,`card-ask-L${level}.json`)' && a[1] === "ask" && a[2] === "disk") || (a[0] === 'join(cfg.state_dir,"throttle.json")' && a[1] === "throttle" && a[2] === "fs");
   if (use.api === "mkdir") return a[0] === "cfg.state_dir";
   if (use.api === "copyFile") return a[0] === "path" && a[1]?.startsWith('join(cfg.state_dir,`operator.toml.bak-');
   if (use.api === "writeFile") return a[0] === "`${path}.governor.tmp`" && ["old", "next"].includes(a[1]);
@@ -32,8 +46,10 @@ describe("fs write scope (plan Task 2.7)", () => {
     for (const f of serverSources()) {
       const name = rel(f);
       if (FULL.has(name)) continue;
-      for (const u of fsWriteUses(parseFile(f), name === "governor-runtime.ts" ? ["disk"] : [])) {
-        if (name === "governor-runtime.ts" && governorWriteAllowed(u)) continue;
+      const governor = ["governor-runtime.ts", "governor.ts"].includes(name);
+      const sf = parseFile(f);
+      for (const u of [...fsWriteUses(sf, name === "governor-runtime.ts" ? ["disk"] : name === "governor.ts" ? ["fs"] : [], governor), ...atomicJsonUses(sf)]) {
+        if (governor && governorWriteAllowed(u, name)) continue;
         const okRead = isOpener(u.api) && readOnlyFlags(u.flags);
         if (RDONLY_PLUS_FSYNC.has(name) && (okRead || isFdOnly(u.api))) continue;
         if (RDONLY_ONLY.has(name) && okRead) continue;
@@ -55,11 +71,23 @@ describe("fs write scope (plan Task 2.7)", () => {
     expect(uses("trigger.ts")).toEqual(["openSync"]);
   });
   it("allows only governor policy/state/inbox calls and detects injected filesystem writes", () => {
-    const allowed = fsWriteUses(parseFile(serverSources().find(f => rel(f) === "governor-runtime.ts")!), ["disk"]);
-    expect(allowed.length).toBeGreaterThan(5); expect(allowed.every(governorWriteAllowed)).toBe(true);
+    const sf = parseFile(serverSources().find(f => rel(f) === "governor-runtime.ts")!);
+    const allowed = [...fsWriteUses(sf, ["disk"], true), ...atomicJsonUses(sf)];
+    expect(allowed.length).toBeGreaterThan(5); expect(allowed.every(u => governorWriteAllowed(u))).toBe(true);
+    const core = fsWriteUses(parseFile(serverSources().find(f => rel(f) === "governor.ts")!), ["fs"], true);
+    expect(core.map(u => u.api)).toEqual(["mkdir", "writeFile", "rename"]); expect(core.every(u => governorWriteAllowed(u, "governor.ts"))).toBe(true);
     for (const src of ['disk.writeFile("/unexpected", next)', 'fs.appendFile(join(cfg.storage_root,id,"other.md"), text)', 'disk.rename(path, "/unexpected")', 'disk.rm(cfg.state_dir)', 'disk.unlink(join(other,f))']) {
       const uses = fsWriteUses(parse(`import * as fs from "node:fs/promises"; ${src}`), ["disk"]);
-      expect(uses.length).toBe(1); expect(uses.every(governorWriteAllowed), src).toBe(false);
+      expect(uses.length).toBe(1); expect(uses.every(u => governorWriteAllowed(u)), src).toBe(false);
+    }
+  });
+  it("detects namespace values, aliases and arbitrary atomicJson destinations", () => {
+    for (const text of ['import * as fs from "node:fs/promises"; unknownWriter(fs)', 'import * as fs from "node:fs/promises"; const alias = fs', 'import * as fs from "node:fs/promises"; const writer = fs.writeFile']) {
+      const uses = fsWriteUses(parse(text), [], true);
+      expect(uses.length, text).toBeGreaterThan(0); expect(uses.every(u => governorWriteAllowed(u)), text).toBe(false);
+    }
+    for (const text of ['atomicJson("/unexpected", x, fs)', 'import { atomicJson as save } from "./governor.js"; save("/unexpected", x, disk)']) {
+      const uses = atomicJsonUses(parse(text)); expect(uses).toHaveLength(1); expect(uses.every(u => governorWriteAllowed(u))).toBe(false);
     }
   });
 

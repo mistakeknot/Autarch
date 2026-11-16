@@ -85,10 +85,13 @@ export interface FsUse {
   /** For open/openSync: the flags argument as written, or undefined when absent. */
   flags?: string;
   args?: string[];
+  callee?: string;
+  position?: number;
+  context?: string;
 }
 
 /** Every use of an fs write-capable API (imported by name, via a namespace, or via require). */
-export function fsWriteUses(sf: ts.SourceFile, injectedNamespaces: readonly string[] = []): FsUse[] {
+export function fsWriteUses(sf: ts.SourceFile, injectedNamespaces: readonly string[] = [], namespaceValues = false): FsUse[] {
   const names = new Map<string, string>(); // local identifier -> api name
   const namespaces = new Set<string>(injectedNamespaces);
   const uses: FsUse[] = [];
@@ -118,6 +121,29 @@ export function fsWriteUses(sf: ts.SourceFile, injectedNamespaces: readonly stri
       const isImport = ts.isImportSpecifier(p);
       if (!isCallee && !isImport) uses.push({ api: names.get(n.text)!, at: where(sf, n) });
     }
+    if (namespaceValues && ts.isIdentifier(n) && namespaces.has(n.text)) {
+      const p = n.parent;
+      if (ts.isNamespaceImport(p) || ts.isImportClause(p) || ts.isTypeQueryNode(p) || (ts.isParameter(p) && p.name === n)) return;
+      if (ts.isPropertyAccessExpression(p) && p.expression === n) {
+        if (FS_WRITE_APIS.has(p.name.text) && !(ts.isCallExpression(p.parent) && p.parent.expression === p)) uses.push({ api: p.name.text, at: where(sf, n) });
+        return;
+      }
+      uses.push({ api: "namespace", at: where(sf, n), context: p.getText(sf), ...(ts.isCallExpression(p) ? { callee: p.expression.getText(sf), args: p.arguments.map(a => a.getText(sf)), position: p.arguments.indexOf(n) } : {}) });
+    }
+  });
+  return uses;
+}
+
+/** Atomic writer calls need destination checks even if their filesystem argument is aliased. */
+export function atomicJsonUses(sf: ts.SourceFile): FsUse[] {
+  const names = new Set(["atomicJson"]), uses: FsUse[] = [];
+  visit(sf, n => {
+    if (ts.isImportSpecifier(n) && (n.propertyName ?? n.name).text === "atomicJson") names.add(n.name.text);
+  });
+  visit(sf, n => {
+    if (!ts.isCallExpression(n)) return;
+    const called = ts.isIdentifier(n.expression) ? n.expression.text : ts.isPropertyAccessExpression(n.expression) ? n.expression.name.text : "";
+    if (names.has(called)) uses.push({ api: "atomicJson", at: where(sf, n), args: n.arguments.map(a => a.getText(sf)) });
   });
   return uses;
 }
