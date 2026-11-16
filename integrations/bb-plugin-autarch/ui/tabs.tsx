@@ -1,5 +1,7 @@
 // The Home tab row: one line that scrolls sideways when the screen is narrow, with tap-height buttons on phones.
-import type { ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
+import * as Popover from "@radix-ui/react-popover";
+import { usePortalScopeProps } from "../lib/portal-scope.js";
 import type { Panel } from "./stack.js";
 
 /** The removed Classic tabs switch stored its choice here; nothing reads it now, so Home clears it on load. */
@@ -58,13 +60,60 @@ export function nextQueueTab(tab: QueueTab, key: string): QueueTab | null {
   return null;
 }
 
+/** Tap-accessible count help, with dismissal and focus restoration supplied by the shared popover primitive. */
+function WaitingDefinition({ definition }: { definition: string }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  const portalScope = usePortalScopeProps();
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          aria-label="What this counts"
+          aria-expanded={open}
+          aria-controls={id}
+          aria-describedby={open ? id : undefined}
+          data-waiting-definition-toggle
+          className="flex min-h-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          style={{ minWidth: 44, minHeight: 44 }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 11v6M12 7v1" />
+          </svg>
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          {...portalScope}
+          id={id}
+          aria-label="What this counts"
+          tabIndex={-1}
+          side="bottom"
+          align="end"
+          sideOffset={4}
+          collisionPadding={8}
+          className="rounded-md border border-border bg-background p-3 text-xs text-foreground shadow-md"
+          style={{ width: "min(20rem, calc(100vw - 2rem))", overflowWrap: "anywhere", zIndex: 50 }}
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => event.stopPropagation()}
+          data-waiting-definition
+        >
+          {definition}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
 /** The Queue's own tabs: each paradigm gets a tab with its count, so no view makes mk scroll past one to reach another. */
 // Below sm the tabs wrap to a second line rather than scroll, so no tab sits off-screen with no cue; a label never splits.
 export function QueueTabs({ tab, counts, onTab, definition = null, line = null }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; definition?: string | null; line?: string | null }) {
   return (
     <div className="border-b border-border px-2 sm:px-4">
     <div className="flex flex-wrap items-center gap-x-3">
-    <div role="tablist" aria-label="Queue" className="flex min-w-0 flex-1 flex-wrap gap-x-3 sm:flex-nowrap sm:overflow-x-auto" data-queue-tabs>
+    <div role="tablist" aria-label="Queue" style={{ flexBasis: "28rem" }} className="flex min-w-0 flex-1 flex-wrap gap-x-3 sm:flex-nowrap sm:overflow-x-auto" data-queue-tabs>
       {QUEUE_TABS.map(([id, label]) => (
         <button
           key={id}
@@ -89,13 +138,10 @@ export function QueueTabs({ tab, counts, onTab, definition = null, line = null }
         </button>
       ))}
     </div>
-    {line && line.includes(" · ") ? <p className="m-0 shrink-0 text-xs text-muted-foreground [overflow-wrap:anywhere]" data-waiting-line>{`Waiting on you: ${line}`}</p> : null}
-    {definition ? (
-      <details className="shrink-0 text-xs text-muted-foreground open:basis-full" data-waiting-definition>
-        <summary className="flex min-h-11 cursor-pointer items-center">What this counts</summary>
-        <p className="m-0 mb-2 [overflow-wrap:anywhere]">{definition}</p>
-      </details>
-    ) : null}
+    <div className="flex items-center">
+      {line && line.includes(" · ") ? <p className="m-0 text-xs text-muted-foreground [overflow-wrap:anywhere]" data-waiting-line>{`Waiting on you: ${line}`}</p> : null}
+      {definition ? <WaitingDefinition definition={definition} /> : null}
+    </div>
     </div>
     </div>
   );
