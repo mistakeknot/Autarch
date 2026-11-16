@@ -496,6 +496,22 @@ deploy)
     install_build "$(cat "$BK/previous-source.txt")" || echo "home-ui: automatic rollback failed; run the rollback command above" >&2
     exit 5
   fi
+  # installed.sha write: begin (mk-zq345.8)
+  # As on rollback, record the verified installed checkout atomically only when the state directory exists; otherwise warn.
+  ST=${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update}
+  if [ -d "$ST" ]; then
+    TOP=$(git -C "$B/$PLUGIN_REL" rev-parse --show-toplevel 2>/dev/null || true)
+    SHA=$(git -C "$B/$PLUGIN_REL" rev-parse HEAD 2>/dev/null || true)
+    if [ -n "$TOP" ] && [ "$(cd "$B/$PLUGIN_REL" && pwd -P)" = "$TOP/$PLUGIN_REL" ] && [[ $SHA =~ ^[0-9a-f]{40}$ ]] && printf '%s\n' "$SHA" >"$ST/installed.sha.tmp.$$"; then
+      mv -f "$ST/installed.sha.tmp.$$" "$ST/installed.sha" || echo "home-ui: WARNING: could not write $ST/installed.sha" >&2
+    else
+      rm -f "$ST/installed.sha.tmp.$$"
+      echo "home-ui: WARNING: $B/$PLUGIN_REL is not a checkout of the plugin; installed.sha was not updated" >&2
+    fi
+  else
+    echo "home-ui: WARNING: no state dir $ST; installed.sha was not updated" >&2
+  fi
+  # installed.sha write: end
   echo "deployed $COMMIT; Home is running"
   echo "$(rollback_cmd "$BK")" ;;
 
