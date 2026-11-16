@@ -30,6 +30,9 @@ export PATH=/usr/local/bin:/usr/bin:/bin
 umask 077
 
 die() { echo "home-ui: $*" >&2; exit "${2:-1}"; }
+# rollback commit record: begin (mk-zq345.9)
+stamp_warning() { echo "home-ui: WARNING: $*" >&2 || true; echo "home-ui: WARNING: $*" || true; }
+# rollback commit record: end
 [ "$(id -u)" != 0 ] || die "run as mk, not root" 64
 
 MKHOME=${HOME:?}
@@ -250,6 +253,13 @@ backup() {   # prints the backup directory
   [ "$(sqlite3 -readonly "$dir/data.db" 'PRAGMA integrity_check')" = ok ] || die "backup failed its integrity check; nothing was changed"
   [ "$(sqlite3 -readonly "$dir/data.db" "SELECT value FROM schema_meta WHERE key='schema_version'")" = "$(live_schema)" ] || die "backup schema differs from live; nothing was changed"
   printf '%s\n' "$prev" >"$dir/previous-source.txt"
+  # rollback commit record: begin (mk-zq345.9)
+  local top sha
+  top=$(git -C "$prev" rev-parse --show-toplevel 2>/dev/null || true)
+  sha=$(git -C "$prev" rev-parse HEAD 2>/dev/null || true)
+  if [ -z "$top" ] || [ "$(cd "$prev" && pwd -P)" != "$top/$PLUGIN_REL" ] || ! [[ $sha =~ ^[0-9a-f]{40}$ ]]; then sha=; fi
+  printf '%s\n' "$sha" >"$dir/previous-commit.txt" || die "could not record the previous build commit; nothing was changed"
+  # rollback commit record: end
   echo "$dir"
 }
 plugin_running() {
@@ -497,7 +507,6 @@ deploy)
     exit 5
   fi
   # installed.sha write: begin (mk-zq345.8)
-  stamp_warning() { echo "home-ui: WARNING: $*" >&2 || true; echo "home-ui: WARNING: $*" || true; }
   # As on rollback, record the verified installed checkout atomically only when the state directory exists; otherwise warn.
   ST=${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update}
   if [ -d "$ST" ]; then
@@ -562,15 +571,19 @@ rollback)
   fi
   install_build "$PREV" || exit 5
   # installed.sha write: begin (mk-zq345.5)
-  stamp_warning() { echo "home-ui: WARNING: $*" >&2 || true; echo "home-ui: WARNING: $*" || true; }
   # Record the build now installed where the update runner reads it, atomically, only when the state dir exists and the previous
-  # build is a checkout of this plugin; anything else only warns, and the rollback still succeeds. Reads nothing from the tool.
+  # build is a checkout matching its backup-time commit; anything else only warns, and the rollback still succeeds.
+  PREV_COMMIT=$(cat "$BACKUP_ARG/previous-commit.txt" 2>/dev/null || true)
   ST=${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update}
   if [ -d "$ST" ]; then
     TOP=$(git -C "$PREV" rev-parse --show-toplevel 2>/dev/null || true)
     SHA=$(git -C "$PREV" rev-parse HEAD 2>/dev/null || true)
     if [ -n "$TOP" ] && [ "$(cd "$PREV" && pwd -P)" = "$TOP/$PLUGIN_REL" ] && [[ $SHA =~ ^[0-9a-f]{40}$ ]]; then
-      if ! printf '%s\n' "$SHA" >"$ST/installed.sha.tmp.$$"; then
+      if ! [[ $PREV_COMMIT =~ ^[0-9a-f]{40}$ ]]; then
+        stamp_warning "backup has no valid previous commit; installed.sha was not updated"
+      elif [ "$SHA" != "$PREV_COMMIT" ]; then
+        stamp_warning "$PREV is at $SHA, expected $PREV_COMMIT from the backup; installed.sha was not updated"
+      elif ! printf '%s\n' "$PREV_COMMIT" >"$ST/installed.sha.tmp.$$"; then
         rm -f "$ST/installed.sha.tmp.$$" || true
         stamp_warning "could not write temporary installed.sha in $ST; installed.sha was not updated"
       elif ! mv -f "$ST/installed.sha.tmp.$$" "$ST/installed.sha"; then
