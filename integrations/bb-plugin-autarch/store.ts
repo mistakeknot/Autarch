@@ -475,8 +475,19 @@ export class Store {
   /** Pilot observations belong to Home's store, not the shared filer directory (bead mk-bzi8s.12). */
   recordPilotMetric(metric: import("./pilotmetrics.js").PilotMetric): void {
     this.tx(() => {
-      if (this.db.prepare("SELECT 1 FROM events WHERE type='pilot-pick-metric' AND json_extract(detail_json, '$.event_id')=?").get(metric.event_id)) return;
+      // Seed older event IDs once, then use settings_kv's existing primary key
+      // rather than scanning the event log on each pick (mk-bzi8s.13). No DDL.
+      const ready = "pilot-metric-dedup/v1/ready";
+      const prefix = "pilot-metric-dedup/v1/id/";
+      if (this.setting(ready) !== "1") {
+        const legacy = this.db.prepare("SELECT json_extract(detail_json, '$.event_id') AS id FROM events WHERE type = 'pilot-pick-metric' AND json_valid(detail_json)").all() as { id: unknown }[];
+        for (const row of legacy) if (typeof row.id === "string") this.setSetting(prefix + row.id, "1");
+        this.setSetting(ready, "1");
+      }
+      const key = prefix + metric.event_id;
+      if (this.setting(key) !== undefined) return;
       this.event("pilot-pick-metric", null, metric);
+      this.setSetting(key, "1");
     });
   }
 
