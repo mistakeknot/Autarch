@@ -77,14 +77,15 @@ func TestReleaseReflagsDismissedOwnerNotice(t *testing.T) {
 
 func TestFullCapResolvesAttemptedHeldWithInvalidOwner(t *testing.T) {
 	for _, ownerState := range []string{"archived", "missing"} {
-		for _, outcome := range []string{"recover", "retire"} {
+		for _, outcome := range []string{"recover", "retire", "recover-created"} {
 			t.Run(ownerState+"/"+outcome, func(t *testing.T) {
 				t.Setenv(EnvCardDailyCap, "1")
 				bb := newFake(t, registryOnCreate)
 				bb.threads = map[string]string{"thr_old": "live"}
 				f := bb.filer()
 				f.StateDir = t.TempDir()
-				f.Now = func() time.Time { return time.Date(2026, 11, 16, 20, 0, 0, 0, time.UTC) }
+				now := time.Date(2026, 11, 16, 20, 0, 0, 0, time.UTC)
+				f.Now = func() time.Time { return now }
 				if err := f.SetPilot("daycap", true); err != nil {
 					t.Fatal(err)
 				}
@@ -100,11 +101,30 @@ func TestFullCapResolvesAttemptedHeldWithInvalidOwner(t *testing.T) {
 				before := state[r.Key]
 				before.Attempted = true
 				done()
+				if outcome == "recover-created" {
+					if err := f.chargeCreation(r, "derived-creation"); err != nil {
+						t.Fatal(err)
+					}
+					state, _, done, err = f.openState()
+					if err != nil {
+						t.Fatal(err)
+					}
+					before = state[r.Key]
+					before.Attempted = true
+					done()
+					if before.CreationKey != "derived-creation" || before.CreationKey == r.Key || before.DeliveryPendingAt != now.Format(time.RFC3339Nano) || before.DeliveredAt != "" {
+						t.Fatalf("chargeCreation did not seed an interrupted attempt: %+v", before)
+					}
+				}
 				var canonical CardResult
-				if outcome == "recover" {
+				if outcome != "retire" {
 					// Simulate a prior attempt that wrote the card but lost its state acknowledgement.
 					var err error
-					canonical, err = f.fileCardReadback(context.Background(), r)
+					creation := r
+					if outcome == "recover-created" {
+						creation.Key = before.CreationKey
+					}
+					canonical, err = f.fileCardReadback(context.Background(), creation)
 					if err != nil || canonical.ID == "" {
 						t.Fatalf("could not seed uncertain delivery: %+v %v", canonical, err)
 					}
@@ -119,6 +139,10 @@ func TestFullCapResolvesAttemptedHeldWithInvalidOwner(t *testing.T) {
 				done()
 				if err != nil {
 					t.Fatal(err)
+				}
+				if outcome == "recover-created" {
+					// An unresolved prior-day reservation permits a different delivery today.
+					now = now.Add(24 * time.Hour)
 				}
 				fill := testReq()
 				fill.Key = "delivered"
@@ -145,9 +169,9 @@ func TestFullCapResolvesAttemptedHeldWithInvalidOwner(t *testing.T) {
 				if report.OwnerAttention[r.Key] == "" {
 					t.Fatalf("invalid owner was not reported: %+v %v", report, releaseErr)
 				}
-				if outcome == "recover" {
+				if outcome != "retire" {
 					group := report.Groups["other"]
-					if releaseErr != nil || len(report.Failures) != 0 || len(group) != 1 || group[0].ID != canonical.ID || !group[0].Replay {
+					if releaseErr != nil || len(report.Failures) != 0 || len(group) != 1 || group[0].ID != canonical.ID || group[0].Key != canonical.Key || !group[0].Replay {
 						t.Fatalf("canonical delivery not recovered: %+v %v", report, releaseErr)
 					}
 				} else {
@@ -156,10 +180,22 @@ func TestFullCapResolvesAttemptedHeldWithInvalidOwner(t *testing.T) {
 						t.Fatalf("absent request not retired as data fault: %+v %v", report, releaseErr)
 					}
 				}
+				creationLookups, requestLookups := 0, 0
 				for _, call := range bb.calls[callsBefore:] {
+					if len(call) > 3 && call[0] == "home" && call[1] == "get" && call[2] == "--request" {
+						if call[3] == before.CreationKey {
+							creationLookups++
+						}
+						if call[3] == r.Key {
+							requestLookups++
+						}
+					}
 					if len(call) >= 2 && ((call[0] == "tasks" && (call[1] == "create" || call[1] == "update" || call[1] == "comment")) || (call[0] == "thread" && call[1] == "tell")) {
 						t.Fatalf("terminal recovery must not deliver, edit or wake: %v", call)
 					}
+				}
+				if outcome == "recover-created" && (creationLookups != 1 || requestLookups != 0) {
+					t.Fatalf("recovery must find the creation key without falling back to the request: creation=%d request=%d", creationLookups, requestLookups)
 				}
 				state, _, done, err = f.openState()
 				if err != nil {
@@ -171,7 +207,7 @@ func TestFullCapResolvesAttemptedHeldWithInvalidOwner(t *testing.T) {
 				want := before
 				want.Held = false
 				want.OwnerAttention = report.OwnerAttention[r.Key]
-				if outcome == "recover" {
+				if outcome != "retire" {
 					want.DeliveredCard = canonical.ID
 				} else {
 					if !strings.Contains(after.TerminalReason, r.Owner) {
