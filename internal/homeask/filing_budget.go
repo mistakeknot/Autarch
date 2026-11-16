@@ -143,10 +143,14 @@ func saveFilingState(path string, state filingState) error {
 	}
 	return os.Rename(tmp.Name(), path)
 }
+// defaultWeeklyBudget is the ordinary cards per Home project per ISO week when
+// neither CardFiler.WeeklyBudget nor AUTARCH_CARD_WEEKLY_BUDGET is set (mk-bzi8s).
+const defaultWeeklyBudget = 50
+
 func (f *CardFiler) budget() (int, error) {
 	n := f.WeeklyBudget
 	if n == 0 {
-		n = 25
+		n = defaultWeeklyBudget
 		if v := os.Getenv(EnvCardWeeklyBudget); v != "" {
 			var err error
 			n, err = strconv.Atoi(v)

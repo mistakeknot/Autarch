@@ -249,3 +249,20 @@ func TestCancelHeldRefunds(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestDefaultWeeklyBudgetIs50 pins the default ordinary weekly budget (mk-bzi8s)
+// and keeps the environment and field overrides working.
+func TestDefaultWeeklyBudgetIs50(t *testing.T) {
+	t.Setenv(EnvCardWeeklyBudget, "")
+	n, err := (&CardFiler{}).budget()
+	if err != nil || n != 50 {
+		t.Fatalf("default budget = %d, %v; want 50", n, err)
+	}
+	t.Setenv(EnvCardWeeklyBudget, "7")
+	if n, err := (&CardFiler{}).budget(); err != nil || n != 7 {
+		t.Fatalf("env budget = %d, %v; want 7", n, err)
+	}
+	if n, err := (&CardFiler{WeeklyBudget: 3}).budget(); err != nil || n != 3 {
+		t.Fatalf("field budget = %d, %v; want 3", n, err)
+	}
+}
