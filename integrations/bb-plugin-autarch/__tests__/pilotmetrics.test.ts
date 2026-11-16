@@ -41,32 +41,100 @@ describe("pilot pick metrics", () => {
 
 describe("pilot metric keyed dedup (mk-bzi8s.13)", () => {
   const legacy = { time: "2026-11-15T12:00:00Z", event_id: "pick:legacy", event: "picked" };
-  it("seeds legacy IDs once, then uses keyed lookups after restart without changing the schema", () => {
+  const watermarkKey = "pilot-metric-dedup/v1/seq";
+  const eventSeq = (store: Store) => (store.db.prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM events").get() as { seq: number }).seq;
+  it("seeds legacy IDs once, then a fresh pick after restart reads only above the watermark without changing the schema", () => {
     const dir = tmpDir(); const file = join(dir.dir, "data.db"); let store = openStore(file);
     try {
       const schema = store.db.prepare("SELECT type, name, sql FROM sqlite_master ORDER BY name").all();
       store.recordEvent("pilot-pick-metric", null, legacy);
+      for (let i = 0; i < 32; i++) store.recordEvent("unrelated", null, { i });
       store.recordPilotMetric(legacy); // first use must retain the existing observation, without a duplicate
-      store.close(); store = openStore(file);
-      const prepare = vi.spyOn(store.db, "prepare");
-      try {
-        const fresh = { ...legacy, event_id: "pick:fresh" };
-        store.recordPilotMetric(legacy); store.recordPilotMetric(fresh); store.recordPilotMetric(fresh);
-        const reads = prepare.mock.calls.map(([sql]) => sql).filter(sql => /^\s*SELECT/i.test(sql));
-        expect(reads.some(sql => /\bFROM\s+events\b/i.test(sql))).toBe(false);
-        expect(reads.some(sql => /\bFROM\s+settings_kv\s+WHERE\s+key\s*=/i.test(sql))).toBe(true);
-      } finally { prepare.mockRestore(); }
+      const seededSeq = eventSeq(store);
+      store.close();
+      const traced: string[] = [];
+      store = new Store(new Database(file, { verbose: sql => traced.push(String(sql)) }));
+      const watermark = Number(store.setting(watermarkKey) ?? 0);
+      traced.length = 0;
+      const fresh = { ...legacy, event_id: "pick:fresh" };
+      // The first fresh pick belongs inside the trace: retries alone cannot prove the cost of a new pick.
+      store.recordPilotMetric(legacy); store.recordPilotMetric(fresh); store.recordPilotMetric(fresh);
+      const reads = traced.map(sql => sql.replace(/\s+/g, " ")).filter(sql => /^\s*SELECT.*\bFROM\s+events\b/i.test(sql));
+      expect(reads).toHaveLength(1);
+      expect(reads[0]).toMatch(new RegExp(`\\bFROM events WHERE seq > ${watermark}\\b.*ORDER BY seq`, "i"));
+      expect(watermark).toBe(seededSeq);
+      const plan = store.db.prepare(`EXPLAIN QUERY PLAN ${reads[0]}`).all() as { detail: string }[];
+      expect(plan.some(row => /SEARCH events USING INTEGER PRIMARY KEY/i.test(row.detail))).toBe(true);
+      expect(plan.some(row => /SCAN events/i.test(row.detail))).toBe(false);
+      expect(Number(store.setting(watermarkKey))).toBe(eventSeq(store));
       expect(store.pilotMetrics().map(m => m.event_id)).toEqual([legacy.event_id, "pick:fresh"]);
       expect(store.db.prepare("SELECT type, name, sql FROM sqlite_master ORDER BY name").all()).toEqual(schema);
     } finally { store.close(); dir.cleanup(); }
+  });
+  it("repairs an unkeyed metric written during rollback before recording a retried pick", () => {
+    const dir = tmpDir(); const file = join(dir.dir, "data.db"); let store = openStore(file);
+    const duringRollback = { ...legacy, event_id: "pick:during-rollback" };
+    try {
+      store.recordPilotMetric(legacy); // sets the ready flag
+      store.close(); store = openStore(file);
+      // The old writer records the event but knows nothing about the new dedup keys.
+      store.recordEvent("pilot-pick-metric", null, duringRollback);
+      store.close(); store = openStore(file);
+      store.recordPilotMetric(duringRollback);
+      expect(store.pilotMetrics()).toEqual([legacy, duringRollback]);
+      const prepare = vi.spyOn(store.db, "prepare");
+      try {
+        store.recordPilotMetric(duringRollback);
+        expect(prepare.mock.calls.some(([sql]) => /^\s*SELECT.*\bFROM\s+events\b/i.test(sql.replace(/\s+/g, " ")))).toBe(false);
+      } finally { prepare.mockRestore(); }
+    } finally { store.close(); dir.cleanup(); }
+  });
+  it("indexes every rollback event before advancing, including events from a second rollback", () => {
+    const dir = tmpDir(); const file = join(dir.dir, "data.db"); let store = openStore(file);
+    const a = { ...legacy, event_id: "pick:rollback-a" }, b = { ...legacy, event_id: "pick:rollback-b" };
+    const fresh = { ...legacy, event_id: "pick:fresh" }, later = { ...legacy, event_id: "pick:later-rollback" };
+    try {
+      store.recordPilotMetric(legacy);
+      const before = Number(store.setting(watermarkKey));
+      store.close(); store = openStore(file);
+      store.recordEvent("pilot-pick-metric", null, a); store.recordEvent("unrelated", null, {});
+      store.recordEvent("pilot-pick-metric", null, b);
+      store.close(); store = openStore(file);
+      store.recordPilotMetric(fresh); // must index a and b too, before moving past them
+      expect(Number(store.setting(watermarkKey))).toBeGreaterThan(before);
+      expect(Number(store.setting(watermarkKey))).toBe(eventSeq(store));
+      store.recordPilotMetric(a); store.recordPilotMetric(b);
+      store.close(); store = openStore(file);
+      store.recordEvent("pilot-pick-metric", null, later);
+      store.close(); store = openStore(file);
+      store.recordPilotMetric(later); store.recordPilotMetric(later);
+      expect(store.pilotMetrics()).toEqual([legacy, a, b, fresh, later]);
+      expect(Number(store.setting(watermarkKey))).toBe(eventSeq(store));
+    } finally { store.close(); dir.cleanup(); }
+  });
+  it("upgrades an existing ready flag with no watermark without skipping unkeyed events", () => {
+    const store = new Store(new Database(":memory:"));
+    const missed = { ...legacy, event_id: "pick:old-writer" };
+    try {
+      store.recordEvent("pilot-pick-metric", null, legacy); store.recordEvent("pilot-pick-metric", null, missed);
+      store.setSetting("pilot-metric-dedup/v1/ready", "1");
+      store.setSetting(`pilot-metric-dedup/v1/id/${legacy.event_id}`, "1");
+      store.recordPilotMetric(legacy);
+      expect(Number(store.setting(watermarkKey))).toBe(eventSeq(store));
+      store.recordPilotMetric(missed);
+      expect(store.pilotMetrics()).toEqual([legacy, missed]);
+      expect(Number(store.setting(watermarkKey))).toBe(eventSeq(store));
+    } finally { store.close(); }
   });
   it("rolls the observation and dedup state back together", () => {
     const store = new Store(new Database(":memory:"));
     try {
       expect(() => store.atomically(() => { store.recordPilotMetric(legacy); throw new Error("interrupted"); })).toThrow("interrupted");
       expect(store.pilotMetrics()).toEqual([]);
+      expect(store.setting(watermarkKey)).toBeUndefined();
       store.recordPilotMetric(legacy); store.recordPilotMetric(legacy);
       expect(store.pilotMetrics()).toEqual([legacy]);
+      expect(Number(store.setting(watermarkKey))).toBe(eventSeq(store));
     } finally { store.close(); }
   });
 });

@@ -30,13 +30,31 @@ describe("Archive Bring back eligibility (mk-bzi8s.14)", () => {
     const { button, onBringBack } = mount({ decision_id: null, generation: null });
     expect(button).not.toBeNull();
     expect(button!.textContent).toBe("Bring back");
-    expect(button!.disabled).toBe(true);
+    expect(button!.disabled).toBe(false);
+    expect(button!.tabIndex).toBe(0);
+    expect(button!.getAttribute("aria-disabled")).toBe("true");
+    act(() => button!.focus()); expect(document.activeElement).toBe(button);
     expect(host.querySelector("[data-archive-bringback-reason]")?.textContent).toBe("No saved question to reopen.");
     act(() => button!.click()); expect(onBringBack).not.toHaveBeenCalled();
   });
+  it("links the disabled button to its reason and removes the link when the action becomes available", () => {
+    const unavailable = mount({ decision_id: null, generation: null });
+    const reasonId = unavailable.button!.getAttribute("aria-describedby");
+    expect(reasonId).toBeTruthy();
+    expect(document.getElementById(reasonId!)?.textContent).toBe("No saved question to reopen.");
+    expect(host.querySelector("[data-archive-bringback-reason]")?.id).toBe(reasonId);
+    act(() => unavailable.button!.focus()); expect(document.activeElement).toBe(unavailable.button);
+    const available = mount();
+    expect(available.button!.disabled).toBe(false);
+    expect(available.button!.hasAttribute("aria-describedby")).toBe(false);
+    expect(available.button!.hasAttribute("aria-disabled")).toBe(false);
+    expect(document.getElementById(reasonId!)).toBeNull();
+  });
   it.each(["ruled", "open", "observed", "display"])("does not submit a no-pick row in state %s", state => {
     const { button, onBringBack } = mount({ state });
-    expect(button === null || button.disabled).toBe(true);
+    expect(button).not.toBeNull(); expect(button!.disabled).toBe(false);
+    expect(button!.getAttribute("aria-disabled")).toBe("true");
+    act(() => button!.focus()); expect(document.activeElement).toBe(button);
     act(() => button?.click()); expect(onBringBack).not.toHaveBeenCalled();
   });
   it("submits the closed no-pick row from the actual button", () => {
@@ -49,7 +67,9 @@ describe("Archive Bring back eligibility (mk-bzi8s.14)", () => {
     const { button, current, onBringBack } = mount(picked);
     expect(button!.disabled).toBe(false);
     act(() => button!.click()); expect(onBringBack).toHaveBeenCalledExactlyOnceWith(current);
-    const busy = mount(picked, true); expect(busy.button!.disabled).toBe(true);
+    const busy = mount(picked, true); expect(busy.button!.disabled).toBe(false);
+    expect(busy.button!.getAttribute("aria-disabled")).toBe("true");
+    act(() => busy.button!.focus()); expect(document.activeElement).toBe(busy.button);
     act(() => busy.button!.click()); expect(busy.onBringBack).not.toHaveBeenCalled();
   });
 });
