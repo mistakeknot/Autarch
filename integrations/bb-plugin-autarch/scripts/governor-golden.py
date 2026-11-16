@@ -37,6 +37,7 @@ def clean(x):
     if isinstance(x, str):
         for old, new in sorted(replacements.items(), key=lambda kv: -len(kv[0])):
             x = x.replace(old, new)
+        x = re.sub(r"operator\.toml\.bak-\d{8}T\d{6}Z", "operator.toml.bak-stamp", x)
         return re.sub(r"\b[A-Z]{2,10}-\d+\b", "operator", x)
     return x
 
