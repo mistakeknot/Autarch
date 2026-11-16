@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -69,6 +70,15 @@ func TestConfiguredBBWinsOverPATH(t *testing.T) {
 func TestUnusableConfiguredBBWarnsOnStderr(t *testing.T) {
 	for _, source := range []string{"missing", "non-executable"} {
 		t.Run(source, func(t *testing.T) {
+			// Each case needs a fresh process to test a process-wide warning.
+			if os.Getenv("AUTARCH_TEST_BB_WARNING_PROCESS") != "1" {
+				cmd := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$")
+				cmd.Env = append(os.Environ(), "AUTARCH_TEST_BB_WARNING_PROCESS=1")
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("warning subprocess failed: %v\n%s", err, out)
+				}
+				return
+			}
 			dir := t.TempDir()
 			configured := filepath.Join(dir, "configured")
 			if source == "non-executable" {
@@ -92,6 +102,13 @@ func TestUnusableConfiguredBBWarnsOnStderr(t *testing.T) {
 			os.Stderr = w
 			defer func() { os.Stderr = original }()
 			got, resolveErr := ResolveBBBinary()
+			for _, filer := range []*CardFiler{{}, {}} {
+				for range 3 {
+					if result := filer.exec(context.Background(), nil, "status"); result.failed() {
+						t.Fatalf("fallback command failed: %+v", result)
+					}
+				}
+			}
 			if err := w.Close(); err != nil {
 				t.Fatal(err)
 			}
@@ -104,6 +121,9 @@ func TestUnusableConfiguredBBWarnsOnStderr(t *testing.T) {
 			}
 			if !strings.Contains(string(warning), "warning: BB_CLI") || !strings.Contains(string(warning), "unusable") {
 				t.Fatalf("missing unusable override warning on stderr: %q", warning)
+			}
+			if count := strings.Count(string(warning), "warning: BB_CLI"); count != 1 {
+				t.Fatalf("expected one warning across repeated calls and filers, got %d: %q", count, warning)
 			}
 		})
 	}
