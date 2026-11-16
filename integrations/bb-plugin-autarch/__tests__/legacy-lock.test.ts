@@ -6,6 +6,7 @@ import { tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
+import { updateInfo } from "../updates";
 
 const HUI = resolve(__dirname, "../../../scripts/home-ui.sh");
 const INST = resolve(__dirname, "../../../scripts/install-home-your-move.sh");
@@ -148,6 +149,23 @@ function warningOnBoth(out: { stdout: string; stderr: string }, text: string) {
   expect(out.stderr).toContain(text); expect(out.stdout).toContain(text);
 }
 
+function seedRollbackStatus(r: Rig) {
+  writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+  writeFileSync(join(r.st, "status.json"), JSON.stringify({ installed: SHA40, latest: "b".repeat(40), count: 1, subjects: ["Update"], checked_at: "2026-11-16T00:00:00Z" }));
+  expect(updateInfo(r.st, undefined, { now: "2026-11-16T01:00:00Z", timerFile: join(r.root, "no-timer") }).available).toBe(true);
+}
+
+function expectClearedRollbackStatus(r: Rig, out: { stdout: string; stderr: string }) {
+  expect(r.sha()).toBeNull();
+  expect(existsSync(join(r.st, "installed.sha"))).toBe(false);
+  expect(existsSync(join(r.st, "status.json"))).toBe(false);
+  const info = updateInfo(r.st, JSON.stringify({ sha: "b".repeat(40), clicked_at: "2026-11-16T00:30:00Z" }), { now: "2026-11-16T01:00:00Z", timerFile: join(r.root, "no-timer") });
+  expect(info.status).toBeNull();
+  expect(info.available).toBe(false);
+  expect(info.pending).toBe(false);
+  warningOnBoth(out, "run home-ui.sh deploy to restore the stamp");
+}
+
 describe("home-ui.sh: legacy deploy installed stamp (mk-zq345.8)", () => {
   it("records the installed checkout commit in the backup before deploying", () => {
     const r = deployRig();
@@ -225,9 +243,9 @@ describe("home-ui.sh: legacy deploy installed stamp (mk-zq345.8)", () => {
 });
 
 describe("home-ui.sh: lock, rollback record", () => {
-  it("warns and preserves the stamp when the previous checkout HEAD moved after backup", () => {
+  it("clears stale update state when the previous checkout HEAD moved after backup", () => {
     const r = rig();
-    writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+    seedRollbackStatus(r);
     const repo = resolve(r.prev, "../..");
     const moved = git(repo, "commit", "--allow-empty", "-q", "-m", "moved");
     expect(moved.status, moved.stderr).toBe(0);
@@ -235,14 +253,14 @@ describe("home-ui.sh: lock, rollback record", () => {
     const out = hui(r, ["rollback", r.backup]);
     expect(out.status, out.stderr).toBe(0);
     expect(r.log()).toContain("plugin install --yes " + r.prev);
-    expect(r.sha()).toBe(SHA40);
+    expectClearedRollbackStatus(r, out);
     warningOnBoth(out, `expected ${r.wsha}`);
     expect(readdirSync(r.st).filter(f => f.startsWith("installed.sha.tmp."))).toEqual([]);
   });
 
   it.each(["missing", "empty", "invalid"])("clears the stale stamp for a backup with a %s commit record", kind => {
     const r = rig();
-    writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+    seedRollbackStatus(r);
     const recorded = join(r.backup, "previous-commit.txt");
     if (kind === "missing") rmSync(recorded);
     else if (kind === "empty") writeFileSync(recorded, "\n");
@@ -250,17 +268,24 @@ describe("home-ui.sh: lock, rollback record", () => {
     const out = hui(r, ["rollback", r.backup]);
     expect(out.status, out.stderr).toBe(0);
     expect(r.log()).toContain("plugin install --yes " + r.prev);
-    expect(r.sha()).toBeNull();
-    expect(existsSync(join(r.st, "installed.sha"))).toBe(false);
+    expectClearedRollbackStatus(r, out);
     warningOnBoth(out, kind === "missing" ? "old backup has no previous commit record" : kind === "empty" ? "backup recorded a non-checkout build" : "backup has no valid previous commit");
     warningOnBoth(out, "installed.sha was removed");
   });
   it("reports a rollback temp-write failure without blaming the checkout", () => {
-    const r = rig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+    const r = rig(); seedRollbackStatus(r);
     const out = hui(r, ["rollback", r.backup], { HUI_FAIL_STAMP_SHA: r.wsha, "BASH_FUNC_printf%%": FAIL_STAMP_WRITE });
-    expect(out.status, out.stderr).toBe(0); expect(r.sha()).toBe(SHA40);
+    expect(out.status, out.stderr).toBe(0); expectClearedRollbackStatus(r, out);
     warningOnBoth(out, "could not write temporary installed.sha");
     expect(out.stderr).not.toContain("not a checkout");
+    expect(readdirSync(r.st).filter(f => f.startsWith("installed.sha.tmp."))).toEqual([]);
+  });
+  it("clears stale update state when the rollback stamp move fails", () => {
+    const r = rig(); seedRollbackStatus(r);
+    const out = hui(r, ["rollback", r.backup], { "BASH_FUNC_mv%%": FAIL_STAMP_MOVE });
+    expect(out.status, out.stderr).toBe(0);
+    expectClearedRollbackStatus(r, out);
+    warningOnBoth(out, "could not replace");
     expect(readdirSync(r.st).filter(f => f.startsWith("installed.sha.tmp."))).toEqual([]);
   });
   it("with no lock held, rollback behaves as before and records the reinstalled build", () => {
@@ -290,7 +315,7 @@ describe("home-ui.sh: lock, rollback record", () => {
     expect(r.sha()).toBe(r.wsha);
   });
 
-  it("leaves installed.sha alone when the reinstall fails, or the previous build is not a plugin checkout", () => {
+  it("keeps the stamp after a failed reinstall and clears it after restoring a non-checkout", () => {
     const r = rig();
     writeFileSync(join(r.st, "installed.sha"), "x".repeat(40) + "\n");
     writeFileSync(join(r.root, "bb"), "#!/bin/sh\ncase \"$1 $2\" in \"plugin install\") exit 1;; esac\nexit 0\n");
@@ -299,12 +324,12 @@ describe("home-ui.sh: lock, rollback record", () => {
     expect(r.sha()).toBe("x".repeat(40));
 
     const r2 = rig();
-    writeFileSync(join(r2.st, "installed.sha"), "y".repeat(40) + "\n");
+    seedRollbackStatus(r2);
     writeFileSync(join(r2.backup, "previous-source.txt"), r2.root + "\n");   // a directory that is not <checkout>/integrations/bb-plugin-autarch
     const out = hui(r2, ["rollback", r2.backup]);
     expect(out.status).toBe(0);
-    expect(out.stderr).toContain("installed.sha was not updated");
-    expect(r2.sha()).toBe("y".repeat(40));
+    warningOnBoth(out, "not a checkout of the plugin");
+    expectClearedRollbackStatus(r2, out);
   });
 
   for (const [name, args] of [

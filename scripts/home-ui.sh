@@ -32,6 +32,14 @@ umask 077
 die() { echo "home-ui: $*" >&2; exit "${2:-1}"; }
 # rollback commit record: begin (mk-zq345.9)
 stamp_warning() { echo "home-ui: WARNING: $*" >&2 || true; echo "home-ui: WARNING: $*" || true; }
+clear_rollback_stamp() {
+  local st=$1 reason=$2
+  if rm -f "$st/installed.sha" "$st/status.json"; then
+    stamp_warning "$reason; installed.sha was removed; status.json was removed; run home-ui.sh deploy to restore the stamp"
+  else
+    stamp_warning "$reason; could not clear $st/installed.sha and $st/status.json; run home-ui.sh deploy to restore the stamp"
+  fi
+}
 # rollback commit record: end
 [ "$(id -u)" != 0 ] || die "run as mk, not root" 64
 
@@ -571,8 +579,8 @@ rollback)
   fi
   install_build "$PREV" || exit 5
   # installed.sha write: begin (mk-zq345.5)
-  # Record a checkout matching its backup-time commit atomically. An unknown backup commit clears a stale stamp so the
-  # update runner treats the installed version as unknown. Stamp failures only warn; the rollback still succeeds.
+  # Record a checkout matching its backup-time commit atomically. When that cannot be established, clear both the stamp
+  # and cached update status so neither the runner nor Home advertises the removed build. Cleanup failures only warn.
   PREV_COMMIT=$(cat "$BACKUP_ARG/previous-commit.txt" 2>/dev/null || true)
   ST=${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update}
   if [ -d "$ST" ]; then
@@ -588,24 +596,20 @@ rollback)
     TOP=$(git -C "$PREV" rev-parse --show-toplevel 2>/dev/null || true)
     SHA=$(git -C "$PREV" rev-parse HEAD 2>/dev/null || true)
     if [ -n "$ROLLBACK_STAMP_REASON" ]; then
-      if rm -f "$ST/installed.sha"; then
-        stamp_warning "$ROLLBACK_STAMP_REASON; installed.sha was removed"
-      else
-        stamp_warning "$ROLLBACK_STAMP_REASON; could not remove $ST/installed.sha; installed commit is unknown"
-      fi
+      clear_rollback_stamp "$ST" "$ROLLBACK_STAMP_REASON"
     elif [ -n "$TOP" ] && [ "$(cd "$PREV" && pwd -P)" = "$TOP/$PLUGIN_REL" ] && [[ $SHA =~ ^[0-9a-f]{40}$ ]]; then
       if [ "$SHA" != "$PREV_COMMIT" ]; then
-        stamp_warning "$PREV is at $SHA, expected $PREV_COMMIT from the backup; installed.sha was not updated"
+        clear_rollback_stamp "$ST" "$PREV is at $SHA, expected $PREV_COMMIT from the backup"
       elif ! printf '%s\n' "$PREV_COMMIT" >"$ST/installed.sha.tmp.$$"; then
         rm -f "$ST/installed.sha.tmp.$$" || true
-        stamp_warning "could not write temporary installed.sha in $ST; installed.sha was not updated"
+        clear_rollback_stamp "$ST" "could not write temporary installed.sha in $ST"
       elif ! mv -f "$ST/installed.sha.tmp.$$" "$ST/installed.sha"; then
         rm -f "$ST/installed.sha.tmp.$$" || true
-        stamp_warning "could not replace $ST/installed.sha; installed.sha was not updated"
+        clear_rollback_stamp "$ST" "could not replace $ST/installed.sha"
       fi
     else
       rm -f "$ST/installed.sha.tmp.$$" || true
-      stamp_warning "$PREV is not a checkout of the plugin; installed.sha was not updated"
+      clear_rollback_stamp "$ST" "$PREV is not a checkout of the plugin"
     fi
   else
     stamp_warning "no state dir $ST; installed.sha was not updated"
