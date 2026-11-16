@@ -112,6 +112,12 @@ bb plugin reload autarch
 
 Or let `bb plugin dev` rebuild and reload on every save.
 
+## Archive
+
+In Archive, **Bring back** reopens a saved question as a fresh round, including
+cards closed without a pick. Earlier answers and comments stay in history.
+Citadel notifies the asking thread, or the vizier when that thread is gone.
+
 ## Configure
 
 ```

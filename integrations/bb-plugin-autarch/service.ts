@@ -1953,8 +1953,8 @@ export class Service {
   }
   private overrideOpen(latest: Row): boolean {
     if (!latest.supersedes || latest.withdrawn_at || latest.resolved_at || this.store.pick(latest.id)) return false;
-    // An override of a vizier pick, or a bring-back (request_id bringback:*) of any pick, is mk's open question.
-    return this.store.pick(latest.supersedes)?.by === "vizier" || (latest.request_id.startsWith("bringback:") && !!this.store.pick(latest.supersedes));
+    // An override of a vizier pick, or a bring-back of any archived round (including no pick), is mk's open question.
+    return this.store.pick(latest.supersedes)?.by === "vizier" || latest.request_id.startsWith("bringback:");
   }
   /** A generation's own relabel (or bring-back) write has not yet run: it is still due to reopen the task. */
   private pendingRelabel(decisionId: string): boolean {
