@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"github.com/mistakeknot/autarch/internal/homeask"
 	"github.com/spf13/cobra"
 	"os"
@@ -13,6 +14,21 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestNoticeDismissalUnknownRequestIsInvalid(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(homeask.EnvCardStateDir, dir)
+	cmd := needsMkCmd()
+	cmd.SetArgs([]string{"dismiss-owner-notice", "unknown"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); !errors.Is(err, homeask.ErrInvalid) {
+		t.Fatalf("unknown request should be invalid: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "filings.json")); !os.IsNotExist(err) {
+		t.Fatalf("unknown request wrote filing state: %v", err)
+	}
+}
 
 func TestNoticeDismissalDoesNotCancelRecoveredOrRetired(t *testing.T) {
 	for _, kind := range []string{"recovered", "retired", "held"} {

@@ -511,16 +511,12 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		unlock()
 		return CardResult{}, "", nil
 	}
-	// Advisory early-out avoids checks and wakes for cards that cannot be displayed.
-	// Admission is still checked authoritatively under the fleet gate below.
+	// Snapshot the cap to skip link and preflight checks when delivery is full.
+	// Owner notices must still be refreshed; admission is rechecked under the fleet gate.
 	fullBeforeChecks, capErr := f.dailyFull(state, e.Request)
 	if capErr != nil {
 		unlock()
 		return CardResult{}, "", capErr
-	}
-	if fullBeforeChecks {
-		unlock()
-		return CardResult{}, "", nil
 	}
 	unlock()
 	r := e.Request
@@ -544,6 +540,9 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 			}
 			return CardResult{}, r.Type, ownerErr
 		}
+	}
+	if fullBeforeChecks {
+		return CardResult{}, "", nil
 	}
 	if f.pilot("linkcheck") {
 		if v := f.checkLinks(ctx, r); len(v) > 0 {
