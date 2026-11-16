@@ -44,6 +44,7 @@ func needsMkCmd() *cobra.Command {
 	cmd.AddCommand(needsMkFileCmd())
 	cmd.AddCommand(needsMkReleaseCmd())
 	cmd.AddCommand(needsMkCancelHeldCmd())
+	cmd.AddCommand(needsMkDismissOwnerNoticeCmd())
 	cmd.AddCommand(needsMkBudgetCmd())
 	cmd.AddCommand(needsMkAdoptMoveCmd())
 	cmd.AddCommand(needsMkFooterCmd())

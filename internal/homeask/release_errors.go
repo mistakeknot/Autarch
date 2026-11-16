@@ -29,6 +29,9 @@ func (e *ReleaseEntryErrors) DataOnly() bool {
 		return false
 	}
 	for _, err := range e.Errors {
+		if errors.Is(err, ErrAlreadyRuled) && !errors.Is(err, errNoCardWritten) {
+			return false
+		}
 		allowed, data := releaseDataError(err)
 		if !allowed || !data {
 			return false
@@ -40,7 +43,7 @@ func releaseDataError(err error) (bool, bool) {
 	if err == nil {
 		return true, false
 	}
-	if err == ErrInvalid {
+	if err == ErrInvalid || err == ErrAlreadyRuled {
 		return true, true
 	}
 	if err == errNoCardWritten {
