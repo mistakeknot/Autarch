@@ -31,6 +31,15 @@ describe("governor policy", () => {
     expect(readFloor(f, now + H, DEFAULTS)).toBeNull();
     expect(readFloor({ ...f, level: true }, now, DEFAULTS)).toBeNull();
   });
+  it("reads Python ISO dates, basic dates, week dates and colonless offsets", () => {
+    const time = Date.parse("2026-11-19T00:00:00Z");
+    for (const until of ["2026-11-20", "20261120", "2026-11-20T00:00:00+0000", "20261120T000000+00", "2026-W47-5", "2026W475", "2026-11-20 00:00:00.123456+00:00"]) {
+      expect(readFloor({ level: 1, until }, time, DEFAULTS), until).not.toBeNull();
+    }
+    for (const until of ["2026-02-30", "2026-11-20T24:00", "2026-W54-1", "2026-11", "soon"]) {
+      expect(readFloor({ level: 1, until }, time, DEFAULTS), until).toBeNull();
+    }
+  });
   it("samples only current weekly windows and requires two hours", () => {
     const a = account();
     expect(measurePace([a], now, DEFAULTS, {})[0]).toBeNull();
@@ -78,6 +87,17 @@ describe("governor service", () => {
     const { g, io, db } = rig(); io.mode = async () => "live"; io.apply = vi.fn(async () => { throw Error("down"); });
     await g.tick(); expect(g.view().state?.level).toBe(0); expect(g.view().state?.pending).toBe(true);
     expect(io.notify).not.toHaveBeenCalled(); db.close();
+  });
+  it("does not record a transition after an inbox notification fails", async () => {
+    const { g, io, db } = rig(); io.mode = async () => "live";
+    io.notify = async () => { throw Error("recipient directory missing"); };
+    await g.tick(); expect(g.view().state?.level).toBe(0); expect(g.view().error).toContain("recipient directory missing");
+    expect(g.view().decision?.applied).not.toContain("applied level 1"); db.close();
+  });
+  it("holds protected work and reports an unconfigured card project", async () => {
+    const { g, io, store, db } = rig(); io.mode = async () => "live"; store.put("live", { level: 1 });
+    io.accounts = async () => [account(.9)]; io.fileCard = async () => { throw Error("Governor card project is required"); };
+    await g.tick(); expect(g.view().state?.level).toBe(1); expect(g.view().error).toContain("card project"); expect(io.apply).not.toHaveBeenCalled(); db.close();
   });
   it("declines last twelve hours without extending on each poll, then renew", async () => {
     const { g, io, store, db } = rig(); io.mode = async () => "live"; io.accounts = async () => [account(.9)];

@@ -84,12 +84,13 @@ export interface FsUse {
   at: string;
   /** For open/openSync: the flags argument as written, or undefined when absent. */
   flags?: string;
+  args?: string[];
 }
 
 /** Every use of an fs write-capable API (imported by name, via a namespace, or via require). */
-export function fsWriteUses(sf: ts.SourceFile): FsUse[] {
+export function fsWriteUses(sf: ts.SourceFile, injectedNamespaces: readonly string[] = []): FsUse[] {
   const names = new Map<string, string>(); // local identifier -> api name
-  const namespaces = new Set<string>();
+  const namespaces = new Set<string>(injectedNamespaces);
   const uses: FsUse[] = [];
   visit(sf, (n) => {
     if (ts.isImportDeclaration(n) && FS_MODULES.has(lit(n.moduleSpecifier) ?? "")) {
@@ -106,7 +107,7 @@ export function fsWriteUses(sf: ts.SourceFile): FsUse[] {
       if (ts.isIdentifier(n.expression) && names.has(n.expression.text)) api = names.get(n.expression.text);
       if (ts.isPropertyAccessExpression(n.expression) && ts.isIdentifier(n.expression.expression) && namespaces.has(n.expression.expression.text)) api = n.expression.name.text;
       if (ts.isPropertyAccessExpression(n.expression) && ts.isPropertyAccessExpression(n.expression.expression) && n.expression.expression.name.text === "promises") api = n.expression.name.text;
-      if (api !== undefined && FS_WRITE_APIS.has(api)) uses.push({ api, at: where(sf, n), ...(OPENERS.has(api) ? { flags: flagsOf(n) } : {}) });
+      if (api !== undefined && FS_WRITE_APIS.has(api)) uses.push({ api, at: where(sf, n), args: n.arguments.map(a => a.getText(sf)), ...(OPENERS.has(api) ? { flags: flagsOf(n) } : {}) });
     }
   });
   // An imported write API that is only referenced (passed as a value) still counts.

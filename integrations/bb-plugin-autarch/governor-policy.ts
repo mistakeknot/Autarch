@@ -7,7 +7,7 @@ export type Level = { level: number; name: string; enter: number | null; exit: n
 export type Config = typeof DEFAULTS;
 export const DEFAULTS = {
   // Host and private locations are supplied at runtime, never embedded in the plugin.
-  bb_host: "", state_dir: "", operator_toml: "", storage_root: "",
+  bb_host: "", state_dir: "", operator_toml: "", storage_root: "", card_project: "",
   stale_ms: 30 * 60 * 1000, pace_mode: "recent", recent_window_h: 3, min_span_h: 2,
   min_hours_to_reset: 1, same_window_ms: 10 * 60 * 1000, min_elapsed: .05,
   good_readings: 2, card_hold_declined_s: 12 * 3600,
@@ -83,12 +83,52 @@ export function choose(cur: number, pace: number | null, streak: number, cfg: Co
   return [cur, 0, `pace ${pace.toFixed(2)} holds level ${cur}`];
 }
 export type Floor = { level: number; until: string; source: string };
+// datetime.fromisoformat accepts basic/extended calendar and ISO-week dates,
+// optional time, and colonless offsets. Validate components instead of relying
+// on Date.parse's permissive rollover of invalid dates and rejection of basic ISO.
+export function pythonIsoMillis(text: string): number | null {
+  const date = /^(\d{4})(?:-(\d{2})-(\d{2})|(\d{2})(\d{2})|-?W(\d{2})(?:-?([1-7]))?)/.exec(text);
+  if (!date) return null;
+  const year = Number(date[1]);
+  if (!year) return null;
+  const utc = (y: number, m: number, d: number) => { const v = new Date(0); v.setUTCFullYear(y, m - 1, d); v.setUTCHours(0, 0, 0, 0); return v; };
+  let day: Date;
+  if (date[6]) {
+    const week = Number(date[6]), weekday = Number(date[7] ?? 1);
+    if (week < 1 || week > 53) return null;
+    const jan4 = utc(year, 1, 4);
+    day = new Date(jan4.getTime() + ((week - 1) * 7 + weekday - 1 - (jan4.getUTCDay() + 6) % 7) * 86400000);
+    const thursday = new Date(day.getTime() + (4 - (day.getUTCDay() || 7)) * 86400000);
+    if (thursday.getUTCFullYear() !== year) return null;
+  } else {
+    const month = Number(date[2] ?? date[4]), dom = Number(date[3] ?? date[5]);
+    day = utc(year, month, dom);
+    if (day.getUTCFullYear() !== year || day.getUTCMonth() !== month - 1 || day.getUTCDate() !== dom) return null;
+  }
+  const rest = text.slice(date[0].length);
+  if (!rest) return day.getTime();
+  // Python permits any single separator between the date and time.
+  const time = /^(\d{2})(?:(:?)(\d{2})(?:\2(\d{2}))?)?(?:[.,](\d+))?(Z|[+-]\d{2}(?::?\d{2}(?::?\d{2})?)?(?:[.,]\d+)?)?$/.exec(rest.slice([...rest][0].length));
+  if (!time) return null;
+  const h = Number(time[1]), m = Number(time[3] ?? 0), s = Number(time[4] ?? 0);
+  if (h > 23 || m > 59 || s > 59) return null;
+  let offset = 0;
+  if (time[6] && time[6] !== "Z") {
+    const z = /^([+-])(\d{2})(?::?(\d{2})(?::?(\d{2}))?)?(?:[.,](\d+))?$/.exec(time[6])!;
+    // Python normalizes minute/second overflow in offsets, but disallows a day or more.
+    const seconds = Number(z[2]) * 3600 + Number(z[3] ?? 0) * 60 + Number(z[4] ?? 0);
+    offset = seconds === 0 ? 0 : (seconds + Number(`0.${(z[5] ?? "0").slice(0, 6)}`)) * 1000;
+    if (offset >= 86400000) return null;
+    if (z[1] === "-") offset = -offset;
+  }
+  return day.getTime() + ((h * 60 + m) * 60 + s) * 1000 + Number(`0.${(time[5] ?? "0").slice(0, 6)}`) * 1000 - offset;
+}
 export function readFloor(f: unknown, now: number, cfg: Config): Floor | null {
   if (!f || typeof f !== "object") return null;
   const v = f as Floor;
   if (!Number.isInteger(v.level) || v.level < 0 || v.level >= cfg.levels.length || typeof v.until !== "string") return null;
-  const until = Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(v.until) ? v.until : `${v.until}Z`);
-  if (!Number.isFinite(until) || now >= until) return null;
+  const until = pythonIsoMillis(v.until);
+  if (until === null || now >= until) return null;
   return { level: v.level, until: v.until, source: String(v.source ?? "").slice(0, 120) };
 }
 export function applyFloor(cur: number, next: number, streak: number, why: string, floor: Floor | null): [number, number, string] {

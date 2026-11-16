@@ -59,7 +59,7 @@ export class Governor {
       if (mode === "off") return;
       const cfg = await io.config();
       if (!cfg.bb_host || io.hostname() !== cfg.bb_host) { this.current.error = "Inactive on this host"; return; }
-      if (mode === "live" && await io.timerActive()) { this.current.error = "Legacy quota-governor.timer is active; live refused"; return; }
+      if (mode === "live" && await io.timerActive()) { this.current.error = "Legacy quota-governor.timer or quota-governor.service is active; live refused"; return; }
       const now = io.now();
       const script = await io.readJson(join(cfg.state_dir, "state.json"));
       let st = this.store.get<State>(mode);

@@ -10,40 +10,61 @@ import { Governor, GovernorStore, atomicJson, setHostLimit, type AtomicFS, type 
 import { DEFAULTS, editOperator, findVizier, recipients, type Account, type Config, type Thread } from "./governor-policy.js";
 import type { PluginsLike } from "./tasks.js";
 import type { StoreHandle } from "./store.js";
+import { docRoots } from "./docread.js";
 
 export type Exec = (file: string, args: string[], options?: { timeout?: number; env?: NodeJS.ProcessEnv; signal?: AbortSignal }) => Promise<{ stdout: string }>;
 const realExec: Exec = (file, args, options) => promisify(execFile)(file, args, { timeout: 120000, maxBuffer: 8 * 1024 * 1024, ...options });
 async function readJson(path: string): Promise<unknown> { try { return JSON.parse(await fs.readFile(path, "utf8")); } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT" || e instanceof SyntaxError) return null; throw e; } }
-export async function loadConfig(env: NodeJS.ProcessEnv = process.env, read = readJson): Promise<Config> {
+export async function readOverrides(path: string, readText = (p: string) => fs.readFile(p, "utf8")): Promise<unknown> {
+  try {
+    const value: unknown = JSON.parse(await readText(path));
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("Governor override config must be an object");
+    return value;
+  }
+  catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return null; throw e; }
+}
+export async function loadConfig(env: NodeJS.ProcessEnv = process.env, read = readOverrides, roots = docRoots): Promise<Config> {
   const home = homedir();
-  const base = { ...structuredClone(DEFAULTS), bb_host: env.QUOTA_GOVERNOR_HOST ?? "", state_dir: join(home, ".local/state/quota-governor"), operator_toml: join(home, ".config/aleph-orchestration/operator.toml"), storage_root: join(env.BB_DATA_DIR ?? join(home, ".bb"), "thread-storage") };
+  const base = { ...structuredClone(DEFAULTS), bb_host: env.QUOTA_GOVERNOR_HOST ?? "", state_dir: join(home, ".local/state/quota-governor"), operator_toml: join(home, ".config/aleph-orchestration/operator.toml"), storage_root: env.BB_DATA_DIR ? join(env.BB_DATA_DIR, "thread-storage") : "" };
   const overrides = env.QUOTA_GOVERNOR_CONFIG ? await read(env.QUOTA_GOVERNOR_CONFIG) : null;
-  return Object.assign(base, overrides ?? {});
+  if (overrides !== null && (typeof overrides !== "object" || Array.isArray(overrides))) throw Error("Governor override config must be an object");
+  const config = Object.assign(base, overrides ?? {});
+  if (!config.storage_root) {
+    const found = roots();
+    if (found.length !== 1) throw Error("Governor thread-storage root is missing or ambiguous; configure storage_root");
+    config.storage_root = found[0];
+  }
+  return config;
 }
 export async function timerActive(runFile: Exec): Promise<boolean> {
-  try { const r = await runFile("systemctl", ["--user", "is-active", "quota-governor.timer"], { timeout: 10000 }); return r.stdout.trim() !== "inactive"; }
-  catch (e) {
-    const err = e as { code?: number; stdout?: string };
-    if ((err.code === 3 && err.stdout?.trim() === "inactive") || (err.code === 4 && err.stdout?.trim() === "unknown")) return false;
-    throw Error("Cannot establish legacy timer state; live refused");
+  for (const unit of ["quota-governor.timer", "quota-governor.service"]) {
+    try { const r = await runFile("systemctl", ["--user", "is-active", unit], { timeout: 10000 }); if (r.stdout.trim() !== "inactive") return true; }
+    catch (e) {
+      const err = e as { code?: number; stdout?: string };
+      if ((err.code === 3 && err.stdout?.trim() === "inactive") || (err.code === 4 && err.stdout?.trim() === "unknown")) continue;
+      throw Error(`Cannot establish legacy ${unit} state; live refused`);
+    }
   }
+  return false;
 }
 export function homeAnswer(db: Database.Database, key: string): "a" | "b" | null {
-  const row = db.prepare("SELECT p.option_id FROM cards c JOIN picks p ON p.decision_id = 'card-' || c.task_id || '-g1' WHERE c.card_key = ?").get(key) as { option_id: string } | undefined;
+  const row = db.prepare(`SELECT p.option_id FROM cards c JOIN picks p ON p.decision_id = 'card-' || c.task_id || '-g1' WHERE c.card_key = ? AND p."by" = 'mk' AND p.surface IN ('home','overlay')`).get(key) as { option_id: string } | undefined;
   return row?.option_id === "a" || row?.option_id === "b" ? row.option_id : null;
 }
-export async function fileProtectedCard(cfg: Config, level: number, pace: number | null, renewal: number, vizier: string, runFile: Exec, disk: AtomicFS): Promise<string> {
+export async function fileProtectedCard(cfg: Config, level: number, pace: number | null, renewal: number, vizier: string, runFile: Exec, disk: AtomicFS, env: NodeJS.ProcessEnv = process.env): Promise<string> {
+  const project = (env.QUOTA_GOVERNOR_CARD_PROJECT ?? cfg.card_project).trim();
+  if (!project) throw Error("Governor card project is required (card_project or QUOTA_GOVERNOR_CARD_PROJECT)");
   const lv = cfg.levels[level];
   const ask = {
     schema: "home-ask/v2", project: "Sylveste",
     project_root: process.env.QUOTA_GOVERNOR_PROJECT_ROOT ?? join(homedir(), "projects", "Sylveste"),
     ask_key: `quota-governor-cut-protected-L${level}${renewal ? `-r${renewal}` : ""}`,
-    question: `What this is: the quota governor wants to move to level ${level} (${lv.name}) to stop weekly quota running out before reset (pooled pace ${pace == null ? "unknown" : pace.toFixed(2)}). This level lowers protected work caps.\nWhat you would get: pace returns toward the sustainable rate sooner; protected work slows until it recovers.\nWhy now: the governor holds one level lower until you answer; it never cuts protected work without this card (bead mk-z0lht.1).\n\nCut protected work?\nA) Yes, cut protected work at this level\nB) No, hold at the lower level and accept the overrun\nRecommendation: B unless run-out is within two days.`,
+    question: `What this is: the quota governor wants to move to level ${level} (${lv.name}) to stop the weekly quota running out before reset (pooled pace ${pace == null ? "unknown" : pace.toFixed(2)}). That level lowers the caps of protected work (the Babelrooms and Yaoivers one-shots, the Undersketch protected path).\nWhat you would get: pace comes back toward the sustainable rate sooner; protected work slows until it recovers.\nWhy now: the governor holds one level lower until you answer; it never cuts protected work without this card (bead mk-z0lht).\n\nCut protected work?\nA) Yes, cut protected work at this level\nB) No, hold at the lower level and accept the overrun\nRecommendation: B unless the run-out is within two days.`,
     options: [{ id: "a", kind: "ruling-only", label: "A) Yes, cut protected work at this level" }, { id: "b", kind: "ruling-only", label: "B) No, hold at the lower level" }], recommendation: "b",
   };
   const path = join(cfg.state_dir, `card-ask-L${level}.json`);
   await atomicJson(path, ask, disk);
-  const r = await runFile("autarch", ["needs-mk", "file", "--project", process.env.QUOTA_GOVERNOR_CARD_PROJECT ?? "MSQ", "--title", `Quota: cut protected work at level ${level} (${lv.name})?`, "--ask-file", path, "--vizier-owned", "--json"], { timeout: 120000, env: { ...process.env, BB_THREAD_ID: vizier } });
+  const r = await runFile("autarch", ["needs-mk", "file", "--project", project, "--title", `Quota: cut protected work at level ${level} (${lv.name})?`, "--ask-file", path, "--vizier-owned", "--json"], { timeout: 120000, env: { ...env, BB_THREAD_ID: vizier } });
   return z.object({ card_key: z.string().min(1) }).parse(JSON.parse(r.stdout)).card_key;
 }
 export interface OperatorFS extends AtomicFS {
@@ -75,19 +96,24 @@ export async function applyOperator(cfg: Config, level: number, force: boolean, 
   const backups = (await disk.readdir(cfg.state_dir)).filter(f => f.startsWith("operator.toml.bak-")).sort();
   for (const f of backups.slice(0, -10)) await disk.unlink(join(cfg.state_dir, f));
 }
-export async function notifyInboxes(cfg: Config, threads: Thread[], old: number, next: number, pace: number | null, why: string, now: number): Promise<void> {
+export interface InboxFS {
+  stat(path: string): Promise<{ isDirectory(): boolean }>;
+  appendFile(path: string, text: string): Promise<unknown>;
+}
+export async function notifyInboxes(cfg: Config, threads: Thread[], old: number, next: number, pace: number | null, why: string, now: number, disk: InboxFS = fs): Promise<void> {
   const lv = cfg.levels[next], p = (pace ?? -1).toFixed(2);
   const msg = next > old
-    ? `THROTTLE (quota governor, level ${next} ${lv.name}, pooled weekly pace ${p}): no new executors, child threads, review rounds, research or background slices; finish only in-flight steps; no FYI or status replies. Merge and root-run asks already sent continue. Protected work (the one-shots and protected paths) keeps its caps unless a card says otherwise.`
+    ? `THROTTLE (quota governor, level ${next} ${lv.name}, pooled weekly pace ${p}): no new executors, child threads, review rounds, research or background slices; finish only in-flight steps; no FYI or status replies. Merge and root-run asks already sent continue. Protected work (the one-shots, the Undersketch protected path) keeps its caps unless a card says otherwise.`
     : `THROTTLE LIFTED to level ${next} ${lv.name} (quota governor, pooled weekly pace ${p}): ${next === 0 ? "the open caps are back; resume normal work." : `caps back to level ${next}; resume normal work within them.`}`;
-  const append = async (id: string, text: string) => {
+  const ids = recipients(threads, cfg), vz = findVizier(threads, cfg);
+  if (!cfg.storage_root || !(await disk.stat(cfg.storage_root)).isDirectory()) throw Error("Governor thread-storage root is not a directory");
+  // Check every destination before the first append, so a missing recipient cannot silently drop a notice.
+  for (const id of [...ids, ...(vz ? [vz] : [])]) {
     if (!/^[A-Za-z0-9_-]+$/.test(id)) throw Error("Invalid thread id");
-    const dir = join(cfg.storage_root, id);
-    try { if (!(await fs.stat(dir)).isDirectory()) return; } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return; throw e; }
-    await fs.appendFile(join(dir, "inbox.md"), `${new Date(now).toISOString().slice(0, 16)}Z quota-governor ${text}\n`);
-  };
-  for (const id of recipients(threads, cfg)) await append(id, msg);
-  const vz = findVizier(threads, cfg);
+    if (!(await disk.stat(join(cfg.storage_root, id))).isDirectory()) throw Error(`Governor recipient directory missing: ${id}`);
+  }
+  const append = (id: string, text: string) => disk.appendFile(join(cfg.storage_root, id, "inbox.md"), `${new Date(now).toISOString().slice(0, 16)}Z quota-governor ${text}\n`);
+  for (const id of ids) await append(id, msg);
   if (vz) await append(vz, `quota level ${old} ${cfg.levels[old].name} -> ${next} ${lv.name} (pace ${p}; ${why})`);
 }
 export interface GovernorHost {
@@ -96,7 +122,8 @@ export interface GovernorHost {
   realtime: { publish(channel: string, data: Record<string, unknown>): unknown };
   log: { warn(message: string): unknown };
 }
-export function wireGovernor(bb: GovernorHost, handle: Pick<StoreHandle, "ready" | "store">, settings: () => Promise<{ quota_governor_mode: string }>): () => View {
+export function wireGovernor(bb: GovernorHost, handle: Pick<StoreHandle, "ready" | "store">, settings: () => Promise<{ quota_governor_mode: string }>, deps: { config?: () => Promise<Config> } = {}): () => View {
+  const config = deps.config ?? (() => loadConfig());
   let governor: Governor | null = null;
   let last: View = { mode: "off" };
   bb.background.service("quota-governor", {
@@ -118,7 +145,7 @@ export function wireGovernor(bb: GovernorHost, handle: Pick<StoreHandle, "ready"
           if (!["off", "shadow", "live"].includes(mode)) throw Error("Invalid quota governor mode");
           last = { ...last, mode: mode as Mode, error: undefined };
           if (mode !== "off" && handle.ready()) {
-            const cfg = await loadConfig();
+            const cfg = await config();
             if (!cfg.bb_host || hostname() !== cfg.bb_host) {
               last = { ...last, error: "Inactive on this host" };
               bb.realtime.publish("quota-governor-changed", {});
@@ -127,7 +154,7 @@ export function wireGovernor(bb: GovernorHost, handle: Pick<StoreHandle, "ready"
             if (!governor) {
               const db = handle.store().db;
               governor = new Governor(new GovernorStore(db), {
-                now: Date.now, hostname, config: () => loadConfig(), mode: async () => (await settings()).quota_governor_mode as Mode,
+                now: Date.now, hostname, config, mode: async () => (await settings()).quota_governor_mode as Mode,
                 timerActive: () => timerActive(exec),
                 accounts: async () => {
                   const numeric = z.number().finite().nullable().optional();
@@ -142,7 +169,7 @@ export function wireGovernor(bb: GovernorHost, handle: Pick<StoreHandle, "ready"
                 apply: async (cfg, level, force) => { await applyOperator(cfg, level, force, exec, fs); await setHostLimit(plugins, cfg.bb_host, cfg.levels[level].bb_limit, signal); },
                 notify: async (cfg, old, next, pace, why) => notifyInboxes(cfg, await threads(), old, next, pace, why, Date.now()),
                 writeThrottle: (cfg, throttle) => atomicJson(join(cfg.state_dir, "throttle.json"), throttle, fs),
-                publish: view => { last = view; bb.realtime.publish("quota-governor-changed", {}); },
+                publish: view => { last = view; if (view.error) bb.log.warn(`quota-governor: ${view.error}`); bb.realtime.publish("quota-governor-changed", {}); },
               });
             }
             await governor.tick();
