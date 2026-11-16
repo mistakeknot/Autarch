@@ -14,8 +14,11 @@ func ResolveBBBinary() (string, error) {
 		info, err := os.Stat(path)
 		return err == nil && info.Mode().IsRegular() && (runtime.GOOS == "windows" || info.Mode().Perm()&0111 != 0)
 	}
-	if path := os.Getenv("BB_CLI"); path != "" && executable(path) {
-		return path, nil
+	if path := os.Getenv("BB_CLI"); path != "" {
+		if executable(path) {
+			return path, nil
+		}
+		fmt.Fprintln(os.Stderr, "warning: BB_CLI is unusable; checking PATH and the user-local install")
 	}
 	if path, err := exec.LookPath("bb"); err == nil {
 		return path, nil
