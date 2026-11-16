@@ -69,6 +69,9 @@ describe("fs write scope (plan Task 2.7)", () => {
     expect(uses("settled.ts")).toEqual(["openSync"]);
     expect(uses("evidencestore.ts")).toEqual(["openSync"]);
     expect(uses("trigger.ts")).toEqual(["openSync"]);
+    // Pilot configuration is shared with the filer, not plugin-owned. Metrics use
+    // Store's SQLite events; this module stays a filesystem reader (bead mk-bzi8s.12).
+    expect(uses("pilotmetrics.ts")).toEqual([]);
   });
   it("allows only governor policy/state/inbox calls and detects injected filesystem writes", () => {
     const sf = parseFile(serverSources().find(f => rel(f) === "governor-runtime.ts")!);

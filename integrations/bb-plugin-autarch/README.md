@@ -19,6 +19,13 @@ the vizier thread, and delegation settings.
 Try it: install the plugin, open **Citadel** in the sidebar, then run
 `bb home list` in a terminal.
 
+Pilot pick observations are stored as deduplicated events in the plugin's `data.db`.
+The plugin reads the filer's pilot configuration and filing metadata, but does not
+write to that shared state directory. `autarch needs-mk pilots report` combines
+the filer's local observations with the read-only `pilotMetrics` RPC, deduplicating
+legacy pick observations by event ID. If the plugin is unavailable, the report
+labels its results as local metrics only.
+
 ## UI components
 
 `components/ui/` is vendored source you own (the shadcn model): edit the

@@ -36,8 +36,8 @@ func TestReleasePrintsDeliveredGroupsAndKeyedFailures(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	if err := cmd.Execute(); err == nil {
-		t.Fatal("partial failure must exit nonzero")
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("per-entry failures must not fail the release timer: %v", err)
 	}
 	var report struct {
 		Groups   map[string][]homeask.CardResult `json:"groups"`
@@ -48,5 +48,18 @@ func TestReleasePrintsDeliveredGroupsAndKeyedFailures(t *testing.T) {
 	}
 	if len(report.Groups["other"]) != 1 || report.Failures["bad"] == "" {
 		t.Fatal(out.String())
+	}
+}
+
+func TestReleaseStillFailsWhenStateCannotBeRead(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "filings.json"), []byte("{broken"), 0600)
+	old := newCardFiler
+	t.Cleanup(func() { newCardFiler = old })
+	newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{StateDir: dir} }
+	cmd := needsMkReleaseCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	if e := cmd.Execute(); e == nil {
+		t.Fatal("batch state failure was suppressed")
 	}
 }

@@ -472,6 +472,19 @@ export class Store {
     this.event(type, decisionId, detail);
   }
 
+  /** Pilot observations belong to Home's store, not the shared filer directory (bead mk-bzi8s.12). */
+  recordPilotMetric(metric: import("./pilotmetrics.js").PilotMetric): void {
+    this.tx(() => {
+      if (this.db.prepare("SELECT 1 FROM events WHERE type='pilot-pick-metric' AND json_extract(detail_json, '$.event_id')=?").get(metric.event_id)) return;
+      this.event("pilot-pick-metric", null, metric);
+    });
+  }
+
+  pilotMetrics(): import("./pilotmetrics.js").PilotMetric[] {
+    return (this.db.prepare("SELECT detail_json FROM events WHERE type='pilot-pick-metric' ORDER BY seq").all() as { detail_json: string }[])
+      .map(row => JSON.parse(row.detail_json));
+  }
+
   pickByPickId(pickId: string): PickRow | undefined {
     return this.db.prepare("SELECT * FROM picks WHERE pick_id = ?").get(pickId) as PickRow | undefined;
   }
