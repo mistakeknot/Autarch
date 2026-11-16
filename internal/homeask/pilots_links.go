@@ -33,10 +33,24 @@ type ArtifactLinkChecker struct {
 }
 
 var pilotURL = regexp.MustCompile("https://[^\\s<>\"'`]+")
-var pilotPR = regexp.MustCompile(`(?i)(?:https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)|([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+))`)
+var pilotPR = regexp.MustCompile(`(?i)(?:https://(?:www\.)?github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)|([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+))`)
 var pilotPRHead = regexp.MustCompile("(?i)^[ \\t]*[)`\\]>]*[ \\t]*(?:\\([ \\t]*)?(?:at|head(?:[ \\t]+sha)?)[ \\t:=]+`?([0-9a-f]{8,64})\\b")
 var scriptLine = regexp.MustCompile(`(?m)(?:bash[ \t]+|script:[ \t]*)(/[^\s"` + "`" + `]+)`)
 var fullSHA = regexp.MustCompile(`\b[0-9a-fA-F]{64}\b`)
+
+var pilotDead5xx = regexp.MustCompile(`http 5[0-9][0-9]`)
+var pilotDead4xx = regexp.MustCompile(`http 4[0-9][0-9]`)
+
+func githubUnknownURL(u *url.URL) bool {
+	switch strings.ToLower(u.Hostname()) {
+	case "github.com", "www.github.com":
+		return len(strings.Split(strings.Trim(u.Path, "/"), "/")) >= 2
+	case "api.github.com", "raw.githubusercontent.com", "gist.github.com":
+		return true
+	default:
+		return false
+	}
+}
 
 func cardStrings(r CardRequest) []string {
 	out := []string{r.Title}
@@ -156,7 +170,7 @@ func (c ArtifactLinkChecker) Check(ctx context.Context, r CardRequest) []LinkFai
 	}
 	for u := range urls {
 		parsed, parseErr := url.Parse(u)
-		if parseErr == nil && strings.EqualFold(parsed.Hostname(), "github.com") && len(strings.Split(strings.Trim(parsed.Path, "/"), "/")) >= 2 {
+		if parseErr == nil && githubUnknownURL(parsed) {
 			// Anonymous GitHub 404 is ambiguous for private repositories. PR existence
 			// and explicit heads are checked below with authenticated gh; other paths are unknown.
 			if !pilotPR.MatchString(u) && c.Unknown != nil {
@@ -316,9 +330,9 @@ func failureClass(v LinkFailure) string {
 		return "dead-404"
 	case strings.Contains(r, "http 410"):
 		return "dead-410"
-	case regexp.MustCompile(`http 5[0-9][0-9]`).MatchString(r):
+	case pilotDead5xx.MatchString(r):
 		return "dead-5xx"
-	case regexp.MustCompile(`http 4[0-9][0-9]`).MatchString(r):
+	case pilotDead4xx.MatchString(r):
 		return "dead-4xx"
 	case strings.HasPrefix(v.Item, "https://"):
 		return "dead-conn"

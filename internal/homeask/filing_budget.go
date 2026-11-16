@@ -225,7 +225,7 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		if priorErr == nil {
 			oldHeld, hadHeld := prior[r.Key]
 			priorDone()
-			if hadHeld && oldHeld.Held {
+			if hadHeld && oldHeld.Held && !oldHeld.Attempted {
 				if oldHeld.Identity != identity || oldHeld.Request.Thread != r.Thread || oldHeld.Request.Owner != r.Owner {
 					return CardResult{}, errReused
 				}
@@ -493,12 +493,28 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		unlock()
 		return CardResult{}, "", nil
 	}
+	// Advisory early-out avoids checks and wakes for cards that cannot be displayed.
+	// Admission is still checked authoritatively under the fleet gate below.
+	fullBeforeChecks, capErr := f.dailyFull(state, e.Request)
+	if capErr != nil {
+		unlock()
+		return CardResult{}, "", capErr
+	}
+	if fullBeforeChecks {
+		unlock()
+		return CardResult{}, "", nil
+	}
 	unlock()
 	r := e.Request
 	if r.Owner != "" {
 		if ownerErr := f.checkOwnerLive(ctx, r.Owner); ownerErr != nil {
 			if errors.Is(ownerErr, ErrInvalid) {
-				return CardResult{}, r.Type, &releaseOwnerError{owner: r.Owner, cause: ownerErr}
+				attention := &releaseOwnerError{owner: r.Owner, cause: ownerErr}
+				if e.Attempted {
+					recovered, recoveryErr := f.resolveTerminal(ctx, key, attention)
+					return recovered, r.Type, errors.Join(attention, recoveryErr)
+				}
+				return CardResult{}, r.Type, attention
 			}
 			return CardResult{}, r.Type, ownerErr
 		}

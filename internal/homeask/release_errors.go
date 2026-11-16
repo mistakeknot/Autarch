@@ -18,6 +18,6 @@ type releaseOwnerError struct {
 }
 
 func (e *releaseOwnerError) Error() string {
-	return fmt.Sprintf("owner %s needs attention: %v; request remains held; assign a live owner or cancel and refile", e.owner, e.cause)
+	return fmt.Sprintf("owner %s needs attention: %v; assign a live owner or cancel and refile", e.owner, e.cause)
 }
 func (e *releaseOwnerError) Unwrap() error { return e.cause }
