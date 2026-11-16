@@ -16,6 +16,8 @@ const PAGE = 50;
 export const emptyFilters: ArchiveFilters = { search: "", project: "", from: "", to: "", pick: "" };
 
 export function ArchiveRowView({ row, onBringBack, busy, error }: { row: ArchiveRow; onBringBack?: (row: ArchiveRow) => void; busy?: boolean; error?: string | null }) {
+  const unavailable = !row.decision_id ? "No saved question to reopen."
+    : row.no_pick && row.state !== "closed" ? "Only closed cards can be brought back without a pick." : null;
   return (
     <li className="flex flex-col gap-1 rounded-md border border-border p-3" data-archive-row={row.card_key}>
       <div className="flex flex-wrap items-baseline gap-2">
@@ -33,9 +35,10 @@ export function ArchiveRowView({ row, onBringBack, busy, error }: { row: Archive
         </p>
       )}
       {error ? <p className="m-0 text-xs text-destructive" role="alert" data-archive-error>Could not bring it back: {error}</p> : null}
-      {onBringBack && row.decision_id ? (
+      {onBringBack ? (
         <div>
-          <ActionButton disabled={busy} onClick={() => onBringBack(row)} data-archive-bringback={row.card_key}>Bring back</ActionButton>
+          <ActionButton disabled={busy || unavailable !== null} onClick={() => { if (unavailable === null) onBringBack(row); }} data-archive-bringback={row.card_key}>Bring back</ActionButton>
+          {unavailable ? <p className="m-0 mt-1 text-xs text-muted-foreground" data-archive-bringback-reason>{unavailable}</p> : null}
         </div>
       ) : null}
     </li>
