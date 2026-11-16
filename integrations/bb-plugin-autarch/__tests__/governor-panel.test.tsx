@@ -18,3 +18,10 @@ it("shows first-load errors without loading, and skipped-recipient warnings", ()
   const warning = renderToStaticMarkup(<GovernorSummary view={{ mode: "live", warnings: ["Skipped recipient missing"] }} />);
   expect(warning).toContain("Skipped recipient missing");
 });
+it("renders decoded RPC errors and preserves the separate loading state", () => {
+  const view = JSON.parse(JSON.stringify({ mode: "shadow", error: "Quota unavailable" }));
+  const error = renderToStaticMarkup(<GovernorSummary view={view} />);
+  expect(error).toContain("Quota unavailable"); expect(error).not.toContain("Loading");
+  const loading = renderToStaticMarkup(<GovernorSummary view={null} />);
+  expect(loading).toContain("Loading quota governor"); expect(loading).not.toContain("Quota unavailable");
+});

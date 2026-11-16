@@ -9,6 +9,7 @@ export type Card = { key?: string; level: number; answered?: string; declined_at
 export type State = { level: number; good_streak?: number; pace?: number | null; since?: number; why?: string; updated_at?: number; pending?: boolean; card?: Card; throttle?: Throttle };
 export type Throttle = { level: number; name: string; allowed_max: number | null; cuts_protected: boolean; pace: number | null; updated_at: number; why: string };
 export type Decision = { level: number; new_level: number; pace: number | null; note: string; why: string; floor: Floor | null; held?: string | null; applied: string[] };
+// Sent directly over JSON RPC: absent optional fields must be omitted, never undefined.
 export type View = { mode: Mode; state?: State; decision?: Decision; script?: unknown; last_run?: number; parts?: Part[]; error?: string; warnings?: string[] };
 export type NoticePlan = { skipped: string[]; send(): Promise<string[]> };
 export interface GovernorIO {
@@ -56,7 +57,8 @@ export class Governor {
     const io = this.io;
     try {
       const mode = await io.mode();
-      this.current = { ...this.current, mode, error: undefined };
+      this.current = { ...this.current, mode };
+      delete this.current.error;
       if (mode === "off") return;
       const cfg = await io.config();
       if (!cfg.bb_host || io.hostname() !== cfg.bb_host) { this.current.error = "Inactive on this host"; return; }

@@ -179,6 +179,17 @@ it("registers an abortable service and leaves the database untouched while off",
   await Promise.resolve(); await Promise.resolve(); controller.abort(); await run;
   expect(view().mode).toBe("off"); expect(handle.store).not.toHaveBeenCalled();
 });
+it.each(["off", "shadow", "error"])("returns a JSON-clean wired %s view, including while the store is not ready", async scenario => {
+  let start!: (signal: AbortSignal) => Promise<void>; const controller = new AbortController();
+  const bb = { sdk: { threads: { list: async () => [] } }, background: { service: (_name: string, opts: { start: typeof start }) => { start = opts.start; } }, realtime: { publish: () => controller.abort() }, log: { warn: vi.fn() } };
+  const handle = { ready: () => scenario === "error", store: () => { throw Error("unexpected store access"); } };
+  const view = wireGovernor(bb, handle, async () => ({ quota_governor_mode: scenario === "error" ? "shadow" : scenario }), { config: async () => { throw Error("Config unavailable"); } });
+  expect(JSON.parse(JSON.stringify(view()))).toStrictEqual(view());
+  await start(controller.signal);
+  expect(JSON.parse(JSON.stringify(view()))).toStrictEqual(view());
+  if (scenario === "error") expect(view().error).toContain("Config unavailable");
+  else expect(Object.hasOwn(view(), "error")).toBe(false);
+});
 it.each(["off", "other host", "shadow"])("%s does not discover notification storage", async scenario => {
   const db = new Database(":memory:"); let start!: (signal: AbortSignal) => Promise<void>;
   const controller = new AbortController(); const roots = vi.fn(() => { throw Error("unexpected storage discovery"); });
