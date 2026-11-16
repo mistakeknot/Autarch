@@ -164,11 +164,12 @@ type CardRequest struct {
 
 // CardResult is what a successful filing returns.
 type CardResult struct {
-	Budget  *CardBudget `json:"budget,omitempty"`
-	Queued  bool        `json:"queued,omitempty"`
-	ID      string      `json:"card"`
-	Key     string      `json:"request"`
-	Project string      `json:"project,omitempty"`
+	ownerAttention string      // successful recovery can still need owner handoff
+	Budget         *CardBudget `json:"budget,omitempty"`
+	Queued         bool        `json:"queued,omitempty"`
+	ID             string      `json:"card"`
+	Key            string      `json:"request"`
+	Project        string      `json:"project,omitempty"`
 	// Replay is true when the card already existed (a routing comment may still have been repaired).
 	Replay  bool `json:"replay"`
 	Updated bool `json:"updated,omitempty"`

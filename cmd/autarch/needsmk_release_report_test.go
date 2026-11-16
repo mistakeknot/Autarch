@@ -53,7 +53,9 @@ func TestReleasePrintsDeliveredGroupsAndKeyedFailures(t *testing.T) {
 
 func TestReleaseStillFailsWhenStateCannotBeRead(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "filings.json"), []byte("{broken"), 0600)
+	if e := os.WriteFile(filepath.Join(dir, "filings.json"), []byte("{broken"), 0600); e != nil {
+		t.Fatal(e)
+	}
 	old := newCardFiler
 	t.Cleanup(func() { newCardFiler = old })
 	newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{StateDir: dir} }
