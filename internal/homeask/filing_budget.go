@@ -235,6 +235,9 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		}
 		lookupUnlock()
 	}
+	if err := f.checkColdRead(ctx, r); err != nil {
+		return CardResult{}, err
+	}
 	if updateLane && r.NonBlocking {
 		uncharged, err = f.hasUpdateTarget(ctx, r, supersedes)
 		if err != nil {
