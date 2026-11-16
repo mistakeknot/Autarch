@@ -53,6 +53,7 @@ func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
 }
 
 type filingEntry struct {
+	OwnerAttention    string      `json:"owner_attention,omitempty"`
 	DeliveredCardKey  string      `json:"delivered_card_key,omitempty"`
 	FiledAt           string      `json:"filed_at,omitempty"`
 	DeliveredAt       string      `json:"delivered_at,omitempty"`
@@ -408,6 +409,14 @@ func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) 
 		}
 	}
 	f = &scoped
+	if _, err := f.budget(); err != nil {
+		return report, err
+	}
+	if f.pilot("daycap") {
+		if _, err := dailyCap(); err != nil {
+			return report, err
+		}
+	}
 	state, _, unlock, err := f.openState()
 	if err != nil {
 		return report, err
@@ -444,6 +453,21 @@ func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) 
 			return report, err
 		}
 		result, typ, e := f.releaseOne(ctx, key)
+		attention := result.ownerAttention
+		var ownerErr *releaseOwnerError
+		if errors.As(e, &ownerErr) {
+			attention = ownerErr.Error()
+		}
+		if attention != "" {
+			if report.OwnerAttention == nil {
+				report.OwnerAttention = map[string]string{}
+			}
+			report.OwnerAttention[key] = attention
+		}
+		if attention != "" || (e == nil && result.ID != "" && state[key].OwnerAttention != "") {
+			e = errors.Join(e, f.recordOwnerAttention(key, attention))
+		}
+
 		if result.ID != "" {
 			if e == nil {
 				f.pilotEvent(state[key].Request, "released", "", "")
@@ -458,13 +482,7 @@ func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) 
 		}
 		if e != nil {
 			report.Failures[key] = e.Error()
-			var ownerErr *releaseOwnerError
-			if errors.As(e, &ownerErr) {
-				if report.OwnerAttention == nil {
-					report.OwnerAttention = map[string]string{}
-				}
-				report.OwnerAttention[key] = ownerErr.Error()
-			}
+
 			failures = append(failures, fmt.Errorf("request %s: %w", key, e))
 			continue
 		}
@@ -509,9 +527,17 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	if r.Owner != "" {
 		if ownerErr := f.checkOwnerLive(ctx, r.Owner); ownerErr != nil {
 			if errors.Is(ownerErr, ErrInvalid) {
-				attention := &releaseOwnerError{owner: r.Owner, cause: ownerErr}
+				attention := &releaseOwnerError{owner: r.Owner, cause: ownerErr, remediation: "run needs-mk cancel-held " + key + ", then file the corrected ask with a new request key and a live --owner-thread"}
 				if e.Attempted {
-					recovered, recoveryErr := f.resolveTerminal(ctx, key, attention)
+					recovered, recoveryErr := f.resolveTerminal(ctx, key, ownerErr)
+					if recoveryErr == nil && recovered.ID != "" {
+						attention.remediation = "card " + recovered.ID + " was already delivered; ask the coordinator to arrange handoff of the existing card; do not cancel-held or duplicate it"
+						recovered.ownerAttention = attention.Error()
+						return recovered, r.Type, nil
+					}
+					if recoveryErr == nil {
+						attention.remediation = "request retired after proving no delivery; file the corrected ask with a new request key and a live --owner-thread"
+					}
 					return recovered, r.Type, errors.Join(attention, recoveryErr)
 				}
 				return CardResult{}, r.Type, attention
@@ -522,7 +548,7 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	if f.pilot("linkcheck") {
 		if v := f.checkLinks(ctx, r); len(v) > 0 {
 			wakeErr := f.wakeLinkOwner(ctx, key, r, v)
-			return CardResult{}, r.Type, errors.Join(fmt.Errorf("link-check: %s", failureText(v)), wakeErr)
+			return CardResult{}, r.Type, errors.Join(fmt.Errorf("%w: link-check: %s", ErrInvalid, failureText(v)), wakeErr)
 		}
 	}
 	if f.Check != nil {

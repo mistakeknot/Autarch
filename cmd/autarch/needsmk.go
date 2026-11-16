@@ -518,7 +518,7 @@ func needsMkReleaseCmd() *cobra.Command {
 		f.Check = checkFilingPreconditions
 		report, err := f.ReleaseDetailed(cmd.Context())
 		var entries *homeask.ReleaseEntryErrors
-		if errors.As(err, &entries) && !errors.Is(err, homeask.ErrHomeDown) && !errors.Is(err, homeask.ErrOutcomeUnknown) {
+		if errors.As(err, &entries) && entries.DataOnly() {
 			err = nil
 		}
 		printErr := json.NewEncoder(cmd.OutOrStdout()).Encode(report)
