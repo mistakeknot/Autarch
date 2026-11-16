@@ -309,3 +309,46 @@ func TestPacificReleaseRechecksAfterMondayBoundary(t *testing.T) {
 		t.Fatalf("crossed Monday boundary during preflight: %+v %v", report, err)
 	}
 }
+
+func TestDailyCapFillingUsesDeliveryDayClock(t *testing.T) {
+	t.Setenv(EnvCardDailyCap, "1")
+	for _, tc := range []struct {
+		name, at string
+		held     bool
+	}{
+		{"Friday", "2026-11-13 12:00:00", false},
+		{"Sunday", "2026-11-15 23:59:00", false},
+		{"Thursday before noon", "2026-11-19 11:59:00", true},
+		{"Thursday noon", "2026-11-19 12:00:00", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFake(t, registryOnCreate).filer()
+			now := pacificTestTime(t, tc.at)
+			f.Now = func() time.Time { return now }
+			enablePilot(t, f, "daycap")
+			r := testReq() // ordinary throughout; urgency must not bypass cap checks
+			first, err := f.FileCard(context.Background(), r)
+			if err != nil || first.Queued != tc.held {
+				t.Fatalf("first ordinary card: %+v %v", first, err)
+			}
+			state, _, done, err := f.openState()
+			if err != nil {
+				t.Fatal(err)
+			}
+			full, err := f.dailyFull(state, r)
+			done()
+			if err != nil || full == tc.held {
+				t.Fatalf("only delivery fills the daily cap: full=%v held=%v err=%v", full, tc.held, err)
+			}
+			r.Key = "second"
+			second, err := f.FileCard(context.Background(), r)
+			reason := "daily-cap"
+			if tc.held {
+				reason = "weekday-window"
+			}
+			if err != nil || !second.Queued || second.HoldReason != reason {
+				t.Fatalf("wrong ordinary hold: %+v %v; want %s", second, err, reason)
+			}
+		})
+	}
+}

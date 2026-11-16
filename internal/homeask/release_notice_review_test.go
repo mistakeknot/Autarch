@@ -84,7 +84,8 @@ func TestFullCapResolvesAttemptedHeldWithInvalidOwner(t *testing.T) {
 				bb.threads = map[string]string{"thr_old": "live"}
 				f := bb.filer()
 				f.StateDir = t.TempDir()
-				f.Now = func() time.Time { return time.Date(2026, 11, 16, 20, 0, 0, 0, time.UTC) }
+				now := filingTestNow() // all recovery cases start on a fixed delivery Friday
+				f.Now = func() time.Time { return now }
 				if err := f.SetPilot("daycap", true); err != nil {
 					t.Fatal(err)
 				}
