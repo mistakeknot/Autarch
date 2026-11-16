@@ -51,28 +51,29 @@ func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
 }
 
 type filingEntry struct {
-	OwnerAttention    string      `json:"owner_attention,omitempty"`
-	DeliveredCardKey  string      `json:"delivered_card_key,omitempty"`
-	FiledAt           string      `json:"filed_at,omitempty"`
-	DeliveredAt       string      `json:"delivered_at,omitempty"`
-	DeliveryPendingAt string      `json:"delivery_pending_at,omitempty"`
-	LinkFailureSet    string      `json:"link_failure_set,omitempty"`
-	HeldReason        string      `json:"held_reason,omitempty"`
-	DeliveredCard     string      `json:"delivered_card,omitempty"`
-	DeliveredKey      string      `json:"delivered_key,omitempty"`
-	DeliveredProject  string      `json:"delivered_project,omitempty"`
-	CreationKey       string      `json:"creation_key,omitempty"`
-	Uncharged         bool        `json:"uncharged,omitempty"`
-	Refunded          bool        `json:"refunded,omitempty"`
-	TerminalReason    string      `json:"terminal_reason,omitempty"`
-	Request           CardRequest `json:"request"`
-	Identity          string      `json:"identity"`
-	Project           string      `json:"project"`
-	Week              string      `json:"week"`
-	Attempted         bool        `json:"attempted,omitempty"`
-	Held              bool        `json:"held"`
-	Supersedes        string      `json:"supersedes,omitempty"`
-	Update            bool        `json:"update"`
+	HeldRevisions     map[string]heldRevision `json:"held_revisions,omitempty"`
+	OwnerAttention    string                  `json:"owner_attention,omitempty"`
+	DeliveredCardKey  string                  `json:"delivered_card_key,omitempty"`
+	FiledAt           string                  `json:"filed_at,omitempty"`
+	DeliveredAt       string                  `json:"delivered_at,omitempty"`
+	DeliveryPendingAt string                  `json:"delivery_pending_at,omitempty"`
+	LinkFailureSet    string                  `json:"link_failure_set,omitempty"`
+	HeldReason        string                  `json:"held_reason,omitempty"`
+	DeliveredCard     string                  `json:"delivered_card,omitempty"`
+	DeliveredKey      string                  `json:"delivered_key,omitempty"`
+	DeliveredProject  string                  `json:"delivered_project,omitempty"`
+	CreationKey       string                  `json:"creation_key,omitempty"`
+	Uncharged         bool                    `json:"uncharged,omitempty"`
+	Refunded          bool                    `json:"refunded,omitempty"`
+	TerminalReason    string                  `json:"terminal_reason,omitempty"`
+	Request           CardRequest             `json:"request"`
+	Identity          string                  `json:"identity"`
+	Project           string                  `json:"project"`
+	Week              string                  `json:"week"`
+	Attempted         bool                    `json:"attempted,omitempty"`
+	Held              bool                    `json:"held"`
+	Supersedes        string                  `json:"supersedes,omitempty"`
+	Update            bool                    `json:"update"`
 }
 type filingState map[string]filingEntry
 
@@ -186,6 +187,18 @@ func checkKeepList(value string) error {
 	return fmt.Errorf("%w: --keep-list must be spend, credentials, sign-ins/payments, tags/releases/publishes, force-pushes or standing-approvals", ErrInvalid)
 }
 func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string, update bool) (CardResult, error) {
+	for {
+		result, err := f.submitOnce(ctx, r, supersedes, update)
+		if !errors.Is(err, errHeldTargetChanged) {
+			return result, err
+		}
+		if err := ctx.Err(); err != nil {
+			return CardResult{}, err
+		}
+	}
+}
+
+func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes string, update bool) (CardResult, error) {
 	if err := checkKeepList(r.KeepList); err != nil {
 		return CardResult{}, err
 	}
@@ -217,7 +230,15 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	if e = os.MkdirAll(dir, 0700); e != nil {
 		return CardResult{}, e
 	}
-	deliveryUnlock, e := lockFile(filepath.Join(dir, "delivery-"+r.Key+".lock"))
+	windowHeld := weeklyHold(f.clock(), r)
+	// Resolve the queue's canonical key before taking its delivery lock. Recheck
+	// under the state lock below, retrying if another admission won the race.
+	deliveryKey := r.Key
+	if prior, _, done, err := f.openState(); err == nil {
+		deliveryKey = prior.heldTarget(r)
+		done()
+	}
+	deliveryUnlock, e := lockFile(filepath.Join(dir, "delivery-"+deliveryKey+".lock"))
 	if e != nil {
 		return CardResult{}, e
 	}
@@ -226,13 +247,16 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	if err != nil {
 		return CardResult{}, err
 	}
-	if f.anyPilot() {
-		// Per-request serialization makes a held retry independent of volatile proofs.
+	{
+		// Queue revisions replay without reapplying older payloads or volatile proofs.
 		prior, _, priorDone, priorErr := f.openState()
 		if priorErr == nil {
-			oldHeld, hadHeld := prior[r.Key]
+			oldHeld, hadHeld := prior[deliveryKey]
 			priorDone()
-			if hadHeld && oldHeld.Held && !oldHeld.Attempted {
+			if replay, known, err := f.replayHeldRevision(ctx, oldHeld, r, identity); known {
+				return replay, err
+			}
+			if f.anyPilot() && deliveryKey == r.Key && hadHeld && oldHeld.Held && !oldHeld.Attempted {
 				if oldHeld.Identity != identity || oldHeld.Request.Thread != r.Thread || oldHeld.Request.Owner != r.Owner {
 					return CardResult{}, errReused
 				}
@@ -277,7 +301,6 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		return CardResult{}, err
 	}
 	// Check queue prerequisites before waiting for admission.
-	windowHeld := weeklyHold(f.clock(), r)
 	if updateLane && (r.NonBlocking || windowHeld) {
 		uncharged, err = f.hasUpdateTarget(ctx, r, supersedes)
 		if err != nil {
@@ -309,7 +332,33 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	if err != nil {
 		return CardResult{}, err
 	}
-	old, exists := state[r.Key]
+	if state.heldTarget(r) != deliveryKey {
+		return CardResult{}, errHeldTargetChanged
+	}
+	old, exists := state[deliveryKey]
+	if replay, known, err := old.revisionReplay(r.Key, identity, r); known {
+		if err == nil && !replay.Queued {
+			// Registry verification belongs outside the admission locks.
+			return CardResult{}, errHeldTargetChanged
+		}
+		return replay, err
+	}
+	if exists && deliveryKey != r.Key {
+		if old.Request.Thread != r.Thread || old.Request.Owner != r.Owner {
+			return CardResult{}, errReused
+		}
+		if old.HeldRevisions == nil {
+			old.HeldRevisions = map[string]heldRevision{deliveryKey: {Identity: old.Identity, Thread: old.Request.Thread, Owner: old.Request.Owner}}
+		}
+		old.HeldRevisions[r.Key] = heldRevision{Identity: identity, Thread: r.Thread, Owner: r.Owner}
+		r.Key = deliveryKey
+		old.Request, old.Identity, old.Supersedes, old.Update = r, identity, supersedes, update
+		state[deliveryKey] = old
+		if err := saveFilingState(path, state); err != nil {
+			return CardResult{}, err
+		}
+		return old.heldResult(deliveryKey, false), nil
+	}
 	if exists && old.Refunded {
 		return CardResult{}, fmt.Errorf("%w: request retired: %s; file the corrected ask with a new request key", ErrInvalid, old.TerminalReason)
 	}

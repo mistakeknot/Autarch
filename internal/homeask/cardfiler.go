@@ -1116,6 +1116,8 @@ func wireFromAsk(a Ask) (map[string]any, error) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
+	delete(m, "urgent")
+	delete(m, "root_run")
 	for k := range v1Only {
 		delete(m, k)
 	}
@@ -1181,7 +1183,11 @@ func (f *CardFiler) File(ctx context.Context, a Ask) (string, error) {
 			return "", err
 		}
 	}
-	res, err := f.FileCard(ctx, CardRequest{Project: project, Title: titleOf(a), Ask: wire, Key: key, Thread: a.Thread})
+	typ := ""
+	if IsMergeAsk(wire) {
+		typ = "merge"
+	}
+	res, err := f.FileCard(ctx, CardRequest{Project: project, Title: titleOf(a), Ask: wire, Key: key, Thread: a.Thread, Type: typ, Urgent: a.Urgent, RootRun: a.RootRun})
 	if err == nil && res.Queued {
 		return "", &HeldError{RequestKey: res.Key, Reason: res.HoldReason}
 	}

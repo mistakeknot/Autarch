@@ -395,3 +395,16 @@ func TestBuildAskRejectsNonObjectJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestDecideMergeFilesImmediatelyDuringHold(t *testing.T) {
+	s := &stubBB{}
+	withCardFiler(t, s, func(f *homeask.CardFiler) {
+		f.Now = func() time.Time { return time.Date(2026, 11, 16, 18, 0, 0, 0, time.UTC) }
+	})
+	t.Setenv("BB_THREAD_ID", "")
+	raw := strings.Replace(askJSON("thr-x"), "A first", "Manually merge it at abc123", 1)
+	out, err := runDecide(t, raw, "file")
+	if err != nil || out != "T1" || s.creates != 1 {
+		t.Fatalf("merge held: out=%s err=%v creates=%d", out, err, s.creates)
+	}
+}

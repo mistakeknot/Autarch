@@ -244,6 +244,8 @@ func (s *Server) registerDefaultTools() {
 				"kind":     map[string]interface{}{"type": "string", "description": "decide, steps or machine"},
 				"question": map[string]interface{}{"type": "string"},
 				"subject":  map[string]interface{}{"type": "string"},
+				"urgent":   map[string]interface{}{"type": "boolean", "description": "Bypass the weekday hold and ordinary filing budget"},
+				"root_run": map[string]interface{}{"type": "object", "description": "Root-run filing tuple: script, sha256, timeout and set"},
 				"thread":   map[string]interface{}{"type": "string", "description": "Asking thread; must match BB_THREAD_ID when that is set"},
 				"options": map[string]interface{}{
 					"type":  "array",

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/autarch/internal/homeask"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +25,7 @@ var ghRun = func(ctx context.Context, args ...string) ([]byte, error) {
 const ghTimeout = 20 * time.Second
 
 // mergePhrase marks a merge option: "Manually merge it at <head sha>".
-const mergePhrase = "Manually merge it at"
+const mergePhrase = homeask.MergePhrase
 
 var (
 	// prURLExactRe is the one accepted spelling of a PR link (a PR tab, a query or a fragment may follow).
