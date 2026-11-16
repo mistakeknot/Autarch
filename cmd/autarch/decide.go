@@ -207,7 +207,11 @@ func decideBBPassthrough(verb, short string, flags []string) *cobra.Command {
 			argv = append(argv, "--json")
 			ctx, cancel := context.WithTimeout(context.Background(), filerTimeout)
 			defer cancel()
-			c := exec.CommandContext(ctx, "bb", argv...)
+			bin, err := homeask.ResolveBBBinary()
+			if err != nil {
+				return fmt.Errorf("%w: %v", homeask.ErrHomeDown, err)
+			}
+			c := exec.CommandContext(ctx, bin, argv...)
 			c.WaitDelay = time.Second
 			var stderr strings.Builder
 			c.Stdout, c.Stderr = cmd.OutOrStdout(), &stderr

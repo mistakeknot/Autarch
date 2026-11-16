@@ -165,8 +165,16 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 				return CardResult{}, fmt.Errorf("read card before edit: %w", e)
 			}
 		}
-		if v.State == "ruled" || v.DecisionState == "ruled" || v.DecisionState == "picked" {
+		picked := v.State == "ruled" || v.DecisionState == "ruled" || v.DecisionState == "picked"
+		if picked {
 			return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: card %s", ErrAlreadyRuled, s.Task.ID))
+		}
+		if recent, unreadable := f.recentPick(s.Comments); recent && sameDecision(req, c) {
+			reason := "already answered within 24 hours"
+			if unreadable {
+				reason = "pick time is unreadable"
+			}
+			return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: card %s %s; change the ask or pinned head before re-filing", ErrAlreadyRuled, s.Task.ID, reason))
 		}
 		if s.Task.Status == "done" || s.Task.Status == "canceled" || v.State == "closed" {
 			if supersedes != "" {

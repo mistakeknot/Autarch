@@ -531,6 +531,7 @@ func validRootScript(s string) bool {
 
 // Comment is the slice of a tasks comment AskingThread reads.
 type Comment struct {
+	Body      string `json:"body"`
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
 	ThreadID  string `json:"threadId"`

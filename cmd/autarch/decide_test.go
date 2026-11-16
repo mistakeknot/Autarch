@@ -21,6 +21,7 @@ import (
 
 // fakeBB puts a fake `bb` first on PATH. `home <verb>` sources $FAKE_DIR/<verb>.sh.
 func fakeBB(t *testing.T) string {
+	t.Setenv("BB_CLI", "") // This fixture exercises PATH, not an inherited configured CLI.
 	t.Helper()
 	dir := t.TempDir()
 	script := `#!/bin/sh

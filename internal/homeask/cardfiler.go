@@ -461,7 +461,11 @@ func (f *CardFiler) exec(ctx context.Context, env []string, args ...string) BBRe
 	}
 	bin := f.Bin
 	if bin == "" {
-		bin = "bb"
+		resolved, err := ResolveBBBinary()
+		if err != nil {
+			return BBResult{Err: err}
+		}
+		bin = resolved
 	}
 	ctx, cancel := context.WithTimeout(ctx, f.timeout())
 	defer cancel()
