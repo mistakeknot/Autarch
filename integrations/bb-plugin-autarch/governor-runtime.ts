@@ -169,7 +169,8 @@ export function wireGovernor(bb: GovernorHost, handle: { ready(): boolean; store
         try {
           const mode = (await settings()).quota_governor_mode;
           if (!["off", "shadow", "live"].includes(mode)) throw Error("Invalid quota governor mode");
-          last = { ...last, mode: mode as Mode, error: undefined };
+          last = { ...last, mode: mode as Mode };
+          delete last.error;
           if (mode !== "off" && handle.ready()) {
             const cfg = await config();
             if (!cfg.bb_host || hostName() !== cfg.bb_host) {

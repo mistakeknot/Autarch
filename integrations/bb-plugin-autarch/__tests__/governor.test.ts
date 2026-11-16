@@ -59,6 +59,22 @@ describe("governor policy", () => {
   it("refuses incomplete operator files", () => expect(() => editOperator("[executors]\nhost_ceiling = 4", DEFAULTS.levels[1].operator)).toThrow());
 });
 describe("governor service", () => {
+  it.each(["off", "shadow", "error"])("returns a JSON-clean %s view and publication", async scenario => {
+    const { g, io, db } = rig();
+    io.mode = async () => scenario === "off" ? "off" : "shadow";
+    if (scenario === "error") io.accounts = async () => { throw Error("Quota unavailable"); };
+    expect(JSON.parse(JSON.stringify(g.view()))).toStrictEqual(g.view());
+    await g.tick();
+    expect(JSON.parse(JSON.stringify(g.view()))).toStrictEqual(g.view());
+    expect(io.publish).toHaveBeenCalledWith(g.view());
+    if (scenario === "error") {
+      expect(g.view().error).toContain("Quota unavailable");
+      io.mode = async () => "off"; await g.tick();
+      expect(Object.hasOwn(g.view(), "error")).toBe(false);
+      expect(JSON.parse(JSON.stringify(g.view()))).toStrictEqual(g.view());
+    }
+    db.close();
+  });
   it("off and other hosts perform no reads or writes", async () => {
     const { g, io, db } = rig(); await g.tick();
     expect(io.accounts).not.toHaveBeenCalled(); expect(io.timerActive).not.toHaveBeenCalled();
