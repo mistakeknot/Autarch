@@ -277,6 +277,11 @@ Re-filing the same ask_key updates its open, unanswered card in this project, pr
 --supersedes CARD also updates in place when ask_key changed; a closed, foreign-project or foreign-owner
 card is refused (exit 2). An answered card remains already ruled (exit 5).
 A picked closed card with the same ask_key exits 5 too; a new ask needs a new ask_key.
+For closed or reopened cards that Home no longer reports as picked, the same decision
+at the same pinned head is refused (exit 5) for 24 hours after its last pick. Change the
+ask or pinned head to re-file during that window. An unreadable pick time also refuses
+the unchanged decision. Cards Home reports as picked remain refused regardless of age
+or changes to the ask, including with --supersedes.
 
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created or edited;
 includes an update's pre-edit readback with no indexed project_id), 4 card created

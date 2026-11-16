@@ -27,7 +27,7 @@ func sameDecision(r CardRequest, c Card) bool {
 	a, b := identity(r.Ask, r.RootRun, r.Move), identity(c.Ask, c.RootRun, move)
 	return a != "" && a == b
 }
-func (f *CardFiler) recentPick(comments []Comment) bool {
+func (f *CardFiler) recentPick(comments []Comment) (recent, unreadable bool) {
 	now := time.Now()
 	if f.Now != nil {
 		now = f.Now()
@@ -37,9 +37,12 @@ func (f *CardFiler) recentPick(comments []Comment) bool {
 			continue
 		}
 		at, err := time.Parse(time.RFC3339Nano, c.CreatedAt)
-		if err != nil || !at.Before(now.Add(-24*time.Hour)) {
-			return true
+		if err != nil {
+			return true, true
+		}
+		if !at.Before(now.Add(-24 * time.Hour)) {
+			recent = true
 		}
 	}
-	return false
+	return recent, false
 }
