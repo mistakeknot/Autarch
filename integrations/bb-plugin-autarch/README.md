@@ -26,8 +26,9 @@ the filer's local observations with the read-only `pilotMetrics` RPC, deduplicat
 legacy pick observations by event ID. If the plugin is unavailable, the report
 labels its results as local metrics only.
 Pick observations remain in the plugin store and are excluded from future event
-export segments. Deduplication uses the existing store keys after a one-time
-transactional scan of older observations.
+export segments. Known observations use the existing store keys after a one-time
+transactional scan of older observations. A missing key is also checked against
+the event log, so rollback needs no manual dedup reset.
 
 ## UI components
 

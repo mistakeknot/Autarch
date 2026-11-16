@@ -41,16 +41,17 @@ describe("pilot pick metrics", () => {
 
 describe("pilot metric keyed dedup (mk-bzi8s.13)", () => {
   const legacy = { time: "2026-11-15T12:00:00Z", event_id: "pick:legacy", event: "picked" };
-  it("seeds legacy IDs once, then uses keyed lookups after restart without changing the schema", () => {
+  it("seeds legacy IDs once, then retries use keyed lookups after restart without changing the schema", () => {
     const dir = tmpDir(); const file = join(dir.dir, "data.db"); let store = openStore(file);
     try {
       const schema = store.db.prepare("SELECT type, name, sql FROM sqlite_master ORDER BY name").all();
       store.recordEvent("pilot-pick-metric", null, legacy);
       store.recordPilotMetric(legacy); // first use must retain the existing observation, without a duplicate
+      const fresh = { ...legacy, event_id: "pick:fresh" };
+      store.recordPilotMetric(fresh);
       store.close(); store = openStore(file);
       const prepare = vi.spyOn(store.db, "prepare");
       try {
-        const fresh = { ...legacy, event_id: "pick:fresh" };
         store.recordPilotMetric(legacy); store.recordPilotMetric(fresh); store.recordPilotMetric(fresh);
         const reads = prepare.mock.calls.map(([sql]) => sql).filter(sql => /^\s*SELECT/i.test(sql));
         expect(reads.some(sql => /\bFROM\s+events\b/i.test(sql))).toBe(false);
@@ -58,6 +59,24 @@ describe("pilot metric keyed dedup (mk-bzi8s.13)", () => {
       } finally { prepare.mockRestore(); }
       expect(store.pilotMetrics().map(m => m.event_id)).toEqual([legacy.event_id, "pick:fresh"]);
       expect(store.db.prepare("SELECT type, name, sql FROM sqlite_master ORDER BY name").all()).toEqual(schema);
+    } finally { store.close(); dir.cleanup(); }
+  });
+  it("repairs an unkeyed metric written during rollback before recording a retried pick", () => {
+    const dir = tmpDir(); const file = join(dir.dir, "data.db"); let store = openStore(file);
+    const duringRollback = { ...legacy, event_id: "pick:during-rollback" };
+    try {
+      store.recordPilotMetric(legacy); // sets the ready flag
+      store.close(); store = openStore(file);
+      // The old writer records the event but knows nothing about the new dedup keys.
+      store.recordEvent("pilot-pick-metric", null, duringRollback);
+      store.close(); store = openStore(file);
+      store.recordPilotMetric(duringRollback);
+      expect(store.pilotMetrics()).toEqual([legacy, duringRollback]);
+      const prepare = vi.spyOn(store.db, "prepare");
+      try {
+        store.recordPilotMetric(duringRollback);
+        expect(prepare.mock.calls.some(([sql]) => /^\s*SELECT.*\bFROM\s+events\b/i.test(sql))).toBe(false);
+      } finally { prepare.mockRestore(); }
     } finally { store.close(); dir.cleanup(); }
   });
   it("rolls the observation and dedup state back together", () => {

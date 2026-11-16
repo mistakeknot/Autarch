@@ -34,6 +34,17 @@ describe("Archive Bring back eligibility (mk-bzi8s.14)", () => {
     expect(host.querySelector("[data-archive-bringback-reason]")?.textContent).toBe("No saved question to reopen.");
     act(() => button!.click()); expect(onBringBack).not.toHaveBeenCalled();
   });
+  it("links the disabled button to its reason and removes the link when the action becomes available", () => {
+    const unavailable = mount({ decision_id: null, generation: null });
+    const reasonId = unavailable.button!.getAttribute("aria-describedby");
+    expect(reasonId).toBeTruthy();
+    expect(document.getElementById(reasonId!)?.textContent).toBe("No saved question to reopen.");
+    expect(host.querySelector("[data-archive-bringback-reason]")?.id).toBe(reasonId);
+    const available = mount();
+    expect(available.button!.disabled).toBe(false);
+    expect(available.button!.hasAttribute("aria-describedby")).toBe(false);
+    expect(document.getElementById(reasonId!)).toBeNull();
+  });
   it.each(["ruled", "open", "observed", "display"])("does not submit a no-pick row in state %s", state => {
     const { button, onBringBack } = mount({ state });
     expect(button === null || button.disabled).toBe(true);
