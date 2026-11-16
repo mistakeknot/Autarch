@@ -135,6 +135,8 @@ type RootRunSpec = RootRun
 
 // CardRequest is one filing.
 type CardRequest struct {
+	replayEntry  *filingEntry           // internal verified replay target
+	replacesHeld string                 // internal escalation source, never part of the wire or saved JSON
 	beforeCreate func(string) error     // final budget admission for an update falling back to create
 	afterUpdate  func(CardResult) error // persist a successful edit before its ruling read
 
@@ -1159,15 +1161,11 @@ func (f *CardFiler) File(ctx context.Context, a Ask) (string, error) {
 		return "", fmt.Errorf("%w: legacy threadless asks are refused", ErrInvalid)
 	}
 	if rr := a.RootRun; rr != nil {
-		if !validRootScript(rr.Script) {
-			return "", fmt.Errorf("%w: root-run script must be an absolute path without control characters or parent traversal", ErrInvalid)
-		}
-		raw, err := os.ReadFile(rr.Script)
+		digest, err := HashRootRunScript(rr.Script)
 		if err != nil {
-			return "", fmt.Errorf("%w: root-run script is not readable: %v", ErrInvalid, err)
+			return "", fmt.Errorf("%w: %v", ErrInvalid, err)
 		}
-		digest := sha256.Sum256(raw)
-		if rr.SHA256 != hex.EncodeToString(digest[:]) {
+		if rr.SHA256 != digest {
 			return "", fmt.Errorf("%w: root-run sha256 does not match the script", ErrInvalid)
 		}
 	}

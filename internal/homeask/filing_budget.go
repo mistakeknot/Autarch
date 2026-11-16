@@ -52,6 +52,7 @@ func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
 }
 
 type filingEntry struct {
+	ReplacedBy        string                  `json:"replaced_by,omitempty"`
 	HeldRevisions     map[string]heldRevision `json:"held_revisions,omitempty"`
 	OwnerAttention    string                  `json:"owner_attention,omitempty"`
 	DeliveredCardKey  string                  `json:"delivered_card_key,omitempty"`
@@ -190,6 +191,11 @@ func checkKeepList(value string) error {
 func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string, update bool) (CardResult, error) {
 	for attempt := 0; attempt < 8; attempt++ {
 		result, err := f.submitOnce(ctx, r, supersedes, update)
+		var redirected *heldRequestRetry
+		if errors.As(err, &redirected) {
+			r, supersedes, update = redirected.request, redirected.supersedes, redirected.update
+			continue
+		}
 		if !errors.Is(err, errHeldTargetChanged) {
 			return result, err
 		}
@@ -239,6 +245,13 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 	var retiring []string
 	coalesce := ordinary(r) && (windowHeld || r.NonBlocking)
 	if prior, _, done, err := f.openState(); err == nil {
+		if redirect, err := prior.escalationSource(r); redirect != nil || err != nil {
+			done()
+			if err != nil {
+				return CardResult{}, err
+			}
+			return CardResult{}, redirect
+		}
 		deliveryKey = prior.heldTarget(r, coalesce)
 		retiring = prior.retiringHeld(r, coalesce)
 		done()
@@ -257,6 +270,9 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		}
 		defer done()
 	}
+	if r.replayEntry != nil {
+		return f.replayDeliveredEntry(ctx, *r.replayEntry)
+	}
 	identity, err := RequestIdentity(r)
 	if err != nil {
 		return CardResult{}, err
@@ -266,11 +282,25 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		prior, _, priorDone, priorErr := f.openState()
 		if priorErr == nil {
 			oldHeld, hadHeld := prior[deliveryKey]
+			_, knownHeld := prior.knownHeldRequest(r)
+			if knownKey, known := prior.knownHeldRequest(r); known && knownKey == deliveryKey {
+				if redirect, err := prior.retiredReplay(oldHeld, r, identity); redirect != nil || err != nil {
+					priorDone()
+					if err != nil {
+						return CardResult{}, err
+					}
+					return CardResult{}, redirect
+				}
+			}
 			priorDone()
-			if replay, known, err := f.replayHeldRevision(ctx, oldHeld, r, identity); known {
+			promotable := false
+			if knownHeld && hadHeld && oldHeld.Held {
+				promotable = oldHeld.canPromote(r, ordinary(r) && (weeklyHold(f.clock(), r) || r.NonBlocking))
+			}
+			if replay, known, err := f.replayHeldRevision(ctx, oldHeld, r, identity); known && !promotable {
 				return replay, err
 			}
-			if f.anyPilot() && deliveryKey == r.Key && hadHeld && oldHeld.Held && !oldHeld.Attempted {
+			if !promotable && f.anyPilot() && deliveryKey == r.Key && hadHeld && oldHeld.Held && !oldHeld.Attempted {
 				if oldHeld.Identity != identity || oldHeld.Request.Thread != r.Thread || oldHeld.Request.Owner != r.Owner {
 					return CardResult{}, errReused
 				}
@@ -352,6 +382,21 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		return CardResult{}, errHeldTargetChanged
 	}
 	old, exists := state[deliveryKey]
+	if redirect, err := state.retiredReplay(old, r, identity); redirect != nil || err != nil {
+		if err != nil {
+			return CardResult{}, err
+		}
+		return CardResult{}, redirect
+	}
+	if exists && old.canPromote(r, coalesce) {
+		if _, known := state.knownHeldRequest(r); known {
+			redirect, err := old.promote(r, identity)
+			if err != nil {
+				return CardResult{}, err
+			}
+			return CardResult{}, redirect
+		}
+	}
 	if replay, known, err := old.revisionReplay(r.Key, identity, r); known {
 		if err == nil && !replay.Queued {
 			// Registry verification belongs outside the admission locks.
@@ -392,6 +437,7 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 			entry.Held = false
 			entry.Refunded = true
 			entry.TerminalReason = "replaced by request " + r.Key
+			entry.ReplacedBy = r.Key
 			state[key] = entry
 		}
 		// Gate and state-lock waits can cross a policy boundary. Reserve using the
@@ -456,6 +502,13 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		result, err = f.fileOrUpdateCard(ctx, r, supersedes)
 	} else {
 		result, err = f.fileCardReadback(ctx, r)
+	}
+	// Even an unchanged existing card answers the retired request. Keep its
+	// immutable registry key so retries follow that card rather than create one.
+	if result.ID != "" && (len(retiredHeld) > 0 || r.replacesHeld != "" || (update && result.Replay && !result.Updated)) && !errors.Is(err, errNoCardWritten) {
+		if saveErr := f.recordWrittenEdit(r.Key, result); saveErr != nil {
+			err = errors.Join(err, fmt.Errorf("%w: record delivered card: %v", ErrOutcomeUnknown, saveErr))
+		}
 	}
 	if !exists && errors.Is(err, errNoCardWritten) && (errors.Is(err, ErrInvalid) || errors.Is(err, ErrAlreadyRuled)) {
 		current, p, done, e := f.openState()
@@ -716,6 +769,10 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	e = state[key] // Preserve creation admission saved by the delivery callback.
 	e.Held = false
 	e.DeliveredCard = result.ID
+	if result.Key != e.Request.Key {
+		e.DeliveredKey = result.Key
+		e.DeliveredProject = result.Project
+	}
 	if f.anyPilot() && e.DeliveredAt == "" {
 		e.DeliveredAt = f.clock().Format(time.RFC3339Nano)
 	}

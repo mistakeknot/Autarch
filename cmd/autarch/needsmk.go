@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -80,12 +78,11 @@ func parseRootRunFlag(v string) (*homeask.RootRun, error) {
 	if !filepath.IsAbs(vals["script"]) {
 		return nil, &usageError{"--root-run script must be an absolute path"}
 	}
-	raw, err := os.ReadFile(vals["script"])
+	digest, err := homeask.HashRootRunScript(vals["script"])
 	if err != nil {
-		return nil, &usageError{"--root-run script is not readable: " + err.Error()}
+		return nil, &usageError{"--root-run " + strings.TrimPrefix(err.Error(), "root-run ")}
 	}
-	sum := sha256.Sum256(raw)
-	return &homeask.RootRun{Script: vals["script"], SHA256: hex.EncodeToString(sum[:]), Timeout: n, Set: vals["set"]}, nil
+	return &homeask.RootRun{Script: vals["script"], SHA256: digest, Timeout: n, Set: vals["set"]}, nil
 }
 
 // readMoveFile reads a home-move/v1 JSON file (at most 1 MiB) and validates it with the strict parser the
