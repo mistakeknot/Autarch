@@ -43,7 +43,9 @@ func TestAlreadyRuledProofStaysInItsJoinedBranch(t *testing.T) {
 		{"independently proved branches", errors.Join(provedInvalid, fmt.Errorf("request: %w", provedRuled)), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := (&ReleaseEntryErrors{Errors: []error{tc.err}}).DataOnly(); got != tc.want {
+			got := (&ReleaseEntryErrors{Errors: []error{tc.err}}).DataOnly()
+			t.Logf("DataOnly=%t", got)
+			if got != tc.want {
 				t.Fatalf("joined branches classified data-only=%v, want %v: %v", got, tc.want, tc.err)
 			}
 		})
@@ -115,16 +117,21 @@ func releaseUpdateEntryError(t *testing.T, outcome string) error {
 	if !errors.Is(entryErr, wantCause) || !errors.Is(entryErr, errNoCardWritten) || bb.count("tasks", "update") != 0 || resolveLookups == 0 {
 		t.Fatalf("fixture did not reach refusal and terminal resolution: %v; resolve lookups=%d", entryErr, resolveLookups)
 	}
-	joined, ok := errors.Unwrap(entryErr).(interface{ Unwrap() []error })
-	wantParts := 1
 	if outcome == "resolve-failure" {
-		wantParts = 2
-	}
-	if !ok || len(joined.Unwrap()) != wantParts {
-		t.Fatalf("missing releaseOne join around update error and resolveErr: %v", entryErr)
-	}
-	if outcome == "resolve-failure" && !errors.Is(joined.Unwrap()[1], ErrHomeDown) {
-		t.Fatalf("resolveErr was not the operational lookup failure: %v", entryErr)
+		// Joining a nil resolveErr may preserve or add a unary join across Go
+		// versions. For a non-nil resolveErr, check the branches by their causes.
+		joined, ok := errors.Unwrap(entryErr).(interface{ Unwrap() []error })
+		if !ok {
+			t.Fatalf("missing join with terminal lookup failure: %v", entryErr)
+		}
+		refusal, lookupFailure := false, false
+		for _, cause := range joined.Unwrap() {
+			refusal = refusal || (errors.Is(cause, errNoCardWritten) && errors.Is(cause, wantCause))
+			lookupFailure = lookupFailure || errors.Is(cause, ErrHomeDown)
+		}
+		if !refusal || !lookupFailure {
+			t.Fatalf("missing no-write refusal or operational resolveErr branch: %v", entryErr)
+		}
 	}
 	return entryErr
 }
