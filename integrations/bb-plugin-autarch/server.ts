@@ -544,6 +544,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   const SERVE_READ_TTL_MS = 20_000;
   let serveRead: { at: number; projects: unknown; projectsError: string | undefined; build: unknown } | undefined;
   const handlers = {
+    pilotMetrics(_: null) { return { metrics: need().svc.store.pilotMetrics() }; },
     pickAction(input: import("./pickreadback.js").PickActionQuery) {
       const query = homeMethods.pickAction.input.safeParse(input);
       if (!query.success) return { ok: false, kind: "invalid-query", status: 400, error: "original pick or exact decision/generation required", ordinary_continuation: false };
