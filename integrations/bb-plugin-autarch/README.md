@@ -26,9 +26,12 @@ the filer's local observations with the read-only `pilotMetrics` RPC, deduplicat
 legacy pick observations by event ID. If the plugin is unavailable, the report
 labels its results as local metrics only.
 Pick observations remain in the plugin store and are excluded from future event
-export segments. Known observations use the existing store keys after a one-time
-transactional scan of older observations. A missing key is also checked against
-the event log, so rollback needs no manual dedup reset.
+export segments. Known observations use the existing store keys. Without a valid
+sequence watermark, one history pass seeds keys and the watermark. Each missing
+key then uses a rowid range scan over events appended since that watermark,
+indexing all pilot IDs in the range before advancing it in the same transaction.
+Catch-up work is proportional to that delta rather than the whole history.
+Rollback needs no manual dedup reset: older writers append above the watermark.
 
 ## UI components
 

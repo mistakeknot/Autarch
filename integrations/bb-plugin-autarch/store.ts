@@ -461,10 +461,11 @@ export class Store {
     });
   }
 
-  private event(type: string, decisionId: string | null, detail: unknown = {}): void {
-    this.db
+  private event(type: string, decisionId: string | null, detail: unknown = {}): number {
+    const inserted = this.db
       .prepare("INSERT INTO events(at, type, decision_id, detail_json) VALUES (?, ?, ?, ?)")
       .run(this.now(), type, decisionId, JSON.stringify(detail));
+    return Number(inserted.lastInsertRowid);
   }
 
   /** Record an event outside any other transaction (for example a `related` note). */
@@ -475,26 +476,35 @@ export class Store {
   /** Pilot observations belong to Home's store, not the shared filer directory (bead mk-bzi8s.12). */
   recordPilotMetric(metric: import("./pilotmetrics.js").PilotMetric): void {
     this.tx(() => {
-      // Seed older event IDs once; known IDs use settings_kv's primary key (mk-bzi8s.13). No DDL.
+      // Known IDs use settings_kv's primary key. Missing IDs catch up only the
+      // appended event range; ready-only older builds need one initial pass (mk-bzi8s.20). No DDL.
       const ready = "pilot-metric-dedup/v1/ready";
       const prefix = "pilot-metric-dedup/v1/id/";
-      if (this.setting(ready) !== "1") {
-        const legacy = this.db.prepare("SELECT json_extract(detail_json, '$.event_id') AS id FROM events WHERE type = 'pilot-pick-metric' AND json_valid(detail_json)").all() as { id: unknown }[];
-        for (const row of legacy) if (typeof row.id === "string") this.setSetting(prefix + row.id, "1");
-        this.setSetting(ready, "1");
-      }
+      const watermarkKey = "pilot-metric-dedup/v1/seq";
+      const raw = this.setting(watermarkKey);
+      let watermark = Number(raw);
+      const initialized = this.setting(ready) === "1" && raw !== undefined && /^\d+$/.test(raw) && Number.isSafeInteger(watermark);
       const key = prefix + metric.event_id;
-      if (this.setting(key) !== undefined) return;
-      // An older plugin can append unkeyed events during rollback. Repair a missing
-      // key before inserting, so rolling forward needs no operator reset (mk-bzi8s.20).
-      if (this.db.prepare("SELECT 1 FROM events WHERE type = 'pilot-pick-metric' AND json_valid(detail_json) AND json_extract(detail_json, '$.event_id') = ? LIMIT 1").get(metric.event_id)) {
-        this.setSetting(key, "1");
-        return;
+      if (initialized && this.setting(key) !== undefined) return;
+      if (!initialized) watermark = 0;
+      const appended = this.db.prepare(`SELECT seq,
+        CASE WHEN type = 'pilot-pick-metric' AND json_valid(detail_json)
+          THEN json_extract(detail_json, '$.event_id') END AS id
+        FROM events WHERE seq > ? ORDER BY seq`).all(watermark) as { seq: number; id: unknown }[];
+      // Index every pilot ID in the delta, not just this pick: advancing past an
+      // unkeyed rollback event would otherwise hide it from a later retry.
+      for (const row of appended) {
+        if (typeof row.id === "string") this.setSetting(prefix + row.id, "1");
+        watermark = row.seq;
       }
-      this.event("pilot-pick-metric", null, metric);
-      // No production path prunes pilot events today. Future pruning must delete
-      // their matching dedup keys as well (mk-bzi8s.20).
-      this.setSetting(key, "1");
+      if (!initialized) this.setSetting(ready, "1");
+      if (this.setting(key) === undefined) {
+        watermark = this.event("pilot-pick-metric", null, metric);
+        // No production path prunes pilot events today. Future pruning must delete
+        // their matching dedup keys as well (mk-bzi8s.20).
+        this.setSetting(key, "1");
+      }
+      this.setSetting(watermarkKey, String(watermark));
     });
   }
 

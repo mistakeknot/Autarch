@@ -19,6 +19,7 @@ export function ArchiveRowView({ row, onBringBack, busy, error }: { row: Archive
   const reasonId = useId();
   const unavailable = !row.decision_id ? "No saved question to reopen."
     : row.no_pick && row.state !== "closed" ? "Only closed cards can be brought back without a pick." : null;
+  const blocked = !!busy || unavailable !== null;
   return (
     <li className="flex flex-col gap-1 rounded-md border border-border p-3" data-archive-row={row.card_key}>
       <div className="flex flex-wrap items-baseline gap-2">
@@ -38,7 +39,7 @@ export function ArchiveRowView({ row, onBringBack, busy, error }: { row: Archive
       {error ? <p className="m-0 text-xs text-destructive" role="alert" data-archive-error>Could not bring it back: {error}</p> : null}
       {onBringBack ? (
         <div>
-          <ActionButton disabled={busy || unavailable !== null} aria-describedby={unavailable ? reasonId : undefined} onClick={() => { if (unavailable === null) onBringBack(row); }} data-archive-bringback={row.card_key}>Bring back</ActionButton>
+          <ActionButton aria-disabled={blocked || undefined} aria-describedby={unavailable ? reasonId : undefined} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50" onClick={() => { if (!blocked) onBringBack(row); }} data-archive-bringback={row.card_key}>Bring back</ActionButton>
           {unavailable ? <p id={reasonId} className="m-0 mt-1 text-xs text-muted-foreground" data-archive-bringback-reason>{unavailable}</p> : null}
         </div>
       ) : null}
