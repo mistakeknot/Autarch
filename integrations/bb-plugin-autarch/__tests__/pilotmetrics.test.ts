@@ -55,15 +55,22 @@ describe("pilot metric keyed dedup (mk-bzi8s.13)", () => {
       const traced: string[] = [];
       store = new Store(new Database(file, { verbose: sql => traced.push(String(sql)) }));
       const watermark = Number(store.setting(watermarkKey) ?? 0);
+      for (let i = 0; i < 32; i++) store.recordEvent("unrelated", null, { i });
       traced.length = 0;
       const fresh = { ...legacy, event_id: "pick:fresh" };
       // The first fresh pick belongs inside the trace: retries alone cannot prove the cost of a new pick.
       store.recordPilotMetric(legacy); store.recordPilotMetric(fresh); store.recordPilotMetric(fresh);
       const reads = traced.map(sql => sql.replace(/\s+/g, " ")).filter(sql => /^\s*SELECT.*\bFROM\s+events\b/i.test(sql));
-      expect(reads).toHaveLength(1);
-      expect(reads[0]).toMatch(new RegExp(`\\bFROM events WHERE seq > ${watermark}\\b.*ORDER BY seq`, "i"));
+      expect(reads).toHaveLength(2);
+      const rangeRead = reads.find(sql => /WHERE seq > /i.test(sql));
+      expect(rangeRead).toMatch(new RegExp(`\\bFROM events WHERE seq > ${watermark}(?:\\.0)? AND type = 'pilot-pick-metric'.*ORDER BY seq`, "i"));
+      const maxRead = reads.find(sql => /SELECT COALESCE\(MAX\(seq\), 0\) AS seq FROM events/i.test(sql));
+      expect(maxRead).toBeDefined();
+      const maxPlan = store.db.prepare(`EXPLAIN QUERY PLAN ${maxRead}`).all() as { detail: string }[];
+      expect(maxPlan.some(row => /SEARCH events/i.test(row.detail))).toBe(true);
+      expect(maxPlan.some(row => /SCAN events/i.test(row.detail))).toBe(false);
       expect(watermark).toBe(seededSeq);
-      const plan = store.db.prepare(`EXPLAIN QUERY PLAN ${reads[0]}`).all() as { detail: string }[];
+      const plan = store.db.prepare(`EXPLAIN QUERY PLAN ${rangeRead}`).all() as { detail: string }[];
       expect(plan.some(row => /SEARCH events USING INTEGER PRIMARY KEY/i.test(row.detail))).toBe(true);
       expect(plan.some(row => /SCAN events/i.test(row.detail))).toBe(false);
       expect(Number(store.setting(watermarkKey))).toBe(eventSeq(store));
@@ -111,6 +118,27 @@ describe("pilot metric keyed dedup (mk-bzi8s.13)", () => {
       expect(store.pilotMetrics()).toEqual([legacy, a, b, fresh, later]);
       expect(Number(store.setting(watermarkKey))).toBe(eventSeq(store));
     } finally { store.close(); dir.cleanup(); }
+  });
+  it("advances past an unrelated tail while repairing rollback metrics without copying unrelated IDs", () => {
+    const traced: string[] = [];
+    const store = new Store(new Database(":memory:", { verbose: sql => traced.push(String(sql)) }));
+    const repaired = { ...legacy, event_id: "pick:repair" }, fresh = { ...legacy, event_id: "pick:fresh" };
+    try {
+      store.recordPilotMetric(legacy);
+      store.recordEvent("pilot-pick-metric", null, repaired);
+      for (let i = 0; i < 64; i++) store.recordEvent("unrelated", null, { event_id: fresh.event_id, i });
+      const tail = eventSeq(store);
+      traced.length = 0;
+      store.recordPilotMetric(repaired); // repair only: no new event to advance the watermark
+      const rangeRead = traced.find(sql => /FROM events WHERE seq > /i.test(sql.replace(/\s+/g, " ")));
+      const rows = store.db.prepare(rangeRead!).all() as { id: string }[];
+      expect(rows.map(row => row.id)).toEqual([repaired.event_id]);
+      expect(Number(store.setting(watermarkKey))).toBe(tail);
+      expect(store.setting(`pilot-metric-dedup/v1/id/${fresh.event_id}`)).toBeUndefined();
+      store.recordPilotMetric(fresh); store.recordPilotMetric(repaired);
+      expect(store.pilotMetrics()).toEqual([legacy, repaired, fresh]);
+      expect(Number(store.setting(watermarkKey))).toBe(eventSeq(store));
+    } finally { store.close(); }
   });
   it("upgrades an existing ready flag with no watermark without skipping unkeyed events", () => {
     const store = new Store(new Database(":memory:"));
