@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,12 +18,15 @@ const EnvCardWeeklyBudget = "AUTARCH_CARD_WEEKLY_BUDGET"
 const EnvCardStateDir = "AUTARCH_CARD_STATE_DIR"
 
 type CardBudget struct {
-	Ordinary int `json:"ordinary"`
-	Limit    int `json:"limit"`
-	Exempt   int `json:"exempt"`
+	Ordinary  int    `json:"ordinary"`
+	Limit     int    `json:"limit"`
+	Exempt    int    `json:"exempt"`
+	WeekStart string `json:"week_start"`
+	WeekEnd   string `json:"week_end"`
+	TimeZone  string `json:"time_zone"`
 }
 
-// BudgetStatus exposes ordinary and exempt volume for the current ISO week.
+// BudgetStatus exposes ordinary and exempt volume for the Pacific Thursday-noon week.
 func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
 	limit, err := f.budget()
 	if err != nil {
@@ -33,15 +37,10 @@ func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
 		return CardBudget{}, err
 	}
 	defer unlock()
-	now := time.Now()
-	if f.Now != nil {
-		now = f.Now()
-	}
-	y, w := now.ISOWeek()
-	week := fmt.Sprintf("%04d-W%02d", y, w)
-	status := CardBudget{Limit: limit}
+	week := pacificBudgetWeek(f.clock())
+	status := CardBudget{Limit: limit, WeekStart: week.start.Format(time.RFC3339), WeekEnd: week.end.Format(time.RFC3339), TimeZone: pacific.String()}
 	for _, e := range state {
-		if e.Project == strings.ToLower(project) && e.Week == week && !e.Uncharged && !e.Refunded {
+		if e.Project == strings.ToLower(project) && reservedInWeek(e, week) && !e.Uncharged && !e.Refunded {
 			if e.Request.Urgent || e.Request.KeepList != "" {
 				status.Exempt++
 			} else {
@@ -53,30 +52,40 @@ func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
 }
 
 type filingEntry struct {
-	OwnerAttention    string      `json:"owner_attention,omitempty"`
-	DeliveredCardKey  string      `json:"delivered_card_key,omitempty"`
-	FiledAt           string      `json:"filed_at,omitempty"`
-	DeliveredAt       string      `json:"delivered_at,omitempty"`
-	DeliveryPendingAt string      `json:"delivery_pending_at,omitempty"`
-	LinkFailureSet    string      `json:"link_failure_set,omitempty"`
-	HeldReason        string      `json:"held_reason,omitempty"`
-	DeliveredCard     string      `json:"delivered_card,omitempty"`
-	DeliveredKey      string      `json:"delivered_key,omitempty"`
-	DeliveredProject  string      `json:"delivered_project,omitempty"`
-	CreationKey       string      `json:"creation_key,omitempty"`
-	Uncharged         bool        `json:"uncharged,omitempty"`
-	Refunded          bool        `json:"refunded,omitempty"`
-	TerminalReason    string      `json:"terminal_reason,omitempty"`
-	Request           CardRequest `json:"request"`
-	Identity          string      `json:"identity"`
-	Project           string      `json:"project"`
-	Week              string      `json:"week"`
-	Attempted         bool        `json:"attempted,omitempty"`
-	Held              bool        `json:"held"`
-	Supersedes        string      `json:"supersedes,omitempty"`
-	Update            bool        `json:"update"`
+	ReplacedBy        string                  `json:"replaced_by,omitempty"`
+	HeldRevisions     map[string]heldRevision `json:"held_revisions,omitempty"`
+	OwnerAttention    string                  `json:"owner_attention,omitempty"`
+	DeliveredCardKey  string                  `json:"delivered_card_key,omitempty"`
+	FiledAt           string                  `json:"filed_at,omitempty"`
+	DeliveredAt       string                  `json:"delivered_at,omitempty"`
+	DeliveryPendingAt string                  `json:"delivery_pending_at,omitempty"`
+	LinkFailureSet    string                  `json:"link_failure_set,omitempty"`
+	HeldReason        string                  `json:"held_reason,omitempty"`
+	DeliveredCard     string                  `json:"delivered_card,omitempty"`
+	DeliveredKey      string                  `json:"delivered_key,omitempty"`
+	DeliveredProject  string                  `json:"delivered_project,omitempty"`
+	CreationKey       string                  `json:"creation_key,omitempty"`
+	Uncharged         bool                    `json:"uncharged,omitempty"`
+	Refunded          bool                    `json:"refunded,omitempty"`
+	TerminalReason    string                  `json:"terminal_reason,omitempty"`
+	Request           CardRequest             `json:"request"`
+	Identity          string                  `json:"identity"`
+	Project           string                  `json:"project"`
+	Week              string                  `json:"week"`
+	Attempted         bool                    `json:"attempted,omitempty"`
+	Held              bool                    `json:"held"`
+	Supersedes        string                  `json:"supersedes,omitempty"`
+	Update            bool                    `json:"update"`
 }
 type filingState map[string]filingEntry
+
+func (e filingEntry) heldResult(key string, replay bool) CardResult {
+	reason := e.HeldReason
+	if reason == "" && e.Request.NonBlocking {
+		reason = "non-blocking"
+	}
+	return CardResult{Key: key, Queued: true, Replay: replay, HoldReason: reason}
+}
 
 func (f *CardFiler) stateDir() (string, error) {
 	if f.StateDir != "" {
@@ -151,7 +160,7 @@ func saveFilingState(path string, state filingState) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// defaultWeeklyBudget is the ordinary cards per Home project per ISO week when
+// defaultWeeklyBudget is the ordinary cards per Home project per Pacific week when
 // neither CardFiler.WeeklyBudget nor AUTARCH_CARD_WEEKLY_BUDGET is set (mk-bzi8s).
 const defaultWeeklyBudget = 50
 
@@ -180,6 +189,24 @@ func checkKeepList(value string) error {
 	return fmt.Errorf("%w: --keep-list must be spend, credentials, sign-ins/payments, tags/releases/publishes, force-pushes or standing-approvals", ErrInvalid)
 }
 func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string, update bool) (CardResult, error) {
+	for attempt := 0; attempt < 8; attempt++ {
+		result, err := f.submitOnce(ctx, r, supersedes, update)
+		var redirected *heldRequestRetry
+		if errors.As(err, &redirected) {
+			r, supersedes, update = redirected.request, redirected.supersedes, redirected.update
+			continue
+		}
+		if !errors.Is(err, errHeldTargetChanged) {
+			return result, err
+		}
+		if err := ctx.Err(); err != nil {
+			return CardResult{}, err
+		}
+	}
+	return CardResult{}, fmt.Errorf("%w: filing admission changed repeatedly; retry the same request", ErrOutcomeUnknown)
+}
+
+func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes string, update bool) (CardResult, error) {
 	if err := checkKeepList(r.KeepList); err != nil {
 		return CardResult{}, err
 	}
@@ -211,26 +238,73 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	if e = os.MkdirAll(dir, 0700); e != nil {
 		return CardResult{}, e
 	}
-	deliveryUnlock, e := lockFile(filepath.Join(dir, "delivery-"+r.Key+".lock"))
+	windowHeld := weeklyHold(f.clock(), r)
+	// Resolve the queue's canonical key before taking its delivery lock. Recheck
+	// under the state lock below, retrying if another admission won the race.
+	deliveryKey := r.Key
+	var retiring []string
+	coalesce := ordinary(r) && (windowHeld || r.NonBlocking)
+	if prior, _, done, err := f.openState(); err == nil {
+		if redirect, err := prior.escalationSource(r); redirect != nil || err != nil {
+			done()
+			if err != nil {
+				return CardResult{}, err
+			}
+			return CardResult{}, redirect
+		}
+		deliveryKey = prior.heldTarget(r, coalesce)
+		retiring = prior.retiringHeld(r, coalesce)
+		done()
+	}
+	deliveryUnlock, e := lockFile(filepath.Join(dir, "delivery-"+deliveryKey+".lock"))
 	if e != nil {
 		return CardResult{}, e
 	}
 	defer deliveryUnlock()
+	// Hold each retired row's delivery lock through the new delivery, preventing
+	// a release from writing its old payload after it has been replaced.
+	for _, key := range retiring {
+		done, err := lockFile(filepath.Join(dir, "delivery-"+key+".lock"))
+		if err != nil {
+			return CardResult{}, err
+		}
+		defer done()
+	}
+	if r.replayEntry != nil {
+		return f.replayDeliveredEntry(ctx, *r.replayEntry)
+	}
 	identity, err := RequestIdentity(r)
 	if err != nil {
 		return CardResult{}, err
 	}
-	if f.anyPilot() {
-		// Per-request serialization makes a held retry independent of volatile proofs.
+	{
+		// Queue revisions replay without reapplying older payloads or volatile proofs.
 		prior, _, priorDone, priorErr := f.openState()
 		if priorErr == nil {
-			oldHeld, hadHeld := prior[r.Key]
+			oldHeld, hadHeld := prior[deliveryKey]
+			_, knownHeld := prior.knownHeldRequest(r)
+			if knownKey, known := prior.knownHeldRequest(r); known && knownKey == deliveryKey {
+				if redirect, err := prior.retiredReplay(oldHeld, r, identity); redirect != nil || err != nil {
+					priorDone()
+					if err != nil {
+						return CardResult{}, err
+					}
+					return CardResult{}, redirect
+				}
+			}
 			priorDone()
-			if hadHeld && oldHeld.Held && !oldHeld.Attempted {
+			promotable := false
+			if knownHeld && hadHeld && oldHeld.Held {
+				promotable = oldHeld.canPromote(r, ordinary(r) && (weeklyHold(f.clock(), r) || r.NonBlocking))
+			}
+			if replay, known, err := f.replayHeldRevision(ctx, oldHeld, r, identity); known && !promotable {
+				return replay, err
+			}
+			if !promotable && f.anyPilot() && deliveryKey == r.Key && hadHeld && oldHeld.Held && !oldHeld.Attempted {
 				if oldHeld.Identity != identity || oldHeld.Request.Thread != r.Thread || oldHeld.Request.Owner != r.Owner {
 					return CardResult{}, errReused
 				}
-				return CardResult{Key: r.Key, Queued: true, Replay: true}, nil
+				return oldHeld.heldResult(r.Key, true), nil
 			}
 		}
 		// Other state errors/refusals remain after canonical registry replay, as before.
@@ -270,13 +344,14 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	if err := f.checkColdRead(ctx, r); err != nil {
 		return CardResult{}, err
 	}
-	if updateLane && r.NonBlocking {
+	// Check queue prerequisites before waiting for admission.
+	if updateLane && (r.NonBlocking || windowHeld) {
 		uncharged, err = f.hasUpdateTarget(ctx, r, supersedes)
 		if err != nil {
 			return CardResult{}, err
 		}
 	}
-	if !updateLane || r.NonBlocking {
+	if !updateLane || r.NonBlocking || windowHeld {
 		if err := f.CheckUI(r); err != nil {
 			return CardResult{}, err
 		}
@@ -301,7 +376,50 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	if err != nil {
 		return CardResult{}, err
 	}
-	old, exists := state[r.Key]
+	admittedAt := f.clock()
+	coalesce = ordinary(r) && (weeklyHold(admittedAt, r) || r.NonBlocking)
+	if state.heldTarget(r, coalesce) != deliveryKey || !slices.Equal(state.retiringHeld(r, coalesce), retiring) {
+		return CardResult{}, errHeldTargetChanged
+	}
+	old, exists := state[deliveryKey]
+	if redirect, err := state.retiredReplay(old, r, identity); redirect != nil || err != nil {
+		if err != nil {
+			return CardResult{}, err
+		}
+		return CardResult{}, redirect
+	}
+	if exists && old.canPromote(r, coalesce) {
+		if _, known := state.knownHeldRequest(r); known {
+			redirect, err := old.promote(r, identity)
+			if err != nil {
+				return CardResult{}, err
+			}
+			return CardResult{}, redirect
+		}
+	}
+	if replay, known, err := old.revisionReplay(r.Key, identity, r); known {
+		if err == nil && !replay.Queued {
+			// Registry verification belongs outside the admission locks.
+			return CardResult{}, errHeldTargetChanged
+		}
+		return replay, err
+	}
+	if exists && deliveryKey != r.Key {
+		if old.Request.Thread != r.Thread || old.Request.Owner != r.Owner {
+			return CardResult{}, errReused
+		}
+		if old.HeldRevisions == nil {
+			old.HeldRevisions = map[string]heldRevision{deliveryKey: {Identity: old.Identity, Thread: old.Request.Thread, Owner: old.Request.Owner}}
+		}
+		old.HeldRevisions[r.Key] = heldRevision{Identity: identity, Thread: r.Thread, Owner: r.Owner}
+		r.Key = deliveryKey
+		old.Request, old.Identity, old.Supersedes, old.Update = r, identity, supersedes, update
+		state[deliveryKey] = old
+		if err := saveFilingState(path, state); err != nil {
+			return CardResult{}, err
+		}
+		return old.heldResult(deliveryKey, false), nil
+	}
 	if exists && old.Refunded {
 		return CardResult{}, fmt.Errorf("%w: request retired: %s; file the corrected ask with a new request key", ErrInvalid, old.TerminalReason)
 	}
@@ -309,22 +427,37 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		return CardResult{}, errReused
 	}
 	if exists && old.Held {
-		return CardResult{Key: r.Key, Queued: true, Replay: true}, nil
+		return old.heldResult(r.Key, true), nil
 	}
+	retiredHeld := map[string]filingEntry{}
 	if !exists {
-		now := time.Now()
-		if f.Now != nil {
-			now = f.Now()
+		for _, key := range retiring {
+			entry := state[key]
+			retiredHeld[key] = entry
+			entry.Held = false
+			entry.Refunded = true
+			entry.TerminalReason = "replaced by request " + r.Key
+			entry.ReplacedBy = r.Key
+			state[key] = entry
 		}
-		year, week := now.ISOWeek()
-		wk := fmt.Sprintf("%04d-W%02d", year, week)
-		project := strings.ToLower(fmt.Sprint(r.Ask["project"]))
-		used := 0
-		for _, entry := range state {
-			if entry.Project == project && entry.Week == wk && !entry.Uncharged && !entry.Refunded && !entry.Request.Urgent && entry.Request.KeepList == "" {
-				used++
+		// Gate and state-lock waits can cross a policy boundary. Reserve using the
+		// admission time under both locks, rather than the earlier validation time.
+		nowHeld := weeklyHold(admittedAt, r)
+		if nowHeld && !windowHeld && updateLane && !r.NonBlocking {
+			// A newly queued update needs the read-only checks skipped before the
+			// wait. In particular, a missing target must reserve a creation slot.
+			uncharged, err = f.hasUpdateTarget(ctx, r, supersedes)
+			if err != nil {
+				return CardResult{}, err
+			}
+			if err := f.CheckUI(r); err != nil {
+				return CardResult{}, err
 			}
 		}
+		windowHeld = nowHeld
+		week := pacificBudgetWeek(admittedAt)
+		project := strings.ToLower(fmt.Sprint(r.Ask["project"]))
+		used := ordinaryReservations(state, project, week)
 		if !uncharged && used >= limit && !r.Urgent && r.KeepList == "" {
 			return CardResult{}, fmt.Errorf("%w: weekly card budget of %d reached; decide by your stated default, log the decision on your bead, show mk the result in the next build; use --urgent or --keep-list only for an exception", ErrInvalid, limit)
 		}
@@ -332,14 +465,16 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		if e != nil {
 			return CardResult{}, e
 		}
-		held := r.NonBlocking || full
+		held := r.NonBlocking || full || windowHeld
 		reason := ""
-		if full {
+		if windowHeld {
+			reason = "weekday-window"
+		} else if full {
 			reason = "daily-cap"
 		} else if held && f.anyPilot() {
 			reason = "non-blocking"
 		}
-		state[r.Key] = filingEntry{Request: r, Identity: identity, Project: project, Week: wk, Held: held, HeldReason: reason, Supersedes: supersedes, Update: update, Uncharged: uncharged}
+		state[r.Key] = filingEntry{Request: r, Identity: identity, Project: project, Week: week.key(), Held: held, HeldReason: reason, Supersedes: supersedes, Update: update, Uncharged: uncharged}
 		if f.anyPilot() {
 			v := state[r.Key]
 			v.FiledAt = f.clock().Format(time.RFC3339Nano)
@@ -354,7 +489,7 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 			if full && f.Warn != nil {
 				f.Warn("held: daily-cap reached; queued for ranked release")
 			}
-			return CardResult{Key: r.Key, Queued: true}, nil
+			return state[r.Key].heldResult(r.Key, false), nil
 		}
 	}
 
@@ -368,12 +503,22 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	} else {
 		result, err = f.fileCardReadback(ctx, r)
 	}
+	// Even an unchanged existing card answers the retired request. Keep its
+	// immutable registry key so retries follow that card rather than create one.
+	if result.ID != "" && (len(retiredHeld) > 0 || r.replacesHeld != "" || (update && result.Replay && !result.Updated)) && !errors.Is(err, errNoCardWritten) {
+		if saveErr := f.recordWrittenEdit(r.Key, result); saveErr != nil {
+			err = errors.Join(err, fmt.Errorf("%w: record delivered card: %v", ErrOutcomeUnknown, saveErr))
+		}
+	}
 	if !exists && errors.Is(err, errNoCardWritten) && (errors.Is(err, ErrInvalid) || errors.Is(err, ErrAlreadyRuled)) {
 		current, p, done, e := f.openState()
 		if e != nil {
 			return result, errors.Join(err, e)
 		}
 		delete(current, r.Key)
+		for key, entry := range retiredHeld {
+			current[key] = entry
+		}
 		e = saveFilingState(p, current)
 		done()
 		err = errors.Join(err, e)
@@ -541,7 +686,7 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 			return CardResult{}, r.Type, ownerErr
 		}
 	}
-	if fullBeforeChecks {
+	if fullBeforeChecks || weeklyHold(f.clock(), r) {
 		return CardResult{}, "", nil
 	}
 	if f.pilot("linkcheck") {
@@ -574,6 +719,10 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	}
 	e, ok = state[key]
 	if !ok || !e.Held {
+		unlock()
+		return CardResult{}, "", nil
+	}
+	if weeklyHold(f.clock(), e.Request) {
 		unlock()
 		return CardResult{}, "", nil
 	}
@@ -620,6 +769,10 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	e = state[key] // Preserve creation admission saved by the delivery callback.
 	e.Held = false
 	e.DeliveredCard = result.ID
+	if result.Key != e.Request.Key {
+		e.DeliveredKey = result.Key
+		e.DeliveredProject = result.Project
+	}
 	if f.anyPilot() && e.DeliveredAt == "" {
 		e.DeliveredAt = f.clock().Format(time.RFC3339Nano)
 	}
@@ -757,14 +910,10 @@ func (f *CardFiler) chargeCreation(r CardRequest, creationKey string) error {
 	if err != nil {
 		return err
 	}
-	used := 0
-	for _, e := range state {
-		if e.Project == entry.Project && e.Week == entry.Week && !e.Uncharged && !e.Refunded && !e.Request.Urgent && e.Request.KeepList == "" {
-			used++
+	for _, week := range reservationWeeks(entry) {
+		if ordinaryReservations(state, entry.Project, week) >= limit && !r.Urgent && r.KeepList == "" {
+			return fmt.Errorf("%w: weekly card budget reached before creating replacement; decide by your stated default, log the decision on your bead, show mk the result in the next build", ErrInvalid)
 		}
-	}
-	if used >= limit && !r.Urgent && r.KeepList == "" {
-		return fmt.Errorf("%w: weekly card budget reached before creating replacement; decide by your stated default, log the decision on your bead, show mk the result in the next build", ErrInvalid)
 	}
 	entry.Uncharged = false
 	state[r.Key] = entry

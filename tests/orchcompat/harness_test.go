@@ -181,17 +181,18 @@ type result struct {
 }
 
 type env struct {
-	t      *testing.T
-	root   string
-	home   string
-	run    string
-	state  string
-	tmp    string
-	bin    string
-	fbdir  string
-	thread string
-	cwd    string
-	vars   map[string]string
+	t       *testing.T
+	root    string
+	home    string
+	run     string
+	state   string
+	tmp     string
+	bin     string
+	fbdir   string
+	thread  string
+	cwd     string
+	command string // optional test-built binary with an injected filing clock
+	vars    map[string]string
 }
 
 func newEnv(t *testing.T) *env {
@@ -326,7 +327,11 @@ func (e *env) autarch(args ...string) result {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), subprocessDeadline)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, autarchBin, args...)
+	bin := autarchBin
+	if e.command != "" {
+		bin = e.command
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.WaitDelay = 5 * time.Second
 	cmd.Dir = e.root
 	if e.cwd != "" {

@@ -209,7 +209,7 @@ func TestReplaySkipsMediaAndBudgetAcrossStateDirs(t *testing.T) {
 	}
 }
 
-func TestISOWeekBoundaryLocalClock(t *testing.T) {
+func TestPacificWeekBoundaryLocalClock(t *testing.T) {
 	zone, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
 		t.Fatal(err)
@@ -229,8 +229,12 @@ func TestISOWeekBoundaryLocalClock(t *testing.T) {
 		t.Fatal("Sunday limit not enforced")
 	}
 	now = now.Add(time.Minute)
+	if _, err = f.FileCard(ctx, r); err == nil {
+		t.Fatal("Monday incorrectly reset the budget")
+	}
+	now = time.Date(2026, 11, 19, 12, 0, 0, 0, zone)
 	if _, err = f.FileCard(ctx, r); err != nil {
-		t.Fatal("Monday slot not reset", err)
+		t.Fatal("Thursday noon slot not reset", err)
 	}
 	count, _ := f.BudgetStatus("autarch")
 	if count.Ordinary != 1 {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -140,9 +141,15 @@ func decideFileCmd() *cobra.Command {
 		Long: `Files a tasks card routed to the asking thread (see also: autarch needs-mk file). The
 tasks project is --tasks-project, else AUTARCH_TASKS_PROJECTS (<home project>=<tasks project>,...),
 else AUTARCH_TASKS_PROJECT. Legacy threadless (mycroft) asks are refused.
+Ask JSON may set urgent:true, keep_list (the needs-mk --keep-list values), or
+root_run:{script,sha256,timeout,set}; its sha256 must match the readable script. Merge options
+are detected automatically, and merge, urgent and root-run cards bypass the weekday hold.
+A held card exits 6 and prints queued JSON with its request key and hold message
+instead of a card id. Only exit 0 means a card was filed.
 
 Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
-(re-run the same command; it is idempotent), 5 already ruled.`,
+(re-run the same command; it is idempotent), 5 already ruled, 6 accepted but held
+(no card filed).`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -174,6 +181,13 @@ Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
 				return err
 			}
 			id, err := f.File(ctx, a)
+			var held *homeask.HeldError
+			if errors.As(err, &held) {
+				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"queued": true, "request": held.RequestKey, "message": held.Error()}); err != nil {
+					return err
+				}
+				return held
+			}
 			if err != nil {
 				return err
 			}

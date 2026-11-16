@@ -135,6 +135,8 @@ type RootRunSpec = RootRun
 
 // CardRequest is one filing.
 type CardRequest struct {
+	replayEntry  *filingEntry           // internal verified replay target
+	replacesHeld string                 // internal escalation source, never part of the wire or saved JSON
 	beforeCreate func(string) error     // final budget admission for an update falling back to create
 	afterUpdate  func(CardResult) error // persist a successful edit before its ruling read
 
@@ -167,6 +169,7 @@ type CardResult struct {
 	ownerAttention string      // successful recovery can still need owner handoff
 	Budget         *CardBudget `json:"budget,omitempty"`
 	Queued         bool        `json:"queued,omitempty"`
+	HoldReason     string      `json:"-"` // delivery metadata for the typed held outcome
 	ID             string      `json:"card"`
 	Key            string      `json:"request"`
 	Project        string      `json:"project,omitempty"`
@@ -1115,6 +1118,9 @@ func wireFromAsk(a Ask) (map[string]any, error) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
+	delete(m, "urgent")
+	delete(m, "keep_list")
+	delete(m, "root_run")
 	for k := range v1Only {
 		delete(m, k)
 	}
@@ -1149,10 +1155,19 @@ func (f *CardFiler) tasksProject(homeProject string) (string, error) {
 
 // File implements Filer for an ask from a thread: the card is filed and routed to a.Thread. The
 // Request key is a.RequestID, else a UUIDv5 of the ask's identity, so a blind retry is idempotent.
-// It returns the card's task id.
+// It returns the card's task id, or a HeldError carrying the queued request key.
 func (f *CardFiler) File(ctx context.Context, a Ask) (string, error) {
 	if a.Asker == "mycroft" {
 		return "", fmt.Errorf("%w: legacy threadless asks are refused", ErrInvalid)
+	}
+	if rr := a.RootRun; rr != nil {
+		digest, err := HashRootRunScript(rr.Script)
+		if err != nil {
+			return "", fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		if rr.SHA256 != digest {
+			return "", fmt.Errorf("%w: root-run sha256 does not match the script", ErrInvalid)
+		}
 	}
 	wire, err := wireFromAsk(a)
 	if err != nil {
@@ -1180,7 +1195,14 @@ func (f *CardFiler) File(ctx context.Context, a Ask) (string, error) {
 			return "", err
 		}
 	}
-	res, err := f.FileCard(ctx, CardRequest{Project: project, Title: titleOf(a), Ask: wire, Key: key, Thread: a.Thread})
+	typ := ""
+	if IsMergeAsk(wire) {
+		typ = "merge"
+	}
+	res, err := f.FileCard(ctx, CardRequest{Project: project, Title: titleOf(a), Ask: wire, Key: key, Thread: a.Thread, Type: typ, Urgent: a.Urgent, KeepList: a.KeepList, RootRun: a.RootRun})
+	if err == nil && res.Queued {
+		return "", &HeldError{RequestKey: res.Key, Reason: res.HoldReason}
+	}
 	return res.ID, err
 }
 

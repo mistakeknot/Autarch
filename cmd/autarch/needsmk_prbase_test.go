@@ -696,7 +696,9 @@ func TestNeedsMkIntoOnNonMergeWarnsAndStillFiles(t *testing.T) {
 		s := &stubBB{}
 		oldFiler, oldCheck := newCardFiler, checkFilingPreconditions
 		t.Cleanup(func() { newCardFiler, checkFilingPreconditions = oldFiler, oldCheck })
-		newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Run: s.run, LockDir: t.TempDir()} }
+		newCardFiler = func() *homeask.CardFiler {
+			return &homeask.CardFiler{Now: filingTestNow, Run: s.run, LockDir: t.TempDir()}
+		}
 		checkFilingPreconditions = func(string, string) error { return nil }
 		cmd := needsMkFileCmd()
 		var stderr, stdout bytes.Buffer

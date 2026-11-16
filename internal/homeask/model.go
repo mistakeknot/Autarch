@@ -68,6 +68,10 @@ type Question struct {
 
 // Ask is the filing request for every caller.
 type Ask struct {
+	// These filing attributes are outside the normalized ask hashes.
+	Urgent         bool       `json:"urgent,omitempty"`
+	KeepList       string     `json:"keep_list,omitempty"`
+	RootRun        *RootRun   `json:"root_run,omitempty"`
 	V              int        `json:"v"`
 	Kind           string     `json:"kind"`
 	RequestID      string     `json:"request_id,omitempty"`

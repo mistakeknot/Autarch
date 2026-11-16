@@ -47,7 +47,7 @@ func TestNeedsMkUpdateWithoutProjectExitsThreeWithoutWrites(t *testing.T) {
 	old := newCardFiler
 	t.Cleanup(func() { newCardFiler = old })
 	newCardFiler = func() *homeask.CardFiler {
-		return &homeask.CardFiler{LockDir: t.TempDir(), Run: func(ctx context.Context, env []string, args ...string) homeask.BBResult {
+		return &homeask.CardFiler{Now: filingTestNow, LockDir: t.TempDir(), Run: func(ctx context.Context, env []string, args ...string) homeask.BBResult {
 			if len(args) >= 2 && args[0] == "home" && args[1] == "get" && slices.Contains(args, "--card") {
 				return homeask.BBResult{Stdout: []byte(`{"task_id":"T1","project_id":"","state":"open","card_key":"P1-1"}`)}
 			}

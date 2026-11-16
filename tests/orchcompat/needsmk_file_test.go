@@ -11,7 +11,9 @@ import (
 )
 
 func fileArgs(ask string, more ...string) []string {
-	return append([]string{"needs-mk", "file", "--project", "P1", "--title", "Ship it?", "--ask-file", ask}, more...)
+	// Protocol fixtures request immediate delivery on every weekday. The ordinary
+	// hold and budget boundaries use injected clocks in homeask tests (mk-bzi8s.6).
+	return append([]string{"needs-mk", "file", "--urgent", "--project", "P1", "--title", "Ship it?", "--ask-file", ask}, more...)
 }
 
 func wantCode(t *testing.T, r result, code int, errHas ...string) {

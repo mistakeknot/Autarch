@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -80,12 +78,11 @@ func parseRootRunFlag(v string) (*homeask.RootRun, error) {
 	if !filepath.IsAbs(vals["script"]) {
 		return nil, &usageError{"--root-run script must be an absolute path"}
 	}
-	raw, err := os.ReadFile(vals["script"])
+	digest, err := homeask.HashRootRunScript(vals["script"])
 	if err != nil {
-		return nil, &usageError{"--root-run script is not readable: " + err.Error()}
+		return nil, &usageError{"--root-run " + strings.TrimPrefix(err.Error(), "root-run ")}
 	}
-	sum := sha256.Sum256(raw)
-	return &homeask.RootRun{Script: vals["script"], SHA256: hex.EncodeToString(sum[:]), Timeout: n, Set: vals["set"]}, nil
+	return &homeask.RootRun{Script: vals["script"], SHA256: digest, Timeout: n, Set: vals["set"]}, nil
 }
 
 // readMoveFile reads a home-move/v1 JSON file (at most 1 MiB) and validates it with the strict parser the
@@ -240,9 +237,18 @@ func needsMkFileCmd() *cobra.Command {
 		Short: "File a needs-mk card from the asking thread; prints the card as one JSON line",
 		Long: `Run inside the asking thread ($BB_THREAD_ID is required): the filer posts the
 routing comment from it. AUTARCH_CARD_WEEKLY_BUDGET sets the weekly budget (default 50).
+The budget week starts Thursday 12:00 America/Los_Angeles; needs-mk budget shows
+the current Pacific start and end. Legacy ISO reservations still count conservatively
+in overlapping weeks when their filing time is unknown.
 AUTARCH_CARD_STATE_DIR overrides the local XDG state directory.
 --non-blocking queues a card until needs-mk release, reserving its slot now.
---urgent or --keep-list marks a budget exception. Success prints JSON with a non-empty card_key (--json is also accepted).
+Ordinary cards filed Monday 00:00 through Thursday before 12:00 Pacific are also
+held for the Thursday batch. Urgent, keep-list, merge and root-run cards bypass
+this weekday hold. Release inside that window leaves ordinary cards queued;
+schedule release at Thursday noon or later. Counted slots stay in their filing week.
+--urgent or --keep-list marks a budget exception. Exit 0 means filed: JSON has a non-empty card_key.
+Held cards exit 6, with queued:true, the request key and no card_key on stdout
+(--json is also accepted). Treat exit 6 as queued, not as a filed card or an uncertain write.
 --urgent exempts the budget; --urgency blocker only controls phone push and does not exempt the budget.
 Exempt cards are recorded separately and never consume ordinary slots; needs-mk budget shows both tallies.
 After filing, waits up to 30 seconds for Home's index. If the key remains missing, exits 4
@@ -286,7 +292,8 @@ or changes to the ask, including with --supersedes.
 
 Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created or edited;
 includes an update's pre-edit readback with no indexed project_id), 4 card created
-but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).
+but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request),
+6 accepted but held (no card filed; JSON on stdout carries queued:true and the request key).
 
 The optional ask JSON group {key, order} links cards for display. Set it at first filing:
 a group-only re-file does not change Home's stored group. A substantive edit can create a new
@@ -299,6 +306,7 @@ refused with exit 2: notices belong in the vizier inbox or digest. --move and --
 --urgency blocker (or "urgency": "blocker" in the ask JSON) asks Home to send mk a phone push once, when the
 card is first filed. It requires --stopped (or "stopped" in JSON): a non-blank single line of at most
 200 characters saying what work is stopped until mk answers. Omit blocker urgency for no phone push.
+A blocker is still held Monday through Thursday morning unless --urgent is passed.
 Any other urgency is refused. It works on every kind of card; a machine blocker alone never pushes.`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
@@ -399,12 +407,7 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			if mergeErr != nil {
 				failures = append(failures, mergeErr)
 			}
-			mergeAsk := prFlag != ""
-			walkAsk(ask, func(string) {}, func(m map[string]any, k string) {
-				if strings.Contains(m[k].(string), mergePhrase+" ") {
-					mergeAsk = true
-				}
-			})
+			mergeAsk := prFlag != "" || homeask.IsMergeAsk(ask)
 			if mergeAsk {
 				if cmd.Flags().Changed("card-type") && cardType != "merge" {
 					failures = append(failures, &usageError{"--card-type conflicts with merge ask; use --card-type merge or omit it"})
@@ -461,8 +464,12 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			if budget, e := filer.BudgetStatus(fmt.Sprint(ask["project"])); e == nil {
 				res.Budget = &budget
 			}
-			out, _ := json.Marshal(res)
-			fmt.Fprintln(cmd.OutOrStdout(), string(out))
+			if err := json.NewEncoder(cmd.OutOrStdout()).Encode(res); err != nil {
+				return err
+			}
+			if res.Queued {
+				return &homeask.HeldError{RequestKey: res.Key, Reason: res.HoldReason}
+			}
 			return nil
 		},
 	}
@@ -482,7 +489,7 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 	cmd.Flags().StringVar(&rootRun, "root-run", "", "script=<abs path>,timeout=<seconds>,set=<name>")
 	cmd.Flags().StringVar(&request, "request", "", "Request key (default: derived from thread and ask); when given it must be non-empty and match the Request line key pattern")
 	cmd.Flags().StringVar(&stopped, "stopped", "", "Work stopped until the answer (required with blocker urgency, single line, at most 200 characters)")
-	cmd.Flags().StringVar(&urgency, "urgency", "", `Optional: "blocker" requires --stopped and asks Home to push once; omit urgency for no phone push`)
+	cmd.Flags().StringVar(&urgency, "urgency", "", `Optional: "blocker" requires --stopped and asks Home to push once; still held Monday through Thursday morning unless --urgent is passed; omit urgency for no phone push`)
 	cmd.Flags().StringVar(&prFlag, "pr", "", "PR URL this ask merges: refused (exit 2) unless the PR's base is the repo's default branch or --into explicitly opts in to its non-default base; a \"Manually merge it at ...\" option implies it")
 	cmd.Flags().StringVar(&supersedes, "supersedes", "", "Update this open, unanswered card in the same project; it must belong to this thread or --owner-thread")
 	cmd.Flags().BoolVar(&vizierOwned, "vizier-owned", false, "Vizier only: this is its own ruling, root run or scope card; mutually exclusive with --owner-thread")
@@ -519,7 +526,7 @@ func noticeOnlyOptions(ask map[string]any) bool {
 }
 
 func needsMkReleaseCmd() *cobra.Command {
-	return &cobra.Command{Use: "release", Short: "Send held cards grouped by type (schedule twice daily)", SilenceUsage: true, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "release", Short: "Send held cards grouped by type; ordinary cards wait until Thursday noon Pacific", SilenceUsage: true, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		f := newCardFiler()
 		f.Check = checkFilingPreconditions
 		report, err := f.ReleaseDetailed(cmd.Context())
@@ -537,7 +544,7 @@ func needsMkCancelHeldCmd() *cobra.Command {
 
 func needsMkBudgetCmd() *cobra.Command {
 	var project string
-	cmd := &cobra.Command{Use: "budget", Short: "Show this ISO week's ordinary and exempt card counts for a Home project", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "budget", Short: "Show the Pacific Thursday-noon week bounds and ordinary/exempt card counts", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		if project == "" {
 			return &usageError{"--project must name the Home project"}
 		}

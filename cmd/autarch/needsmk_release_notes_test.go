@@ -15,7 +15,7 @@ import (
 func releaseNotesFixture(t *testing.T) (*homeask.CardFiler, *stubBB) {
 	t.Helper()
 	bb := &stubBB{}
-	f := &homeask.CardFiler{Run: bb.run, StateDir: t.TempDir(), LockDir: t.TempDir()}
+	f := &homeask.CardFiler{Now: filingTestNow, Run: bb.run, StateDir: t.TempDir(), LockDir: t.TempDir()}
 	raw, e := os.ReadFile(writeAsk(t))
 	if e != nil {
 		t.Fatal(e)

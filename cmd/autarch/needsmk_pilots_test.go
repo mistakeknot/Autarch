@@ -20,7 +20,7 @@ func TestPilotCLIPrintsDailyCapReason(t *testing.T) {
 	oldCheck := checkFilingPreconditions
 	defer func() { checkFilingPreconditions = oldCheck }()
 	checkFilingPreconditions = func(string, string) error { return nil }
-	f := &homeask.CardFiler{Run: s.run, StateDir: t.TempDir(), LockDir: t.TempDir()}
+	f := &homeask.CardFiler{Now: filingTestNow, Run: s.run, StateDir: t.TempDir(), LockDir: t.TempDir()}
 	newCardFiler = func() *homeask.CardFiler { return f }
 	if e := f.SetPilot("daycap", true); e != nil {
 		t.Fatal(e)
@@ -40,7 +40,7 @@ func TestPilotCLIPrintsDailyCapReason(t *testing.T) {
 		t.Fatal(e)
 	}
 	out, warn, e := execute("second")
-	if e != nil || !strings.Contains(out, `"queued":true`) || !strings.Contains(warn, "daily-cap") {
+	if exitCode(e) != 6 || !strings.Contains(out, `"queued":true`) || !strings.Contains(warn, "daily-cap") {
 		t.Fatalf("out=%s warning=%s err=%v", out, warn, e)
 	}
 	raw, _ := os.ReadFile(filepath.Join(f.StateDir, "filings.json"))

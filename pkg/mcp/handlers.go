@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -626,6 +627,10 @@ func (s *Server) handleFileDecision(ctx context.Context, params map[string]inter
 		return nil, err
 	}
 	id, err := f.File(ctx, ask)
+	var held *homeask.HeldError
+	if errors.As(err, &held) {
+		return map[string]any{"queued": true, "request": held.RequestKey, "message": held.Error()}, nil
+	}
 	if err != nil {
 		return nil, err
 	}

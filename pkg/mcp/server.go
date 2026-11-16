@@ -241,10 +241,13 @@ func (s *Server) registerDefaultTools() {
 			"type":     "object",
 			"required": []string{"kind", "question"},
 			"properties": map[string]interface{}{
-				"kind":     map[string]interface{}{"type": "string", "description": "decide, steps or machine"},
-				"question": map[string]interface{}{"type": "string"},
-				"subject":  map[string]interface{}{"type": "string"},
-				"thread":   map[string]interface{}{"type": "string", "description": "Asking thread; must match BB_THREAD_ID when that is set"},
+				"kind":      map[string]interface{}{"type": "string", "description": "decide, steps or machine"},
+				"question":  map[string]interface{}{"type": "string"},
+				"subject":   map[string]interface{}{"type": "string"},
+				"urgent":    map[string]interface{}{"type": "boolean", "description": "Bypass the weekday hold and ordinary filing budget"},
+				"root_run":  map[string]interface{}{"type": "object", "description": "Root-run filing tuple: script, sha256, timeout and set; sha256 must match the readable script"},
+				"keep_list": map[string]interface{}{"type": "string", "description": "Budget/hold exception, using the needs-mk --keep-list values"},
+				"thread":    map[string]interface{}{"type": "string", "description": "Asking thread; must match BB_THREAD_ID when that is set"},
 				"options": map[string]interface{}{
 					"type":  "array",
 					"items": map[string]interface{}{"type": "object"},

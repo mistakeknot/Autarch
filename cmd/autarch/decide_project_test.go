@@ -18,7 +18,7 @@ func withBoundFiler(t *testing.T, s *stubBB) {
 	old := newFiler
 	t.Cleanup(func() { newFiler = old })
 	newFiler = func() *homeask.CardFiler {
-		return &homeask.CardFiler{Run: bindingStub(s), LockDir: t.TempDir(), TasksProject: "P1"}
+		return &homeask.CardFiler{Now: filingTestNow, Run: bindingStub(s), LockDir: t.TempDir(), TasksProject: "P1"}
 	}
 }
 
@@ -92,7 +92,7 @@ func TestDecideFileRunsTheServeRootCheckAgainstTheBoundProject(t *testing.T) {
 	t.Cleanup(func() { newFiler = old })
 	var gotProject, gotRoot string
 	newFiler = func() *homeask.CardFiler {
-		return &homeask.CardFiler{Run: bindingStub(s), LockDir: t.TempDir(), TasksProject: "P1",
+		return &homeask.CardFiler{Now: filingTestNow, Run: bindingStub(s), LockDir: t.TempDir(), TasksProject: "P1",
 			Check: func(project, root string) error { gotProject, gotRoot = project, root; return homeask.ErrInvalid }}
 	}
 	_, err := runDecide(t, askWithProject(t, "SHWK", "/srv/shadow"), "file")

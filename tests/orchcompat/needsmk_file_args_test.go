@@ -146,7 +146,7 @@ func TestUsageErrors(t *testing.T) {
 		}, "--root-run script must be an absolute path"},
 		{"--root-run script unreadable", "thr_a", func(e *env) []string {
 			return fileArgs(e.writeFile("a.json", askJSON(nil)), "--root-run", "script=/nonexistent/s.sh,timeout=5,set=s")
-		}, "--root-run script is not readable: open /nonexistent/s.sh"},
+		}, "--root-run script is not readable: stat /nonexistent/s.sh"},
 		{"--root-run set with a leading dash", "thr_a", func(e *env) []string {
 			s := e.writeFile("s.sh", "echo hi\n")
 			return fileArgs(e.writeFile("a.json", askJSON(nil)), "--root-run", "script="+s+",timeout=5,set=-x")
@@ -444,7 +444,7 @@ func TestMoveFiling(t *testing.T) {
 		t.Run(c.name+" move alone", func(t *testing.T) {
 			e := newEnv(t)
 			e.cwd = shared.alpha
-			r := e.autarch("needs-mk", "file", "--project", "P1", "--title", "Do the thing", "--move", moveFile(e, c.move))
+			r := e.autarch("needs-mk", "file", "--urgent", "--project", "P1", "--title", "Do the thing", "--move", moveFile(e, c.move))
 			wantCode(t, r, 0)
 			if r.Stderr != c.stderr {
 				t.Errorf("stderr = %q, want %q", r.Stderr, c.stderr)

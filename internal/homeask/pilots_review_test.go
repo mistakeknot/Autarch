@@ -312,7 +312,7 @@ func TestReviewAbsentPilotsDirectAndReleaseBytes(t *testing.T) {
 	for _, mode := range []string{"direct", "release"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newFake(t, registryOnCreate).filer()
-			f.Now = func() time.Time { return time.Date(2026, 1, 5, 12, 0, 0, 0, time.UTC) }
+			f.Now = func() time.Time { return time.Date(2026, 1, 9, 12, 0, 0, 0, time.UTC) }
 			r := testReq()
 			r.NonBlocking = mode == "release"
 			res, e := f.FileCard(context.Background(), r)
@@ -320,7 +320,7 @@ func TestReviewAbsentPilotsDirectAndReleaseBytes(t *testing.T) {
 				t.Fatal(e)
 			}
 			ident, _ := RequestIdentity(r)
-			entry := reviewLegacyEntry{CreationKey: r.Key, Request: r, Identity: ident, Project: "autarch", Week: "2026-W02"}
+			entry := reviewLegacyEntry{CreationKey: r.Key, Request: r, Identity: ident, Project: "autarch", Week: "2026-01-08"}
 			if mode == "direct" {
 				want := fmt.Sprintf(`{"card":"T1","request":%q,"project":"P1","replay":false}`, r.Key)
 				got, _ := json.Marshal(res)

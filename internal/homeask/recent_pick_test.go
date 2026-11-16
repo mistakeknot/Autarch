@@ -9,7 +9,7 @@ import (
 )
 
 func TestPickedCardAlwaysRefusesRefile(t *testing.T) {
-	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	now := filingTestNow()
 	for _, tc := range []struct {
 		name, state, createdAt         string
 		changed, supersedes, noComment bool
@@ -77,12 +77,12 @@ func TestUnreadablePickTimeDiagnostic(t *testing.T) {
 
 func TestRecentPickRefusesReopenedCard(t *testing.T) {
 	bb, f, state := updateRig(t)
-	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	now := filingTestNow()
 	f.Now = func() time.Time { return now }
 	r := testReq()
 	r.Ask["ask_key"] = "stable"
-	if _, err := f.FileOrUpdateCard(context.Background(), r, ""); err != nil {
-		t.Fatal(err)
+	if result, err := f.FileOrUpdateCard(context.Background(), r, ""); err != nil || result.Queued || result.ID == "" {
+		t.Fatalf("create reopened-card fixture: %+v %v", result, err)
 	}
 	// The task has been reopened and Home no longer reports it as picked.
 	bb.tasks[0].Status = "todo"
@@ -108,7 +108,7 @@ func TestRecentPickedClosedCardCannotRefile(t *testing.T) {
 	}{{"recent", time.Hour, false, true}, {"changed-ask", time.Hour, true, false}, {"expired", 25 * time.Hour, false, false}} {
 		t.Run(tc.name, func(t *testing.T) {
 			bb, f, state := updateRig(t)
-			now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+			now := filingTestNow()
 			f.Now = func() time.Time { return now }
 			r := testReq()
 			r.Ask["ask_key"] = "stable"
@@ -135,7 +135,7 @@ func TestRecentPickedClosedCardCannotRefile(t *testing.T) {
 
 func TestRecentPickAllowsNewPinnedHead(t *testing.T) {
 	bb, f, state := updateRig(t)
-	now := time.Now()
+	now := filingTestNow()
 	f.Now = func() time.Time { return now }
 	r := testReq()
 	r.Ask["ask_key"] = "stable"

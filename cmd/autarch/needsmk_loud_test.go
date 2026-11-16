@@ -42,7 +42,9 @@ func TestNeedsMkFileRefusesUppercaseOptionIDsBeforeAnyCall(t *testing.T) {
 	probed := false
 	ask := writeAskBody(t, `{"project":"autarch","project_root":"/srv/autarch","question":"Ship it?","options":[{"id":"A","label":"A","kind":"ruling-only"},{"id":"B","label":"B","kind":"ruling-only"}]}`)
 	oldF, oldC := newCardFiler, checkFilingPreconditions
-	newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Run: s.run, LockDir: t.TempDir()} }
+	newCardFiler = func() *homeask.CardFiler {
+		return &homeask.CardFiler{Now: filingTestNow, Run: s.run, LockDir: t.TempDir()}
+	}
 	checkFilingPreconditions = func(string, string) error { probed = true; return nil }
 	t.Cleanup(func() { newCardFiler, checkFilingPreconditions = oldF, oldC })
 	_, err := execNeedsMkFile("--project", "P1", "--title", "Ship?", "--ask-file", ask)
@@ -71,7 +73,9 @@ func runWithBinding(t *testing.T, s *stubBB, project string, check func(string, 
 	t.Helper()
 	t.Setenv("BB_THREAD_ID", "thread-x")
 	oldF, oldC := newCardFiler, checkFilingPreconditions
-	newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Run: bindingStub(s), LockDir: t.TempDir()} }
+	newCardFiler = func() *homeask.CardFiler {
+		return &homeask.CardFiler{Now: filingTestNow, Run: bindingStub(s), LockDir: t.TempDir()}
+	}
 	checkFilingPreconditions = check
 	t.Cleanup(func() { newCardFiler, checkFilingPreconditions = oldF, oldC })
 	ask := writeAskBody(t, `{"project":"`+project+`","project_root":"/srv/autarch","question":"Ship it?","options":[{"id":"a","label":"A","kind":"ruling-only"},{"id":"b","label":"B","kind":"ruling-only"}]}`)
@@ -117,7 +121,9 @@ func TestNeedsMkFileRealServeProbeFailsLoudlyWhenServeIsDown(t *testing.T) {
 	t.Setenv("AUTARCH_SERVE_URL", "http://127.0.0.1:1")
 	s := &stubBB{}
 	oldF := newCardFiler
-	newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Run: s.run, LockDir: t.TempDir()} }
+	newCardFiler = func() *homeask.CardFiler {
+		return &homeask.CardFiler{Now: filingTestNow, Run: s.run, LockDir: t.TempDir()}
+	}
 	t.Cleanup(func() { newCardFiler = oldF })
 	_, err := execNeedsMkFile("--project", "P1", "--title", "x", "--ask-file", writeAsk(t))
 	if exitCode(err) != 3 || err == nil || !strings.Contains(err.Error(), "not running") || len(writeCalls(s)) != 0 {
@@ -131,7 +137,7 @@ func TestNeedsMkFilePrintsCardKeyFromReadback(t *testing.T) {
 	s := &stubBB{}
 	oldF := newCardFiler
 	newCardFiler = func() *homeask.CardFiler {
-		return &homeask.CardFiler{LockDir: t.TempDir(), ReadbackTimeout: 1, Run: func(ctx context.Context, env []string, args ...string) homeask.BBResult {
+		return &homeask.CardFiler{Now: filingTestNow, LockDir: t.TempDir(), ReadbackTimeout: 1, Run: func(ctx context.Context, env []string, args ...string) homeask.BBResult {
 			if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
 				return homeask.BBResult{Code: 1, Stderr: []byte("unknown card")}
 			}
@@ -155,7 +161,9 @@ func TestNeedsMkFileDefaultsTheProjectToTheBoardBindingInAWorktree(t *testing.T)
 	s := &stubBB{}
 	var gotProject string
 	oldF, oldC := newCardFiler, checkFilingPreconditions
-	newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Run: bindingStub(s), LockDir: t.TempDir()} }
+	newCardFiler = func() *homeask.CardFiler {
+		return &homeask.CardFiler{Now: filingTestNow, Run: bindingStub(s), LockDir: t.TempDir()}
+	}
 	checkFilingPreconditions = func(project, _ string) error { gotProject = project; return nil }
 	t.Cleanup(func() { newCardFiler, checkFilingPreconditions = oldF, oldC })
 	ask := writeAskBody(t, `{"project_root":"`+worktreeRoot+`","question":"Ship it?","options":[{"id":"a","label":"A","kind":"ruling-only"},{"id":"b","label":"B","kind":"ruling-only"}]}`)
@@ -178,7 +186,7 @@ func TestNeedsMkCardKeyGuarantee(t *testing.T) {
 			polls := 0
 			indexReady := false
 			newCardFiler = func() *homeask.CardFiler {
-				return &homeask.CardFiler{LockDir: t.TempDir(), ReadbackTimeout: 40 * time.Millisecond, ReadbackInterval: time.Millisecond, Run: func(ctx context.Context, env []string, args ...string) homeask.BBResult {
+				return &homeask.CardFiler{Now: filingTestNow, LockDir: t.TempDir(), ReadbackTimeout: 40 * time.Millisecond, ReadbackInterval: time.Millisecond, Run: func(ctx context.Context, env []string, args ...string) homeask.BBResult {
 					if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
 						polls++
 						if mode == "no-project" {

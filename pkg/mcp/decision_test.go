@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mistakeknot/autarch/internal/homeask"
 )
@@ -148,7 +149,7 @@ func TestMCPDefaultFilerIsACardFiler(t *testing.T) {
 	old := newDefaultFiler
 	t.Cleanup(func() { newDefaultFiler = old })
 	newDefaultFiler = func() homeask.Filer {
-		return &homeask.CardFiler{LockDir: t.TempDir(), TasksProject: "P1", Run: func(_ context.Context, e []string, args ...string) homeask.BBResult {
+		return &homeask.CardFiler{Now: func() time.Time { return time.Date(2026, 11, 13, 20, 0, 0, 0, time.UTC) }, LockDir: t.TempDir(), TasksProject: "P1", Run: func(_ context.Context, e []string, args ...string) homeask.BBResult {
 			calls = append(calls, args)
 			j := func(v string) homeask.BBResult { return homeask.BBResult{Stdout: []byte(v)} }
 			switch strings.Join(args[:min(len(args), 3)], " ") {
