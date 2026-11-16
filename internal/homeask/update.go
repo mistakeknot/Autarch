@@ -165,8 +165,24 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 				return CardResult{}, fmt.Errorf("read card before edit: %w", e)
 			}
 		}
-		if v.State == "ruled" || v.DecisionState == "ruled" || v.DecisionState == "picked" {
-			return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: card %s", ErrAlreadyRuled, s.Task.ID))
+		picked := v.State == "ruled" || v.DecisionState == "ruled" || v.DecisionState == "picked"
+		recent := f.recentPick(s.Comments)
+		knownPick := false
+		for _, comment := range s.Comments {
+			if comment.Kind == "user" && strings.HasPrefix(comment.Body, "Ruled:") {
+				knownPick = true
+			}
+		}
+		if sameDecision(req, c) && (recent || (picked && !knownPick)) {
+			return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: card %s already answered within 24 hours (or pick time unavailable); change the ask or pinned head before re-filing", ErrAlreadyRuled, s.Task.ID))
+		}
+		if picked {
+			if supersedes != "" {
+				return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: card %s cannot be edited after a pick; file the changed ask without --supersedes", ErrAlreadyRuled, s.Task.ID))
+			}
+			snapshot := s.Task
+			closed = &snapshot
+			continue
 		}
 		if s.Task.Status == "done" || s.Task.Status == "canceled" || v.State == "closed" {
 			if supersedes != "" {
