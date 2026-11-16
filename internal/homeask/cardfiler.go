@@ -57,6 +57,7 @@ type BBRunner func(ctx context.Context, env []string, args ...string) BBResult
 // CardFiler files cards. The zero value works: it runs `bb` from PATH.
 type CardFiler struct {
 	ColdReader   ColdReader
+	Links        LinkChecker
 	StateDir     string           // persistent filing state; default XDG_STATE_HOME/autarch/needsmk
 	WeeklyBudget int              // zero uses AUTARCH_CARD_WEEKLY_BUDGET or 25
 	Now          func() time.Time // test clock; default time.Now

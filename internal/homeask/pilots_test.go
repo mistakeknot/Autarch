@@ -220,3 +220,13 @@ func TestPilotPacificDST(t *testing.T) {
 		}
 	}
 }
+func TestPilotLinkcheckDeadAtFiling(t *testing.T) {
+	f := newFake(t, registryOnCreate).filer()
+	enablePilot(t, f, "linkcheck")
+	r := testReq()
+	r.Ask["question"] = "Open https://invalid.invalid/preview ?"
+	_, e := f.FileCard(context.Background(), r)
+	if e == nil || !strings.Contains(e.Error(), "https://invalid.invalid/preview") {
+		t.Fatalf("dead URL must refuse and name URL: %v", e)
+	}
+}

@@ -26,3 +26,12 @@ func needsMkPilotsCmd() *cobra.Command {
 	}
 	return c
 }
+
+func needsMkRecheckLinksCmd() *cobra.Command {
+	var dry bool
+	c := &cobra.Command{Use: "recheck-links", Short: "Check open delivered cards; failures wake owners only", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		return newCardFiler().RecheckLinks(c.Context(), c.OutOrStdout(), dry)
+	}}
+	c.Flags().BoolVar(&dry, "dry-run", false, "Read-only checks: do not write state, metrics or wake anyone")
+	return c
+}

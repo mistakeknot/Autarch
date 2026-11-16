@@ -56,6 +56,7 @@ type filingEntry struct {
 	FiledAt           string      `json:"filed_at,omitempty"`
 	DeliveredAt       string      `json:"delivered_at,omitempty"`
 	DeliveryPendingAt string      `json:"delivery_pending_at,omitempty"`
+	LinkFailureSet    string      `json:"link_failure_set,omitempty"`
 	HeldReason        string      `json:"held_reason,omitempty"`
 	DeliveredCard     string      `json:"delivered_card,omitempty"`
 	DeliveredKey      string      `json:"delivered_key,omitempty"`
@@ -243,6 +244,11 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 			return result, e
 		}
 		lookupUnlock()
+	}
+	if f.pilot("linkcheck") {
+		if v := f.checkLinks(ctx, r); len(v) > 0 {
+			return CardResult{}, fmt.Errorf("%w: link-check: %s", ErrInvalid, failureText(v))
+		}
 	}
 	if err := f.checkColdRead(ctx, r); err != nil {
 		return CardResult{}, err
@@ -450,6 +456,12 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	}
 	unlock()
 	r := e.Request
+	if f.pilot("linkcheck") {
+		if v := f.checkLinks(ctx, r); len(v) > 0 {
+			wakeErr := f.wakeLinkOwner(ctx, key, r, v)
+			return CardResult{}, r.Type, errors.Join(fmt.Errorf("link-check: %s", failureText(v)), wakeErr)
+		}
+	}
 	if f.Check != nil {
 		if _, _, err = f.PrepareAsk(ctx, r.Project, fmt.Sprint(r.Ask["project"]), fmt.Sprint(r.Ask["project_root"])); err != nil {
 			if errors.Is(err, ErrInvalid) {
