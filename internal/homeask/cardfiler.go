@@ -1074,6 +1074,9 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (result CardR
 		return res, err
 	}
 	res := CardResult{ID: created.Task.ID, Key: req.Key, Project: created.Task.ProjectID}
+	if err := f.noteDelivery(req.Key, res); err != nil {
+		return res, err
+	}
 	if len(created.FailedAttachments) > 0 {
 		return res, fmt.Errorf("%w: card exists but attachment upload failed; retry the same request with --attach", ErrOutcomeUnknown)
 	}

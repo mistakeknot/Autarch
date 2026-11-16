@@ -148,3 +148,75 @@ func TestPilotColdreadEnvironment(t *testing.T) {
 		}
 	}
 }
+func TestPilotDaycapHolds(t *testing.T) {
+	t.Setenv("AUTARCH_CARD_DAILY_CAP", "1")
+	f := newFake(t, registryOnCreate).filer()
+	enablePilot(t, f, "daycap")
+	r := testReq()
+	if _, e := f.FileCard(context.Background(), r); e != nil {
+		t.Fatal(e)
+	}
+	r.Key = "second"
+	res, e := f.FileCard(context.Background(), r)
+	if e != nil || !res.Queued {
+		t.Fatalf("second delivery must be held: %+v %v", res, e)
+	}
+}
+func TestPilotDaycapReleaseRankAndDay(t *testing.T) {
+	t.Setenv(EnvCardDailyCap, "1")
+	bb := newFake(t, registryOnCreate)
+	f := bb.filer()
+	enablePilot(t, f, "daycap")
+	now := time.Date(2026, 11, 2, 7, 59, 0, 0, time.UTC)
+	f.Now = func() time.Time { return now }
+	a := testReq()
+	a.Key = "old"
+	a.NonBlocking = true
+	a.Blocks = nil
+	if _, e := f.FileCard(context.Background(), a); e != nil {
+		t.Fatal(e)
+	}
+	now = now.Add(time.Second)
+	b := testReq()
+	b.Key = "unblocks-more"
+	b.NonBlocking = true
+	if _, e := f.FileCard(context.Background(), b); e != nil {
+		t.Fatal(e)
+	}
+	groups, e := f.Release(context.Background())
+	if e != nil || len(groups["other"]) != 1 || groups["other"][0].Key != b.Key {
+		t.Fatal(groups, e)
+	}
+	now = now.Add(2 * time.Minute)
+	groups, e = f.Release(context.Background())
+	if e != nil || len(groups["other"]) != 1 || groups["other"][0].Key != a.Key {
+		t.Fatal(groups, e)
+	}
+}
+func TestPilotDaycapExemptAndWeeklyFirst(t *testing.T) {
+	t.Setenv(EnvCardDailyCap, "1")
+	f := newFake(t, registryOnCreate).filer()
+	enablePilot(t, f, "daycap")
+	f.WeeklyBudget = 1
+	r := testReq()
+	if _, e := f.FileCard(context.Background(), r); e != nil {
+		t.Fatal(e)
+	}
+	r.Key = "over-week"
+	if _, e := f.FileCard(context.Background(), r); e == nil || !strings.Contains(e.Error(), "weekly") {
+		t.Fatal(e)
+	}
+	r.Key = "urgent"
+	r.Urgent = true
+	if res, e := f.FileCard(context.Background(), r); e != nil || res.Queued {
+		t.Fatal(res, e)
+	}
+}
+func TestPilotPacificDST(t *testing.T) {
+	for _, s := range []string{"2026-11-01T08:30:00Z", "2026-11-01T09:30:00Z"} {
+		v, _ := time.Parse(time.RFC3339, s)
+		if pacificDay(v) != "2026-11-01" {
+			t.Fatal(s)
+		}
+	}
+}

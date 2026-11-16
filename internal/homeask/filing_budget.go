@@ -53,21 +53,25 @@ func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
 }
 
 type filingEntry struct {
-	DeliveredCard    string      `json:"delivered_card,omitempty"`
-	DeliveredKey     string      `json:"delivered_key,omitempty"`
-	DeliveredProject string      `json:"delivered_project,omitempty"`
-	CreationKey      string      `json:"creation_key,omitempty"`
-	Uncharged        bool        `json:"uncharged,omitempty"`
-	Refunded         bool        `json:"refunded,omitempty"`
-	TerminalReason   string      `json:"terminal_reason,omitempty"`
-	Request          CardRequest `json:"request"`
-	Identity         string      `json:"identity"`
-	Project          string      `json:"project"`
-	Week             string      `json:"week"`
-	Attempted        bool        `json:"attempted,omitempty"`
-	Held             bool        `json:"held"`
-	Supersedes       string      `json:"supersedes,omitempty"`
-	Update           bool        `json:"update"`
+	FiledAt           string      `json:"filed_at,omitempty"`
+	DeliveredAt       string      `json:"delivered_at,omitempty"`
+	DeliveryPendingAt string      `json:"delivery_pending_at,omitempty"`
+	HeldReason        string      `json:"held_reason,omitempty"`
+	DeliveredCard     string      `json:"delivered_card,omitempty"`
+	DeliveredKey      string      `json:"delivered_key,omitempty"`
+	DeliveredProject  string      `json:"delivered_project,omitempty"`
+	CreationKey       string      `json:"creation_key,omitempty"`
+	Uncharged         bool        `json:"uncharged,omitempty"`
+	Refunded          bool        `json:"refunded,omitempty"`
+	TerminalReason    string      `json:"terminal_reason,omitempty"`
+	Request           CardRequest `json:"request"`
+	Identity          string      `json:"identity"`
+	Project           string      `json:"project"`
+	Week              string      `json:"week"`
+	Attempted         bool        `json:"attempted,omitempty"`
+	Held              bool        `json:"held"`
+	Supersedes        string      `json:"supersedes,omitempty"`
+	Update            bool        `json:"update"`
 }
 type filingState map[string]filingEntry
 
@@ -199,6 +203,11 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	if e = os.MkdirAll(dir, 0700); e != nil {
 		return CardResult{}, e
 	}
+	gateDone, e := f.deliveryGate()
+	if e != nil {
+		return CardResult{}, e
+	}
+	defer gateDone()
 	deliveryUnlock, e := lockFile(filepath.Join(dir, "delivery-"+r.Key+".lock"))
 	if e != nil {
 		return CardResult{}, e
@@ -290,11 +299,30 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		if !uncharged && used >= limit && !r.Urgent && r.KeepList == "" {
 			return CardResult{}, fmt.Errorf("%w: weekly card budget of %d reached; decide by your stated default, log the decision on your bead, show mk the result in the next build; use --urgent or --keep-list only for an exception", ErrInvalid, limit)
 		}
-		state[r.Key] = filingEntry{Request: r, Identity: identity, Project: project, Week: wk, Held: r.NonBlocking, Supersedes: supersedes, Update: update, Uncharged: uncharged}
+		full, e := f.dailyFull(state, r)
+		if e != nil {
+			return CardResult{}, e
+		}
+		held := r.NonBlocking || full
+		reason := ""
+		if full {
+			reason = "daily-cap"
+		} else if held && f.anyPilot() {
+			reason = "non-blocking"
+		}
+		state[r.Key] = filingEntry{Request: r, Identity: identity, Project: project, Week: wk, Held: held, HeldReason: reason, Supersedes: supersedes, Update: update, Uncharged: uncharged}
+		if f.anyPilot() {
+			v := state[r.Key]
+			v.FiledAt = f.clock().Format(time.RFC3339Nano)
+			state[r.Key] = v
+		}
 		if err = saveFilingState(path, state); err != nil {
 			return CardResult{}, err
 		}
-		if r.NonBlocking {
+		if held {
+			if full && f.Warn != nil {
+				f.Warn("held: daily-cap reached; queued for ranked release")
+			}
 			return CardResult{Key: r.Key, Queued: true}, nil
 		}
 	}
@@ -319,6 +347,7 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		done()
 		err = errors.Join(err, e)
 	}
+	err = errors.Join(err, f.noteDelivery(r.Key, result))
 	return result, err
 }
 
@@ -349,6 +378,16 @@ func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) 
 		}
 	}
 	sort.Slice(keys, func(i, j int) bool {
+		if f.pilot("daycap") {
+			a, b := state[keys[i]], state[keys[j]]
+			if len(a.Request.Blocks) != len(b.Request.Blocks) {
+				return len(a.Request.Blocks) > len(b.Request.Blocks)
+			}
+			if a.FiledAt != b.FiledAt {
+				return a.FiledAt < b.FiledAt
+			}
+			return keys[i] < keys[j]
+		}
 		a, b := state[keys[i]].Request.Type, state[keys[j]].Request.Type
 		if a == b {
 			return keys[i] < keys[j]
@@ -381,6 +420,11 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	if err != nil {
 		return CardResult{}, "", err
 	}
+	gateDone, err := f.deliveryGate()
+	if err != nil {
+		return CardResult{}, "", err
+	}
+	defer gateDone()
 	keyUnlock, err := lockFile(filepath.Join(dir, "delivery-"+key+".lock"))
 	if err != nil {
 		return CardResult{}, "", err
@@ -392,6 +436,15 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	}
 	e, ok := state[key]
 	if !ok || !e.Held {
+		unlock()
+		return CardResult{}, "", nil
+	}
+	full, capErr := f.dailyFull(state, e.Request)
+	if capErr != nil {
+		unlock()
+		return CardResult{}, "", capErr
+	}
+	if full {
 		unlock()
 		return CardResult{}, "", nil
 	}
@@ -448,6 +501,10 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	e = state[key] // Preserve creation admission saved by the delivery callback.
 	e.Held = false
 	e.DeliveredCard = result.ID
+	if f.anyPilot() && e.DeliveredAt == "" {
+		e.DeliveredAt = f.clock().Format(time.RFC3339Nano)
+	}
+	e.DeliveryPendingAt = ""
 	state[key] = e
 	err = saveFilingState(path, state)
 	typ := r.Type
@@ -570,6 +627,9 @@ func (f *CardFiler) chargeCreation(r CardRequest, creationKey string) error {
 		return fmt.Errorf("%w: missing creation reservation", ErrInvalid)
 	}
 	entry.CreationKey = creationKey
+	if f.pilot("daycap") && entry.DeliveredAt == "" {
+		entry.DeliveryPendingAt = f.clock().Format(time.RFC3339Nano)
+	}
 	if !entry.Uncharged {
 		state[r.Key] = entry
 		return saveFilingState(path, state)
