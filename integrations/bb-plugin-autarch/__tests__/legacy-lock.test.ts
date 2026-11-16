@@ -161,6 +161,21 @@ describe("home-ui.sh: legacy deploy installed stamp (mk-zq345.8)", () => {
     expect(existsSync(recorded)).toBe(true);
     expect(readFileSync(recorded, "utf8").trim()).toBe(r.commit);
   });
+  it("records an empty commit for a non-checkout build inside another repository", () => {
+    const r = deployRig();
+    writeFileSync(join(r.root, "unrelated.txt"), "unrelated repository\n");
+    expect(git(r.root, "init", "-q").status).toBe(0);
+    expect(git(r.root, "add", "unrelated.txt").status).toBe(0);
+    expect(git(r.root, "commit", "-q", "-m", "unrelated").status).toBe(0);
+    const otherCommit = git(r.root, "rev-parse", "HEAD").stdout.trim();
+    expect(otherCommit).toMatch(/^[0-9a-f]{40}$/);
+    expect(git(r.cur, "rev-parse", "HEAD").stdout.trim()).toBe(otherCommit);
+    const out = r.run();
+    expect(out.status, out.stderr).toBe(0);
+    const backups = readdirSync(join(r.data, "home-backups"));
+    expect(backups).toHaveLength(1);
+    expect(readFileSync(join(r.data, "home-backups", backups[0], "previous-commit.txt"), "utf8")).toBe("\n");
+  });
   it("atomically records the verified deployed checkout in the configured state directory", () => {
     const r = deployRig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
     const out = r.run();
@@ -225,16 +240,20 @@ describe("home-ui.sh: lock, rollback record", () => {
     expect(readdirSync(r.st).filter(f => f.startsWith("installed.sha.tmp."))).toEqual([]);
   });
 
-  it.each(["missing", "invalid"])("warns without changing the stamp for a backup with a %s commit record", kind => {
+  it.each(["missing", "empty", "invalid"])("clears the stale stamp for a backup with a %s commit record", kind => {
     const r = rig();
     writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
     const recorded = join(r.backup, "previous-commit.txt");
     if (kind === "missing") rmSync(recorded);
+    else if (kind === "empty") writeFileSync(recorded, "\n");
     else writeFileSync(recorded, "not-a-commit\n");
     const out = hui(r, ["rollback", r.backup]);
     expect(out.status, out.stderr).toBe(0);
-    expect(r.sha()).toBe(SHA40);
-    warningOnBoth(out, "backup has no valid previous commit");
+    expect(r.log()).toContain("plugin install --yes " + r.prev);
+    expect(r.sha()).toBeNull();
+    expect(existsSync(join(r.st, "installed.sha"))).toBe(false);
+    warningOnBoth(out, kind === "missing" ? "old backup has no previous commit record" : kind === "empty" ? "backup recorded a non-checkout build" : "backup has no valid previous commit");
+    warningOnBoth(out, "installed.sha was removed");
   });
   it("reports a rollback temp-write failure without blaming the checkout", () => {
     const r = rig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");

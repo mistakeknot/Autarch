@@ -571,17 +571,30 @@ rollback)
   fi
   install_build "$PREV" || exit 5
   # installed.sha write: begin (mk-zq345.5)
-  # Record the build now installed where the update runner reads it, atomically, only when the state dir exists and the previous
-  # build is a checkout matching its backup-time commit; anything else only warns, and the rollback still succeeds.
+  # Record a checkout matching its backup-time commit atomically. An unknown backup commit clears a stale stamp so the
+  # update runner treats the installed version as unknown. Stamp failures only warn; the rollback still succeeds.
   PREV_COMMIT=$(cat "$BACKUP_ARG/previous-commit.txt" 2>/dev/null || true)
   ST=${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update}
   if [ -d "$ST" ]; then
+    if [ ! -f "$BACKUP_ARG/previous-commit.txt" ]; then
+      ROLLBACK_STAMP_REASON="old backup has no previous commit record"
+    elif [ -z "$PREV_COMMIT" ]; then
+      ROLLBACK_STAMP_REASON="backup recorded a non-checkout build (empty previous commit record)"
+    elif ! [[ $PREV_COMMIT =~ ^[0-9a-f]{40}$ ]]; then
+      ROLLBACK_STAMP_REASON="backup has no valid previous commit"
+    else
+      ROLLBACK_STAMP_REASON=
+    fi
     TOP=$(git -C "$PREV" rev-parse --show-toplevel 2>/dev/null || true)
     SHA=$(git -C "$PREV" rev-parse HEAD 2>/dev/null || true)
-    if [ -n "$TOP" ] && [ "$(cd "$PREV" && pwd -P)" = "$TOP/$PLUGIN_REL" ] && [[ $SHA =~ ^[0-9a-f]{40}$ ]]; then
-      if ! [[ $PREV_COMMIT =~ ^[0-9a-f]{40}$ ]]; then
-        stamp_warning "backup has no valid previous commit; installed.sha was not updated"
-      elif [ "$SHA" != "$PREV_COMMIT" ]; then
+    if [ -n "$ROLLBACK_STAMP_REASON" ]; then
+      if rm -f "$ST/installed.sha"; then
+        stamp_warning "$ROLLBACK_STAMP_REASON; installed.sha was removed"
+      else
+        stamp_warning "$ROLLBACK_STAMP_REASON; could not remove $ST/installed.sha; installed commit is unknown"
+      fi
+    elif [ -n "$TOP" ] && [ "$(cd "$PREV" && pwd -P)" = "$TOP/$PLUGIN_REL" ] && [[ $SHA =~ ^[0-9a-f]{40}$ ]]; then
+      if [ "$SHA" != "$PREV_COMMIT" ]; then
         stamp_warning "$PREV is at $SHA, expected $PREV_COMMIT from the backup; installed.sha was not updated"
       elif ! printf '%s\n' "$PREV_COMMIT" >"$ST/installed.sha.tmp.$$"; then
         rm -f "$ST/installed.sha.tmp.$$" || true
