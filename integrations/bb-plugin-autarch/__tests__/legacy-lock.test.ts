@@ -1,7 +1,7 @@
 // The shared destination lock in the two legacy scripts (scripts/home-ui.sh, scripts/install-home-your-move.sh), against a stub bb and
 // temp directories. Never live: the state directory, the data directory and every build are made here.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -105,7 +105,106 @@ const NOWAIT = { HOME_UI_LOCK_WAIT: "1" };
 const HOLDS = /another deploy holds the lock/;
 const isMk = userInfo().username === "mk";
 
+/** Deploy the real script in a temporary checkout, fetching only that checkout and faking npm/bb. */
+function deployRig(noState = false) {
+  const r = rig({ noState }); const repo = resolve(r.prev, "../..");
+  for (const dir of [r.prev, r.cur]) {
+    writeFileSync(join(dir, "package.json"), "{}");
+    writeFileSync(join(dir, "migrations.ts"), "export const CODE_VERSION = 3;\n");
+  }
+  git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "candidate");
+  const commit = git(repo, "rev-parse", "HEAD").stdout.trim();
+  git(repo, "update-ref", "refs/heads/main", commit);
+  git(repo, "remote", "add", "origin", repo); // no network or real repository is used
+  const script = join(repo, "scripts", "home-ui.sh");
+  mkdirSync(resolve(script, "..")); writeFileSync(script, readFileSync(HUI));
+  const builds = join(r.root, "builds"); const target = join(builds, `build-${commit.slice(0, 12)}`, "integrations", "bb-plugin-autarch");
+  const current = join(r.root, "installed-source"); const npmLog = join(r.root, "npm-log");
+  writeFileSync(join(r.root, "bb"), `#!/bin/sh
+echo "$@" >> '${r.calls}'
+case "$1 $2" in
+  "plugin source") echo "  resolved: path:${r.cur}" ;;
+  "plugin install") printf '%s\\n' "$4" > '${current}' ;;
+  "plugin list")
+    status=running
+    if [ "$HUI_FAIL_HEALTH" = 1 ] && [ "$(cat '${current}' 2>/dev/null)" = '${target}' ]; then status=degraded; fi
+    echo "{\\"plugins\\":[{\\"id\\":\\"autarch\\",\\"enabled\\":true,\\"status\\":\\"$status\\"}]}" ;;
+esac
+`);
+  const run = (extra: Record<string, string> = {}) => spawnSync("bash", [script, "deploy", "--commit", commit], {
+    env: r.env({ HOME_UI_BUILDS: builds, HOME_UI_WAIT: "1", HUI_NPM_LOG: npmLog,
+      "BASH_FUNC_npm%%": '() { printf "fake npm\\n" >> "$HUI_NPM_LOG"; mkdir -p node_modules; }', ...extra }),
+    encoding: "utf8", timeout: 15_000,
+  });
+  return { ...r, commit, target, current, npmLog, run };
+}
+
+const FAIL_STAMP_WRITE = '() { [ "${2-}" != "$HUI_FAIL_STAMP_SHA" ] || return 1; builtin printf "$@"; }';
+const FAIL_STAMP_MOVE = '() { case "${2-}" in */installed.sha.tmp.*) return 1 ;; esac; command mv "$@"; }';
+// Only the post-install stamp reads are changed; fetch, worktree creation and the pre-install commit gate use real git.
+const STAMP_GIT = '() { if [ -f "$HUI_STAMP_INSTALLED" ] && [ "${2-}" = "$HUI_STAMP_TARGET" ]; then if [ "${4-}" = --show-toplevel ] && [ -n "${HUI_STAMP_TOP-}" ]; then builtin printf "%s\\n" "$HUI_STAMP_TOP"; return; fi; if [ "${4-}" = HEAD ] && [ -n "${HUI_STAMP_HEAD-}" ]; then builtin printf "%s\\n" "$HUI_STAMP_HEAD"; return; fi; fi; command git "$@"; }';
+function warningOnBoth(out: { stdout: string; stderr: string }, text: string) {
+  expect(out.stderr).toContain(text); expect(out.stdout).toContain(text);
+}
+
+describe("home-ui.sh: legacy deploy installed stamp (mk-zq345.8)", () => {
+  it("atomically records the verified deployed checkout in the configured state directory", () => {
+    const r = deployRig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+    const out = r.run();
+    expect(out.status, out.stderr).toBe(0);
+    expect(out.stdout).toContain(`deployed ${r.commit}; Home is running`);
+    expect(readFileSync(r.npmLog, "utf8")).toBe("fake npm\n");
+    expect(r.log()).toContain("plugin install --yes " + r.target);
+    expect(r.sha()).toBe(r.commit);
+    expect(readdirSync(r.st).filter(f => f.startsWith("installed.sha.tmp."))).toEqual([]);
+  });
+  it("keeps the previous stamp when health verification fails and the deploy rolls back", () => {
+    const r = deployRig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+    const out = r.run({ HUI_FAIL_HEALTH: "1" });
+    expect(out.status, out.stderr).toBe(5);
+    expect(out.stderr).toContain("deploy failed; reinstalling the previous build");
+    expect(r.log()).toContain("plugin install --yes " + r.cur);
+    expect(r.sha()).toBe(SHA40);
+  });
+  it("warns without creating a missing state directory after a healthy deploy", () => {
+    const r = deployRig(true); const out = r.run();
+    expect(out.status, out.stderr).toBe(0);
+    warningOnBoth(out, "installed.sha was not updated");
+    expect(existsSync(r.st)).toBe(false);
+  });
+  it("reports a failed temporary write as a write failure, keeping a healthy deploy successful", () => {
+    const r = deployRig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+    const out = r.run({ HUI_FAIL_STAMP_SHA: r.commit, "BASH_FUNC_printf%%": FAIL_STAMP_WRITE });
+    expect(out.status, out.stderr).toBe(0); expect(r.sha()).toBe(SHA40);
+    warningOnBoth(out, "could not write temporary installed.sha");
+    expect(out.stderr).not.toContain("not a checkout");
+    expect(readdirSync(r.st).filter(f => f.startsWith("installed.sha.tmp."))).toEqual([]);
+  });
+  it("cleans up and warns on both streams when the atomic move fails", () => {
+    const r = deployRig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+    const out = r.run({ "BASH_FUNC_mv%%": FAIL_STAMP_MOVE });
+    expect(out.status, out.stderr).toBe(0); expect(r.sha()).toBe(SHA40);
+    warningOnBoth(out, "could not replace");
+    expect(readdirSync(r.st).filter(f => f.startsWith("installed.sha.tmp."))).toEqual([]);
+  });
+  it.each(["checkout", "commit"])("skips the stamp when the post-install %s check does not match", mismatch => {
+    const r = deployRig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+    const out = r.run({ "BASH_FUNC_git%%": STAMP_GIT, HUI_STAMP_INSTALLED: r.current, HUI_STAMP_TARGET: r.target,
+      ...(mismatch === "checkout" ? { HUI_STAMP_TOP: r.root } : { HUI_STAMP_HEAD: "b".repeat(40) }) });
+    expect(out.status, out.stderr).toBe(0); expect(r.sha()).toBe(SHA40);
+    warningOnBoth(out, mismatch === "checkout" ? "not a checkout of the plugin" : `expected ${r.commit}`);
+  });
+});
+
 describe("home-ui.sh: lock, rollback record", () => {
+  it("reports a rollback temp-write failure without blaming the checkout", () => {
+    const r = rig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+    const out = hui(r, ["rollback", r.backup], { HUI_FAIL_STAMP_SHA: r.wsha, "BASH_FUNC_printf%%": FAIL_STAMP_WRITE });
+    expect(out.status, out.stderr).toBe(0); expect(r.sha()).toBe(SHA40);
+    warningOnBoth(out, "could not write temporary installed.sha");
+    expect(out.stderr).not.toContain("not a checkout");
+    expect(readdirSync(r.st).filter(f => f.startsWith("installed.sha.tmp."))).toEqual([]);
+  });
   it("with no lock held, rollback behaves as before and records the reinstalled build", () => {
     const r = rig();
     const out = hui(r, ["rollback", r.backup]);
@@ -380,7 +479,7 @@ describe("install-home-your-move.sh: lock", () => {
   });
 });
 
-describe("the legacy scripts differ from the b05ebaf baseline only by the lock wrapper, the one installed.sha write, the --engine tool opt-in, the disabled-plugin export, the install-error recheck, the redundant-enable skip and the find-status walk", () => {
+describe("the legacy scripts differ from the b05ebaf baseline only by the lock wrapper, the installed.sha writes, the --engine tool opt-in, the disabled-plugin export, the install-error recheck, the redundant-enable skip and the find-status walk", () => {
   const strip = (text: string, tag: string) => {
     const out: string[] = [];
     let inside = false;
@@ -395,7 +494,7 @@ describe("the legacy scripts differ from the b05ebaf baseline only by the lock w
   };
   const count = (text: string, tag: string) => text.split("\n").filter((l) => l.trimStart().startsWith(`# ${tag}: begin`)).length;
 
-  for (const [file, shaWrites, engineBlocks, exportBlocks, recheckBlocks, skipBlocks, findBlocks] of [["home-ui.sh", 1, 6, 0, 5, 2, 1], ["install-home-your-move.sh", 0, 0, 3, 3, 2, 0]] as const) {
+  for (const [file, shaWrites, engineBlocks, exportBlocks, recheckBlocks, skipBlocks, findBlocks] of [["home-ui.sh", 2, 6, 0, 5, 2, 1], ["install-home-your-move.sh", 0, 0, 3, 3, 2, 0]] as const) {
     it(`${file}: removing the marked blocks gives the baseline byte for byte`, () => {
       const now = readFileSync(resolve(__dirname, "../../../scripts", file), "utf8");
       expect(count(now, "shared destination lock")).toBe(1);
