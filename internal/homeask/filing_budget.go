@@ -17,12 +17,15 @@ const EnvCardWeeklyBudget = "AUTARCH_CARD_WEEKLY_BUDGET"
 const EnvCardStateDir = "AUTARCH_CARD_STATE_DIR"
 
 type CardBudget struct {
-	Ordinary int `json:"ordinary"`
-	Limit    int `json:"limit"`
-	Exempt   int `json:"exempt"`
+	Ordinary  int    `json:"ordinary"`
+	Limit     int    `json:"limit"`
+	Exempt    int    `json:"exempt"`
+	WeekStart string `json:"week_start"`
+	WeekEnd   string `json:"week_end"`
+	TimeZone  string `json:"time_zone"`
 }
 
-// BudgetStatus exposes ordinary and exempt volume for the current ISO week.
+// BudgetStatus exposes ordinary and exempt volume for the Pacific Thursday-noon week.
 func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
 	limit, err := f.budget()
 	if err != nil {
@@ -33,15 +36,10 @@ func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
 		return CardBudget{}, err
 	}
 	defer unlock()
-	now := time.Now()
-	if f.Now != nil {
-		now = f.Now()
-	}
-	y, w := now.ISOWeek()
-	week := fmt.Sprintf("%04d-W%02d", y, w)
-	status := CardBudget{Limit: limit}
+	week := pacificBudgetWeek(f.clock())
+	status := CardBudget{Limit: limit, WeekStart: week.start.Format(time.RFC3339), WeekEnd: week.end.Format(time.RFC3339), TimeZone: pacific.String()}
 	for _, e := range state {
-		if e.Project == strings.ToLower(project) && e.Week == week && !e.Uncharged && !e.Refunded {
+		if e.Project == strings.ToLower(project) && reservedInWeek(e, week) && !e.Uncharged && !e.Refunded {
 			if e.Request.Urgent || e.Request.KeepList != "" {
 				status.Exempt++
 			} else {
@@ -151,7 +149,7 @@ func saveFilingState(path string, state filingState) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// defaultWeeklyBudget is the ordinary cards per Home project per ISO week when
+// defaultWeeklyBudget is the ordinary cards per Home project per Pacific week when
 // neither CardFiler.WeeklyBudget nor AUTARCH_CARD_WEEKLY_BUDGET is set (mk-bzi8s).
 const defaultWeeklyBudget = 50
 
@@ -270,13 +268,16 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	if err := f.checkColdRead(ctx, r); err != nil {
 		return CardResult{}, err
 	}
-	if updateLane && r.NonBlocking {
+	// Use one admission instant for the hold decision and its budget reservation.
+	admittedAt := f.clock()
+	windowHeld := weeklyHold(admittedAt, r)
+	if updateLane && (r.NonBlocking || windowHeld) {
 		uncharged, err = f.hasUpdateTarget(ctx, r, supersedes)
 		if err != nil {
 			return CardResult{}, err
 		}
 	}
-	if !updateLane || r.NonBlocking {
+	if !updateLane || r.NonBlocking || windowHeld {
 		if err := f.CheckUI(r); err != nil {
 			return CardResult{}, err
 		}
@@ -312,19 +313,9 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		return CardResult{Key: r.Key, Queued: true, Replay: true}, nil
 	}
 	if !exists {
-		now := time.Now()
-		if f.Now != nil {
-			now = f.Now()
-		}
-		year, week := now.ISOWeek()
-		wk := fmt.Sprintf("%04d-W%02d", year, week)
+		week := pacificBudgetWeek(admittedAt)
 		project := strings.ToLower(fmt.Sprint(r.Ask["project"]))
-		used := 0
-		for _, entry := range state {
-			if entry.Project == project && entry.Week == wk && !entry.Uncharged && !entry.Refunded && !entry.Request.Urgent && entry.Request.KeepList == "" {
-				used++
-			}
-		}
+		used := ordinaryReservations(state, project, week)
 		if !uncharged && used >= limit && !r.Urgent && r.KeepList == "" {
 			return CardResult{}, fmt.Errorf("%w: weekly card budget of %d reached; decide by your stated default, log the decision on your bead, show mk the result in the next build; use --urgent or --keep-list only for an exception", ErrInvalid, limit)
 		}
@@ -332,14 +323,16 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 		if e != nil {
 			return CardResult{}, e
 		}
-		held := r.NonBlocking || full
+		held := r.NonBlocking || full || windowHeld
 		reason := ""
-		if full {
+		if windowHeld {
+			reason = "weekday-window"
+		} else if full {
 			reason = "daily-cap"
 		} else if held && f.anyPilot() {
 			reason = "non-blocking"
 		}
-		state[r.Key] = filingEntry{Request: r, Identity: identity, Project: project, Week: wk, Held: held, HeldReason: reason, Supersedes: supersedes, Update: update, Uncharged: uncharged}
+		state[r.Key] = filingEntry{Request: r, Identity: identity, Project: project, Week: week.key(), Held: held, HeldReason: reason, Supersedes: supersedes, Update: update, Uncharged: uncharged}
 		if f.anyPilot() {
 			v := state[r.Key]
 			v.FiledAt = f.clock().Format(time.RFC3339Nano)
@@ -511,6 +504,10 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		unlock()
 		return CardResult{}, "", nil
 	}
+	if weeklyHold(f.clock(), e.Request) {
+		unlock()
+		return CardResult{}, "", nil
+	}
 	// Advisory early-out avoids checks and wakes for cards that cannot be displayed.
 	// Admission is still checked authoritatively under the fleet gate below.
 	fullBeforeChecks, capErr := f.dailyFull(state, e.Request)
@@ -575,6 +572,10 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	}
 	e, ok = state[key]
 	if !ok || !e.Held {
+		unlock()
+		return CardResult{}, "", nil
+	}
+	if weeklyHold(f.clock(), e.Request) {
 		unlock()
 		return CardResult{}, "", nil
 	}
@@ -758,14 +759,10 @@ func (f *CardFiler) chargeCreation(r CardRequest, creationKey string) error {
 	if err != nil {
 		return err
 	}
-	used := 0
-	for _, e := range state {
-		if e.Project == entry.Project && e.Week == entry.Week && !e.Uncharged && !e.Refunded && !e.Request.Urgent && e.Request.KeepList == "" {
-			used++
+	for _, week := range reservationWeeks(entry) {
+		if ordinaryReservations(state, entry.Project, week) >= limit && !r.Urgent && r.KeepList == "" {
+			return fmt.Errorf("%w: weekly card budget reached before creating replacement; decide by your stated default, log the decision on your bead, show mk the result in the next build", ErrInvalid)
 		}
-	}
-	if used >= limit && !r.Urgent && r.KeepList == "" {
-		return fmt.Errorf("%w: weekly card budget reached before creating replacement; decide by your stated default, log the decision on your bead, show mk the result in the next build", ErrInvalid)
 	}
 	entry.Uncharged = false
 	state[r.Key] = entry

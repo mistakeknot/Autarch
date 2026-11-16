@@ -37,7 +37,7 @@ func TestPilotAbsentLegacyBytes(t *testing.T) {
 	f := newFake(t, registryOnCreate).filer()
 	r := testReq()
 	r.NonBlocking = true
-	f.Now = func() time.Time { return time.Date(2026, 1, 5, 12, 0, 0, 0, time.UTC) }
+	f.Now = func() time.Time { return time.Date(2026, 1, 9, 12, 0, 0, 0, time.UTC) }
 	if _, err := f.FileCard(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestPilotDaycapReleaseRankAndDay(t *testing.T) {
 	bb := newFake(t, registryOnCreate)
 	f := bb.filer()
 	enablePilot(t, f, "daycap")
-	now := time.Date(2026, 11, 2, 7, 59, 0, 0, time.UTC)
+	now := time.Date(2026, 11, 7, 7, 59, 0, 0, time.UTC)
 	f.Now = func() time.Time { return now }
 	a := testReq()
 	a.Key = "old"
@@ -368,7 +368,7 @@ func TestPilotAbsentExactLegacyState(t *testing.T) {
 	f := newFake(t, registryOnCreate).filer()
 	r := testReq()
 	r.NonBlocking = true
-	f.Now = func() time.Time { return time.Date(2026, 1, 5, 12, 0, 0, 0, time.UTC) }
+	f.Now = func() time.Time { return time.Date(2026, 1, 9, 12, 0, 0, 0, time.UTC) }
 	res, e := f.FileCard(context.Background(), r)
 	if e != nil {
 		t.Fatal(e)
@@ -397,7 +397,7 @@ func TestPilotAbsentExactLegacyState(t *testing.T) {
 		Update           bool        `json:"update"`
 	}
 	ident, _ := RequestIdentity(r)
-	want, _ := json.Marshal(map[string]legacyEntry{r.Key: {Request: r, Identity: ident, Project: "autarch", Week: "2026-W02", Held: true}})
+	want, _ := json.Marshal(map[string]legacyEntry{r.Key: {Request: r, Identity: ident, Project: "autarch", Week: "2026-01-08", Held: true}})
 	d, _ := f.stateDir()
 	got, _ := os.ReadFile(filepath.Join(d, "filings.json"))
 	if !bytes.Equal(got, want) {

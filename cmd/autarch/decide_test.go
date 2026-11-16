@@ -56,7 +56,7 @@ func withCardFiler(t *testing.T, s *stubBB, tune ...func(*homeask.CardFiler)) {
 	old := newFiler
 	t.Cleanup(func() { newFiler = old })
 	newFiler = func() *homeask.CardFiler {
-		f := &homeask.CardFiler{Run: s.run, LockDir: t.TempDir(), TasksProject: "P1"}
+		f := &homeask.CardFiler{Now: filingTestNow, Run: s.run, LockDir: t.TempDir(), TasksProject: "P1"}
 		for _, fn := range tune {
 			fn(f)
 		}
@@ -177,7 +177,7 @@ func TestDecideFileUsesTheConfiguredTasksProjectBinding(t *testing.T) {
 	t.Cleanup(func() { newFiler = old })
 	newFiler = func() *homeask.CardFiler {
 		f := homeask.CardFilerFromEnv(filerTimeout)
-		f.Run, f.LockDir = s.run, t.TempDir()
+		f.Run, f.LockDir, f.Now = s.run, t.TempDir(), filingTestNow
 		return f
 	}
 	t.Setenv("BB_THREAD_ID", "thr-x")
@@ -246,7 +246,7 @@ func TestDecideExitCodesTwoThreeAndBBAbsent(t *testing.T) {
 	} {
 		old := newFiler
 		newFiler = func() *homeask.CardFiler {
-			return &homeask.CardFiler{Run: tc.run, LockDir: t.TempDir(), TasksProject: "P1"}
+			return &homeask.CardFiler{Now: filingTestNow, Run: tc.run, LockDir: t.TempDir(), TasksProject: "P1"}
 		}
 		_, err := runDecide(t, askJSON("thr-x"), "file")
 		newFiler = old

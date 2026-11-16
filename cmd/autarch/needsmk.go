@@ -239,8 +239,15 @@ func needsMkFileCmd() *cobra.Command {
 		Short: "File a needs-mk card from the asking thread; prints the card as one JSON line",
 		Long: `Run inside the asking thread ($BB_THREAD_ID is required): the filer posts the
 routing comment from it. AUTARCH_CARD_WEEKLY_BUDGET sets the weekly budget (default 50).
+The budget week starts Thursday 12:00 America/Los_Angeles; needs-mk budget shows
+the current Pacific start and end. Legacy ISO reservations still count conservatively
+in overlapping weeks when their filing time is unknown.
 AUTARCH_CARD_STATE_DIR overrides the local XDG state directory.
 --non-blocking queues a card until needs-mk release, reserving its slot now.
+Ordinary cards filed Monday 00:00 through Thursday before 12:00 Pacific are also
+held for the Thursday batch. Urgent, keep-list, merge and root-run cards bypass
+this weekday hold. Release inside that window leaves ordinary cards queued;
+schedule release at Thursday noon or later. Counted slots stay in their filing week.
 --urgent or --keep-list marks a budget exception. Success prints JSON with a non-empty card_key (--json is also accepted).
 --urgent exempts the budget; --urgency blocker only controls phone push and does not exempt the budget.
 Exempt cards are recorded separately and never consume ordinary slots; needs-mk budget shows both tallies.
@@ -518,7 +525,7 @@ func noticeOnlyOptions(ask map[string]any) bool {
 }
 
 func needsMkReleaseCmd() *cobra.Command {
-	return &cobra.Command{Use: "release", Short: "Send held cards grouped by type (schedule twice daily)", SilenceUsage: true, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "release", Short: "Send held cards grouped by type; ordinary cards wait until Thursday noon Pacific", SilenceUsage: true, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		f := newCardFiler()
 		f.Check = checkFilingPreconditions
 		report, err := f.ReleaseDetailed(cmd.Context())
@@ -536,7 +543,7 @@ func needsMkCancelHeldCmd() *cobra.Command {
 
 func needsMkBudgetCmd() *cobra.Command {
 	var project string
-	cmd := &cobra.Command{Use: "budget", Short: "Show this ISO week's ordinary and exempt card counts for a Home project", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "budget", Short: "Show the Pacific Thursday-noon week bounds and ordinary/exempt card counts", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		if project == "" {
 			return &usageError{"--project must name the Home project"}
 		}

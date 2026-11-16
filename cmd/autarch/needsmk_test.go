@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -126,11 +127,14 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 // serveCheckSet is true while a test installs its own checkFilingPreconditions.
 var serveCheckSet bool
 
+// Filing fixtures use a delivery day; policy tests inject their own clock.
+func filingTestNow() time.Time { return time.Date(2026, 11, 13, 20, 0, 0, 0, time.UTC) }
+
 func runNeedsMk(t *testing.T, s *stubBB, args ...string) (string, error) {
 	t.Helper()
 	old := newCardFiler
 	newCardFiler = func() *homeask.CardFiler {
-		return &homeask.CardFiler{Run: s.run, LockDir: t.TempDir()}
+		return &homeask.CardFiler{Now: filingTestNow, Run: s.run, LockDir: t.TempDir()}
 	}
 	t.Cleanup(func() { newCardFiler = old })
 	oldCheck := checkFilingPreconditions
@@ -236,7 +240,7 @@ func TestNeedsMkFileHomeDownIsExit3(t *testing.T) {
 	checkFilingPreconditions = func(string, string) error { return nil }
 	t.Cleanup(func() { newCardFiler = old; checkFilingPreconditions = oldCheck })
 	newCardFiler = func() *homeask.CardFiler {
-		return &homeask.CardFiler{LockDir: t.TempDir(), Run: func(context.Context, []string, ...string) homeask.BBResult {
+		return &homeask.CardFiler{Now: filingTestNow, LockDir: t.TempDir(), Run: func(context.Context, []string, ...string) homeask.BBResult {
 			return homeask.BBResult{Code: 3, Stderr: []byte("not ready")}
 		}}
 	}

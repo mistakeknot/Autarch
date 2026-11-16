@@ -12,7 +12,7 @@ import (
 
 func TestReleasePrintsDeliveredGroupsAndKeyedFailures(t *testing.T) {
 	s := &stubBB{}
-	f := &homeask.CardFiler{Run: s.run, LockDir: t.TempDir()}
+	f := &homeask.CardFiler{Now: filingTestNow, Run: s.run, LockDir: t.TempDir()}
 	var ask map[string]any
 	raw, _ := os.ReadFile(writeAsk(t))
 	json.Unmarshal(raw, &ask)
@@ -58,7 +58,7 @@ func TestReleaseStillFailsWhenStateCannotBeRead(t *testing.T) {
 	}
 	old := newCardFiler
 	t.Cleanup(func() { newCardFiler = old })
-	newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{StateDir: dir} }
+	newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Now: filingTestNow, StateDir: dir} }
 	cmd := needsMkReleaseCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	if e := cmd.Execute(); e == nil {

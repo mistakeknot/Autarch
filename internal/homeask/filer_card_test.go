@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // memBB is an in-memory tasks service plus Home registry behind CardFiler.Run. It records every
@@ -55,8 +56,11 @@ func newFake(t *testing.T, mode registryMode) *memBB {
 		legacy: map[string]registryAnswer{}, pageSize: 2, registryMode: mode}
 }
 
+// Filing fixtures use a delivery day; policy tests inject their own clock.
+func filingTestNow() time.Time { return time.Date(2026, 11, 13, 20, 0, 0, 0, time.UTC) }
+
 func (f *memBB) filer() *CardFiler {
-	return &CardFiler{Run: f.run, LockDir: f.t.TempDir(), TasksProject: "P1"}
+	return &CardFiler{Now: filingTestNow, Run: f.run, LockDir: f.t.TempDir(), TasksProject: "P1"}
 }
 
 func okRes(v any) BBResult {
@@ -828,11 +832,11 @@ func TestCardFilerTasksProjectIsConfiguredNotNameMatched(t *testing.T) {
 	f := newFake(t, registryOnCreate)
 	f.projects = []string{"P1", "autarch"} // a tasks project named like the Home project must not be guessed
 	a := Ask{V: 1, Kind: "decide", Asker: "thread", Thread: "thr_a", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Ship it?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}}
-	unbound := &CardFiler{Run: f.run, LockDir: t.TempDir()}
+	unbound := &CardFiler{Now: filingTestNow, Run: f.run, LockDir: t.TempDir()}
 	if _, err := unbound.File(context.Background(), a); !errors.Is(err, ErrInvalid) || len(f.calls) != 0 {
 		t.Fatalf("unbound: err=%v calls=%v", err, f.calls)
 	}
-	bound := &CardFiler{Run: f.run, LockDir: t.TempDir(), TasksProject: "other", TasksProjects: map[string]string{"autarch": "P1"}}
+	bound := &CardFiler{Now: filingTestNow, Run: f.run, LockDir: t.TempDir(), TasksProject: "other", TasksProjects: map[string]string{"autarch": "P1"}}
 	if _, err := bound.File(context.Background(), a); err != nil {
 		t.Fatal(err)
 	}
