@@ -48,6 +48,8 @@ func needsMkCmd() *cobra.Command {
 	cmd.AddCommand(needsMkAdoptMoveCmd())
 	cmd.AddCommand(needsMkFooterCmd())
 	cmd.AddCommand(needsMkExportCmd())
+	cmd.AddCommand(needsMkPilotsCmd())
+	cmd.AddCommand(needsMkRecheckLinksCmd())
 	return cmd
 }
 
@@ -371,6 +373,7 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				ctx = context.Background()
 			}
 			filer := newCardFiler()
+			filer.Warn = func(w string) { fmt.Fprintln(cmd.ErrOrStderr(), "warning:", w) }
 			if _, ok := ask["project"]; !ok {
 				// The board's binding names the project; the folder name is wrong in a bb worktree.
 				ask["project"] = filer.FolderOrBound(ctx, project, fmt.Sprint(ask["project_root"]))
