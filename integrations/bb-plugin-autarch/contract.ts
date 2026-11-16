@@ -18,6 +18,7 @@ const docResult = z.union([
 const conversationView = z.object({ task_id: z.string(), comments: list, unread: z.number(), stale: z.boolean(), last_ok_at: z.string().nullable(), options: list });
 
 export const homeMethods = {
+  quotaGovernor: { input: z.null(), output: readModel },
   pickAction: { input: PickActionQuerySchema, output: result },
   evidenceImage: { input: z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict(), output: result },
   listAsks: { input: z.null(), output: readModel },
@@ -110,6 +111,7 @@ export const homeMethods = {
 export type CliMapping = { verb: string; summary: string } | { rpcOnly: string };
 
 export const homeCliMap = {
+  quotaGovernor: { rpcOnly: "read-only quota governor status for Citadel" },
   pickAction: { verb: "pick-action", summary: "Read the original pick action and delivery evidence for one exact generation" },
   evidenceImage: { rpcOnly: "read-only local evidence image by content hash" },
   listAsks: { verb: "list", summary: "List the asks waiting for a ruling" },

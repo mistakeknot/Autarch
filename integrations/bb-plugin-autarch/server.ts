@@ -7,6 +7,7 @@
 // (cli.ts) and the skill in skills/home/SKILL.md that tells agents how to use it. A write
 // publishes a realtime signal so every open page refetches.
 import { postNoteOnce } from "./notepost.js";
+import { wireGovernor } from "./governor-runtime.js";
 import { threadEventLimit } from "./hostLimits.js";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -923,6 +924,7 @@ export default async function plugin(bb: BbPluginApi) {
   // Settings are read once per load, except the three vizier message settings, which the watcher reads on every tick.
   // The Home surfaces: RPC handlers, the `bb home` CLI, wakes, feed injection, serve link.
   const homeSettings = bb.settings.define({
+    quota_governor_mode: { type: "string", label: "Quota governor mode (off, shadow or live)", default: "off" },
     pickHandlerMode: { type: "string", label: "Pick handler mode (off or shadow)", default: "off" },
     serveAddr: { type: "string", label: "autarch serve address", default: "127.0.0.1:8110" },
     serveTokenFile: { type: "string", label: "autarch serve token file", default: "" },
@@ -933,6 +935,7 @@ export default async function plugin(bb: BbPluginApi) {
     vizierCardProject: { type: "string", label: "Tasks project (id, prefix or name) that receives vizier message cards", default: "" },
   });
   const hs = await homeSettings.get();
+  const governorView = wireGovernor(bb, handle, () => homeSettings.get());
   const vizierSettings: VizierSettingsSource = async () => {
     const v = await homeSettings.get();
     return {
@@ -954,6 +957,7 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.rpc.register(rpcContract, {
     ...home.handlers,
+    quotaGovernor: () => governorView(),
   });
 
   // Cleanup on reload/disable/shutdown; hooks run LIFO. The sanctioned place

@@ -8,7 +8,8 @@ import { fsWriteUses, isFdOnly, isOpener, parse, parseFile, readOnlyFlags, rel, 
 // names, generated file names, exclusive create and lstat checks on every directory (see its header).
 // trigger.ts joined with the update trigger: it only touches or creates one named file (TRIGGER_FILE)
 // under the update directory it is given, and never writes any content to it (see its header).
-const FULL = new Set(["ruling.ts", "export.ts", "ledger.ts", "otherimages.ts", "trigger.ts"]);
+// The governor adapter writes policy, throttle state and inboxes only in explicit live mode (bead mk-z0lht.1).
+const FULL = new Set(["ruling.ts", "export.ts", "ledger.ts", "otherimages.ts", "trigger.ts", "governor-runtime.ts"]);
 const RDONLY_PLUS_FSYNC = new Set(["backup.ts"]);
 // settled.ts reads one coordinator's settled-for-mk.md O_RDONLY | O_NOFOLLOW and writes nothing.
 // docread.ts is the document reader: it opens one allowlisted file O_RDONLY | O_NOFOLLOW and writes nothing.

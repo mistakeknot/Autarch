@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import Database from "better-sqlite3";
 import { DEFAULTS, choose, applyFloor, readFloor, measurePace, recipients, editOperator } from "../governor-policy.js";
 import { Governor, GovernorStore, setHostLimit, atomicJson, type GovernorIO } from "../governor.js";
+import type { PluginsLike } from "../tasks.js";
 
 const now = 1_000_000_000_000, H = 3600000;
 const account = (u = .6) => ({ id: "a", provider: "claude", enabled: true, status: "ready", observedAt: now, sevenDayUtilization: u, sevenDayResetAt: now + 84 * H });
@@ -78,9 +79,30 @@ describe("governor service", () => {
     await g.tick(); expect(g.view().state?.level).toBe(0); expect(g.view().state?.pending).toBe(true);
     expect(io.notify).not.toHaveBeenCalled(); db.close();
   });
+  it("declines last twelve hours without extending on each poll, then renew", async () => {
+    const { g, io, store, db } = rig(); io.mode = async () => "live"; io.accounts = async () => [account(.9)];
+    const first = now / 1000 - 3600;
+    store.put("live", { level: 1, card: { key: "CARD", level: 2, answered: "b", declined_at: first } });
+    io.answer = async () => "b"; await g.tick();
+    expect(g.view().state?.card?.declined_at).toBe(first); expect(io.fileCard).not.toHaveBeenCalled();
+    io.now = () => now + 12 * H; io.accounts = async () => [{ ...account(.9), observedAt: now + 12 * H }];
+    await g.tick(); expect(io.fileCard).toHaveBeenCalledWith(expect.anything(), 2, expect.anything(), 1); db.close();
+  });
+  it("pool failures preserve throttle age and don't write an apparently fresh decision", async () => {
+    const { g, io, db } = rig(); io.mode = async () => "live"; io.accounts = async () => { throw Error("pool down"); };
+    await g.tick(); expect(io.writeThrottle).not.toHaveBeenCalled(); expect(g.view().error).toContain("pool down"); db.close();
+  });
+  it("sample history excludes old observations even if collected now", () => {
+    const { store, db } = rig();
+    store.sample([{ ...account(), observedAt: now - 12 * H }], now, DEFAULTS);
+    expect(store.samples(now, DEFAULTS)).toEqual({});
+    store.sample([account()], now, DEFAULTS); expect(store.samples(now, DEFAULTS).a).toHaveLength(1);
+    expect(store.samples(now + 4 * H, DEFAULTS)).toEqual({}); db.close();
+  });
   it("preserves global and other host limits through RPC", async () => {
     const callRpc = vi.fn(async (a: any) => a.method === "getConfiguration" ? { globalLimit: 30, hostOverrides: [{ hostId: "other", limit: 5 }], hosts: [{ id: "mine", name: "governed" }] } : {});
-    await setHostLimit({ callRpc }, "governed", 12);
+    const plugins: PluginsLike = { callRpc: async args => args.outputSchema.parse(await callRpc(args)) };
+    await setHostLimit(plugins, "governed", 12);
     expect(callRpc.mock.calls[1][0].input).toEqual({ globalLimit: 30, hostOverrides: [{ hostId: "other", limit: 5 }, { hostId: "mine", limit: 12 }] });
   });
   it("writes throttle atomically through the filesystem interface", async () => {

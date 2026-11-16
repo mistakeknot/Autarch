@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { z } from "zod";
 import { dirname, join } from "node:path";
 import type { PluginsLike } from "./tasks.js";
-import { DEFAULTS, applyFloor, choose, measurePace, readFloor, weekly, weeklyObserved, weeklyReset, num, type Account, type Config, type Floor, type Part, type Samples } from "./governor-policy.js";
+import { applyFloor, choose, measurePace, readFloor, weekly, weeklyObserved, weeklyReset, num, type Account, type Config, type Floor, type Part, type Samples } from "./governor-policy.js";
 
 export type Mode = "off" | "shadow" | "live";
 export type Card = { key?: string; level: number; answered?: string; declined_at?: number; filed_at?: number; renewals?: number };
@@ -73,7 +73,7 @@ export class Governor {
       this.store.sample(accounts, now, cfg);
       const parts: Part[] = [];
       const [pace, note] = measurePace(accounts, now, cfg, this.store.samples(now, cfg), parts);
-      const floor = readFloor(await io.readJson(join(cfg.state_dir, "floor.json")), now, cfg);
+      const floor = readFloor(await io.readJson(join(cfg.state_dir, "floor.json")).catch(() => null), now, cfg);
       let [next, streak, why] = applyFloor(st.level, ...choose(st.level, pace, st.good_streak ?? 0, cfg), floor);
       const cur = st.level, levels = cfg.levels;
       const ns: State = { ...st, good_streak: streak, pace, updated_at: Math.floor(now / 1000) };
@@ -123,6 +123,8 @@ export class Governor {
       ns.throttle = { level: ns.level, name: lv.name, allowed_max: lv.allowed_max, cuts_protected: lv.cuts_protected, pace, updated_at: Math.floor(now / 1000), why };
       this.store.put(mode, ns);
       this.current = { mode, state: ns, decision: dec, script, last_run: now, parts };
+      const failure = dec.applied.find(s => /FAILED/.test(s)) ?? (dec.held?.includes("card not filed") ? dec.held : undefined);
+      if (failure) this.current.error = failure;
       if (mode === "live") await io.writeThrottle(cfg, ns.throttle);
       this.store.put("view", this.current);
     } catch (e) { this.current.error = String(e); }

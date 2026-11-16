@@ -39,6 +39,7 @@ import type { QueueView } from "./ui/blocks.js";
 import { blocksCount, withoutOwed } from "./ui/blocks.js";
 import { CardKeyNotice, cardKeyFrom, focusedAsks, startCardLookup, type CardLookup } from "./ui/cardlink.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
+import { GovernorPanel } from "./ui/governor.js";
 import { UpdateMenu, updateLabel, updatePollMs, type UpdateInfoView } from "./ui/update.js";
 import { keyAction, layoutStack, ROOT_PANEL, stackReducer, StackView } from "./ui/stack.js";
 import { forgetClassicTabs, HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs.js";
@@ -545,6 +546,7 @@ function HomePage({ subPath }: { subPath?: string }) {
         return asks === null ? null : (
           <>
             <LearnSwitch enabled={learn.enabled} busy={learnBusy} onChange={(enabled) => setLearnState({ enabled })} />
+            <GovernorPanel />
             <SettingsPanel delegation={asks.delegation} machineOwners={asks.machineOwners} onSave={(v) => rpc.call("setDelegation", v).finally(refetch)} />
             {blocks.queue === null ? null : (
               <BindingsPanel
