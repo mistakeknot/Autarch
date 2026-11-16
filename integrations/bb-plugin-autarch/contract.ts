@@ -10,6 +10,8 @@ import { PickActionQuerySchema } from "./pickquery.js";
 // `{ ok }` envelope; the read models answer with the one key their panel reads.
 const result = z.object({ ok: z.boolean() }).passthrough();
 const readModel = z.custom<object>((v) => typeof v === "object" && v !== null && !Array.isArray(v), "expected an object");
+// Normalize optional fields recursively before the RPC host checks JSON values.
+const jsonReadModel = readModel.transform((value): unknown => JSON.parse(JSON.stringify(value))).pipe(readModel);
 const list = z.array(z.unknown());
 const docResult = z.union([
   z.object({ ok: z.literal(true), path: z.string(), size: z.number(), sha256: z.string(), text: z.string(), markdown: z.boolean(), matches: z.boolean().nullable() }),
@@ -18,7 +20,7 @@ const docResult = z.union([
 const conversationView = z.object({ task_id: z.string(), comments: list, unread: z.number(), stale: z.boolean(), last_ok_at: z.string().nullable(), options: list });
 
 export const homeMethods = {
-  quotaGovernor: { input: z.null(), output: readModel },
+  quotaGovernor: { input: z.null(), output: jsonReadModel },
   pickAction: { input: PickActionQuerySchema, output: result },
   evidenceImage: { input: z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict(), output: result },
   listAsks: { input: z.null(), output: readModel },

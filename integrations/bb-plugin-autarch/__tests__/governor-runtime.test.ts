@@ -3,9 +3,45 @@ import Database from "better-sqlite3";
 import { applyOperator, homeAnswer, fileProtectedCard, loadConfig, timerActive, wireGovernor, prepareInboxes, resolveStorageRoot, readOverrides, type Exec } from "../governor-runtime.js";
 import { DEFAULTS } from "../governor-policy.js";
 import type { PluginsLike } from "../tasks.js";
+import { homeMethods } from "../contract.js";
 const { readFile } = vi.hoisted(() => ({ readFile: vi.fn(async (_path: unknown, ..._rest: unknown[]): Promise<string> => { throw Object.assign(Error("missing"), { code: "ENOENT" }); }) }));
 vi.mock("node:fs/promises", async importOriginal => ({ ...await importOriginal<typeof import("node:fs/promises")>(), readFile }));
 afterEach(() => { vi.unstubAllEnvs(); readFile.mockReset(); readFile.mockRejectedValue(Object.assign(Error("missing"), { code: "ENOENT" })); });
+
+it("normalizes future optional quotaGovernor fields at the RPC contract boundary", () => {
+  const input = { mode: "shadow", error: undefined, state: { level: 1, pending: undefined }, decision: { held: undefined }, script: { windows: [undefined, { unused: undefined, utilization: .5 }] } };
+  const result = homeMethods.quotaGovernor.output.parse(input);
+  expect(result).toStrictEqual({ mode: "shadow", state: { level: 1 }, decision: {}, script: { windows: [null, { utilization: .5 }] } });
+  expect(JSON.parse(JSON.stringify(result))).toStrictEqual(result);
+  expect(Object.hasOwn(input, "error")).toBe(true);
+  expect(homeMethods.quotaGovernor.output.safeParse(7).success).toBe(false);
+});
+
+it("publishes a JSON-clean full shadow decision through wireGovernor with a ready store", async () => {
+  const db = new Database(":memory:"); let start!: (signal: AbortSignal) => Promise<void>;
+  const controller = new AbortController();
+  const now = Date.now();
+  const account = { id: "account", provider: "claude", enabled: true, status: "ready", observedAt: now, sevenDayUtilization: .6, sevenDayResetAt: now + 84 * 3600000 };
+  const rpc = vi.fn(async () => [account]); const plugins: PluginsLike = { callRpc: async args => args.outputSchema.parse(await rpc()) };
+  const published = vi.fn(() => controller.abort());
+  const bb = { sdk: { threads: { list: async () => [] }, plugins }, background: { service: (_name: string, opts: { start: typeof start }) => { start = opts.start; } }, realtime: { publish: published }, log: { warn: vi.fn() } };
+  const handle = { ready: () => true, store: vi.fn(() => ({ db })) };
+  const view = wireGovernor(bb, handle, async () => ({ quota_governor_mode: "shadow" }), {
+    config: async () => ({ ...DEFAULTS, bb_host: "governed", pace_mode: "cumulative", state_dir: "/fixture/state" }), hostname: () => "governed",
+    roots: () => { throw Error("shadow must not discover storage"); },
+  });
+  await start(controller.signal);
+  expect(handle.store).toHaveBeenCalledTimes(1); expect(rpc).toHaveBeenCalledTimes(1);
+  expect(published).toHaveBeenCalledWith("quota-governor-changed", {});
+  expect(view().mode).toBe("shadow"); expect(view().error).toBeUndefined();
+  expect(view().decision?.new_level).toBe(1); expect(view().state?.level).toBe(1);
+  expect(view().decision?.pace).toBeCloseTo(1.2); expect(view().last_run).toBeTypeOf("number");
+  expect(view().state).toStrictEqual(JSON.parse((db.prepare("SELECT json FROM quota_governor_state WHERE key='shadow'").get() as { json: string }).json));
+  expect(view()).toStrictEqual(JSON.parse((db.prepare("SELECT json FROM quota_governor_state WHERE key='view'").get() as { json: string }).json));
+  expect(JSON.parse(JSON.stringify(view()))).toStrictEqual(view());
+  expect(homeMethods.quotaGovernor.output.parse(view())).toStrictEqual(view());
+  db.close();
+});
 
 it("reads a Citadel pick by the card task's decision id", async () => {
   const db = new Database(":memory:");
