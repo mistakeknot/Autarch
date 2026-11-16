@@ -2,8 +2,12 @@ package homeask
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -90,7 +94,17 @@ func TestHeldAskKeyReplacesPayloadWithoutNewCharge(t *testing.T) {
 }
 
 func TestFileCarriesExemptionsDuringHold(t *testing.T) {
-	for _, extra := range []string{`,"urgent":true`, `,"root_run":{"script":"/sample/check.sh","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","timeout":30,"set":"sample"}`} {
+	script := filepath.Join(t.TempDir(), "check.sh")
+	body := []byte("#!/bin/sh\ntrue\n")
+	if err := os.WriteFile(script, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(body)
+	rootJSON, err := json.Marshal(RootRun{Script: script, SHA256: fmt.Sprintf("%x", digest), Timeout: 30, Set: "sample"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, extra := range []string{`,"keep_list":"spend"`, `,"urgent":true`, `,"root_run":` + string(rootJSON)} {
 		t.Run(extra, func(t *testing.T) {
 			bb := newFake(t, registryOnCreate)
 			f := bb.filer()

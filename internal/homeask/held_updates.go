@@ -3,6 +3,7 @@ package homeask
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -17,36 +18,56 @@ type heldRevision struct {
 
 var errHeldTargetChanged = errors.New("held update target changed during admission")
 
-// heldTarget resolves a known request first; only a new key may replace an
-// unsent payload. Attempted deliveries cannot safely be edited in the queue.
-func (s filingState) heldTarget(r CardRequest) string {
+// knownHeldRequest preserves exact request replay before ask-key matching.
+func (s filingState) knownHeldRequest(r CardRequest) (string, bool) {
 	if _, exists := s[r.Key]; exists {
-		return r.Key
+		return r.Key, true
 	}
 	for key, e := range s {
 		if _, exists := e.HeldRevisions[r.Key]; exists {
-			return key
+			return key, true
 		}
 	}
+	return r.Key, false
+}
+
+// heldTarget merges new keys only while the incoming request still needs holding.
+func (s filingState) heldTarget(r CardRequest, coalesce bool) string {
+	if key, known := s.knownHeldRequest(r); known {
+		return key
+	}
+	if coalesce {
+		if keys := s.matchingHeld(r); len(keys) > 0 {
+			return keys[0]
+		}
+	}
+	return r.Key
+}
+
+// Coalescing and retirement share scope, but an incoming request that can be
+// delivered now must never become a held revision (mk-bzi8s.6).
+func (s filingState) retiringHeld(r CardRequest, coalesce bool) []string {
+	if _, known := s.knownHeldRequest(r); known || coalesce {
+		return nil
+	}
+	return s.matchingHeld(r)
+}
+
+func (s filingState) matchingHeld(r CardRequest) []string {
 	askKey, _ := r.Ask["ask_key"].(string)
 	if askKey == "" {
-		return r.Key
+		return nil
 	}
 	project, _ := r.Ask["project"].(string)
-	keys := make([]string, 0)
+	var keys []string
 	for key, e := range s {
 		priorKey, _ := e.Request.Ask["ask_key"].(string)
-		if e.Held && !e.Attempted && !e.Refunded && priorKey == askKey && e.Project == strings.ToLower(project) && e.Request.Project == r.Project {
+		if e.Held && !e.Attempted && !e.Refunded && ordinary(e.Request) && priorKey == askKey && e.Project == strings.ToLower(project) && e.Request.Project == r.Project && e.Request.Thread == r.Thread && e.Request.Owner == r.Owner {
 			keys = append(keys, key)
 		}
 	}
-	// Existing queues normally have one target. Stable ordering also makes old
-	// duplicate rows deterministic without rewriting attempted deliveries.
-	if len(keys) > 0 {
-		sort.Strings(keys)
-		return keys[0]
-	}
-	return r.Key
+	sort.Strings(keys)
+	return keys
 }
 
 func (e filingEntry) revisionReplay(key, identity string, r CardRequest) (CardResult, bool, error) {
@@ -58,7 +79,7 @@ func (e filingEntry) revisionReplay(key, identity string, r CardRequest) (CardRe
 		return CardResult{}, true, errReused
 	}
 	if e.Refunded {
-		return CardResult{}, true, errReused
+		return CardResult{}, true, fmt.Errorf("%w: request retired: %s", ErrInvalid, e.TerminalReason)
 	}
 	if e.Held {
 		return e.heldResult(e.Request.Key, true), true, nil

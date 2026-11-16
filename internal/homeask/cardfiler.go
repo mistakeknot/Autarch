@@ -1117,6 +1117,7 @@ func wireFromAsk(a Ask) (map[string]any, error) {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	delete(m, "urgent")
+	delete(m, "keep_list")
 	delete(m, "root_run")
 	for k := range v1Only {
 		delete(m, k)
@@ -1157,6 +1158,19 @@ func (f *CardFiler) File(ctx context.Context, a Ask) (string, error) {
 	if a.Asker == "mycroft" {
 		return "", fmt.Errorf("%w: legacy threadless asks are refused", ErrInvalid)
 	}
+	if rr := a.RootRun; rr != nil {
+		if !validRootScript(rr.Script) {
+			return "", fmt.Errorf("%w: root-run script must be an absolute path without control characters or parent traversal", ErrInvalid)
+		}
+		raw, err := os.ReadFile(rr.Script)
+		if err != nil {
+			return "", fmt.Errorf("%w: root-run script is not readable: %v", ErrInvalid, err)
+		}
+		digest := sha256.Sum256(raw)
+		if rr.SHA256 != hex.EncodeToString(digest[:]) {
+			return "", fmt.Errorf("%w: root-run sha256 does not match the script", ErrInvalid)
+		}
+	}
 	wire, err := wireFromAsk(a)
 	if err != nil {
 		return "", err
@@ -1187,7 +1201,7 @@ func (f *CardFiler) File(ctx context.Context, a Ask) (string, error) {
 	if IsMergeAsk(wire) {
 		typ = "merge"
 	}
-	res, err := f.FileCard(ctx, CardRequest{Project: project, Title: titleOf(a), Ask: wire, Key: key, Thread: a.Thread, Type: typ, Urgent: a.Urgent, RootRun: a.RootRun})
+	res, err := f.FileCard(ctx, CardRequest{Project: project, Title: titleOf(a), Ask: wire, Key: key, Thread: a.Thread, Type: typ, Urgent: a.Urgent, KeepList: a.KeepList, RootRun: a.RootRun})
 	if err == nil && res.Queued {
 		return "", &HeldError{RequestKey: res.Key, Reason: res.HoldReason}
 	}

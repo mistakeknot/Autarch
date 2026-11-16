@@ -141,7 +141,8 @@ func decideFileCmd() *cobra.Command {
 		Long: `Files a tasks card routed to the asking thread (see also: autarch needs-mk file). The
 tasks project is --tasks-project, else AUTARCH_TASKS_PROJECTS (<home project>=<tasks project>,...),
 else AUTARCH_TASKS_PROJECT. Legacy threadless (mycroft) asks are refused.
-Ask JSON may set urgent:true or root_run:{script,sha256,timeout,set}. Merge options
+Ask JSON may set urgent:true, keep_list (the needs-mk --keep-list values), or
+root_run:{script,sha256,timeout,set}; its sha256 must match the readable script. Merge options
 are detected automatically, and merge, urgent and root-run cards bypass the weekday hold.
 A held card exits 6 and prints queued JSON with its request key and hold message
 instead of a card id. Only exit 0 means a card was filed.

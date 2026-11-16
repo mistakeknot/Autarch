@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -187,7 +188,7 @@ func checkKeepList(value string) error {
 	return fmt.Errorf("%w: --keep-list must be spend, credentials, sign-ins/payments, tags/releases/publishes, force-pushes or standing-approvals", ErrInvalid)
 }
 func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string, update bool) (CardResult, error) {
-	for {
+	for attempt := 0; attempt < 8; attempt++ {
 		result, err := f.submitOnce(ctx, r, supersedes, update)
 		if !errors.Is(err, errHeldTargetChanged) {
 			return result, err
@@ -196,6 +197,7 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 			return CardResult{}, err
 		}
 	}
+	return CardResult{}, fmt.Errorf("%w: filing admission changed repeatedly; retry the same request", ErrOutcomeUnknown)
 }
 
 func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes string, update bool) (CardResult, error) {
@@ -234,8 +236,11 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 	// Resolve the queue's canonical key before taking its delivery lock. Recheck
 	// under the state lock below, retrying if another admission won the race.
 	deliveryKey := r.Key
+	var retiring []string
+	coalesce := ordinary(r) && (windowHeld || r.NonBlocking)
 	if prior, _, done, err := f.openState(); err == nil {
-		deliveryKey = prior.heldTarget(r)
+		deliveryKey = prior.heldTarget(r, coalesce)
+		retiring = prior.retiringHeld(r, coalesce)
 		done()
 	}
 	deliveryUnlock, e := lockFile(filepath.Join(dir, "delivery-"+deliveryKey+".lock"))
@@ -243,6 +248,15 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		return CardResult{}, e
 	}
 	defer deliveryUnlock()
+	// Hold each retired row's delivery lock through the new delivery, preventing
+	// a release from writing its old payload after it has been replaced.
+	for _, key := range retiring {
+		done, err := lockFile(filepath.Join(dir, "delivery-"+key+".lock"))
+		if err != nil {
+			return CardResult{}, err
+		}
+		defer done()
+	}
 	identity, err := RequestIdentity(r)
 	if err != nil {
 		return CardResult{}, err
@@ -332,7 +346,9 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 	if err != nil {
 		return CardResult{}, err
 	}
-	if state.heldTarget(r) != deliveryKey {
+	admittedAt := f.clock()
+	coalesce = ordinary(r) && (weeklyHold(admittedAt, r) || r.NonBlocking)
+	if state.heldTarget(r, coalesce) != deliveryKey || !slices.Equal(state.retiringHeld(r, coalesce), retiring) {
 		return CardResult{}, errHeldTargetChanged
 	}
 	old, exists := state[deliveryKey]
@@ -368,10 +384,18 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 	if exists && old.Held {
 		return old.heldResult(r.Key, true), nil
 	}
+	retiredHeld := map[string]filingEntry{}
 	if !exists {
+		for _, key := range retiring {
+			entry := state[key]
+			retiredHeld[key] = entry
+			entry.Held = false
+			entry.Refunded = true
+			entry.TerminalReason = "replaced by request " + r.Key
+			state[key] = entry
+		}
 		// Gate and state-lock waits can cross a policy boundary. Reserve using the
 		// admission time under both locks, rather than the earlier validation time.
-		admittedAt := f.clock()
 		nowHeld := weeklyHold(admittedAt, r)
 		if nowHeld && !windowHeld && updateLane && !r.NonBlocking {
 			// A newly queued update needs the read-only checks skipped before the
@@ -439,6 +463,9 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 			return result, errors.Join(err, e)
 		}
 		delete(current, r.Key)
+		for key, entry := range retiredHeld {
+			current[key] = entry
+		}
 		e = saveFilingState(p, current)
 		done()
 		err = errors.Join(err, e)
