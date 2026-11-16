@@ -136,7 +136,15 @@ esac
       "BASH_FUNC_npm%%": '() { printf "fake npm\\n" >> "$HUI_NPM_LOG"; mkdir -p node_modules; }', ...extra }),
     encoding: "utf8", timeout: 15_000,
   });
-  return { ...r, commit, target, npmLog, run };
+  return { ...r, commit, target, current, npmLog, run };
+}
+
+const FAIL_STAMP_WRITE = '() { [ "${2-}" != "$HUI_FAIL_STAMP_SHA" ] || return 1; builtin printf "$@"; }';
+const FAIL_STAMP_MOVE = '() { case "${2-}" in */installed.sha.tmp.*) return 1 ;; esac; command mv "$@"; }';
+// Only the post-install stamp reads are changed; fetch, worktree creation and the pre-install commit gate use real git.
+const STAMP_GIT = '() { if [ -f "$HUI_STAMP_INSTALLED" ] && [ "${2-}" = "$HUI_STAMP_TARGET" ]; then if [ "${4-}" = --show-toplevel ] && [ -n "${HUI_STAMP_TOP-}" ]; then builtin printf "%s\\n" "$HUI_STAMP_TOP"; return; fi; if [ "${4-}" = HEAD ] && [ -n "${HUI_STAMP_HEAD-}" ]; then builtin printf "%s\\n" "$HUI_STAMP_HEAD"; return; fi; fi; command git "$@"; }';
+function warningOnBoth(out: { stdout: string; stderr: string }, text: string) {
+  expect(out.stderr).toContain(text); expect(out.stdout).toContain(text);
 }
 
 describe("home-ui.sh: legacy deploy installed stamp (mk-zq345.8)", () => {
@@ -161,12 +169,42 @@ describe("home-ui.sh: legacy deploy installed stamp (mk-zq345.8)", () => {
   it("warns without creating a missing state directory after a healthy deploy", () => {
     const r = deployRig(true); const out = r.run();
     expect(out.status, out.stderr).toBe(0);
-    expect(out.stderr).toContain("installed.sha was not updated");
+    warningOnBoth(out, "installed.sha was not updated");
     expect(existsSync(r.st)).toBe(false);
+  });
+  it("reports a failed temporary write as a write failure, keeping a healthy deploy successful", () => {
+    const r = deployRig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+    const out = r.run({ HUI_FAIL_STAMP_SHA: r.commit, "BASH_FUNC_printf%%": FAIL_STAMP_WRITE });
+    expect(out.status, out.stderr).toBe(0); expect(r.sha()).toBe(SHA40);
+    warningOnBoth(out, "could not write temporary installed.sha");
+    expect(out.stderr).not.toContain("not a checkout");
+    expect(readdirSync(r.st).filter(f => f.startsWith("installed.sha.tmp."))).toEqual([]);
+  });
+  it("cleans up and warns on both streams when the atomic move fails", () => {
+    const r = deployRig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+    const out = r.run({ "BASH_FUNC_mv%%": FAIL_STAMP_MOVE });
+    expect(out.status, out.stderr).toBe(0); expect(r.sha()).toBe(SHA40);
+    warningOnBoth(out, "could not replace");
+    expect(readdirSync(r.st).filter(f => f.startsWith("installed.sha.tmp."))).toEqual([]);
+  });
+  it.each(["checkout", "commit"])("skips the stamp when the post-install %s check does not match", mismatch => {
+    const r = deployRig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+    const out = r.run({ "BASH_FUNC_git%%": STAMP_GIT, HUI_STAMP_INSTALLED: r.current, HUI_STAMP_TARGET: r.target,
+      ...(mismatch === "checkout" ? { HUI_STAMP_TOP: r.root } : { HUI_STAMP_HEAD: "b".repeat(40) }) });
+    expect(out.status, out.stderr).toBe(0); expect(r.sha()).toBe(SHA40);
+    warningOnBoth(out, mismatch === "checkout" ? "not a checkout of the plugin" : `expected ${r.commit}`);
   });
 });
 
 describe("home-ui.sh: lock, rollback record", () => {
+  it("reports a rollback temp-write failure without blaming the checkout", () => {
+    const r = rig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+    const out = hui(r, ["rollback", r.backup], { HUI_FAIL_STAMP_SHA: r.wsha, "BASH_FUNC_printf%%": FAIL_STAMP_WRITE });
+    expect(out.status, out.stderr).toBe(0); expect(r.sha()).toBe(SHA40);
+    warningOnBoth(out, "could not write temporary installed.sha");
+    expect(out.stderr).not.toContain("not a checkout");
+    expect(readdirSync(r.st).filter(f => f.startsWith("installed.sha.tmp."))).toEqual([]);
+  });
   it("with no lock held, rollback behaves as before and records the reinstalled build", () => {
     const r = rig();
     const out = hui(r, ["rollback", r.backup]);

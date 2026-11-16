@@ -497,19 +497,28 @@ deploy)
     exit 5
   fi
   # installed.sha write: begin (mk-zq345.8)
+  stamp_warning() { echo "home-ui: WARNING: $*" >&2 || true; echo "home-ui: WARNING: $*" || true; }
   # As on rollback, record the verified installed checkout atomically only when the state directory exists; otherwise warn.
   ST=${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update}
   if [ -d "$ST" ]; then
     TOP=$(git -C "$B/$PLUGIN_REL" rev-parse --show-toplevel 2>/dev/null || true)
     SHA=$(git -C "$B/$PLUGIN_REL" rev-parse HEAD 2>/dev/null || true)
-    if [ -n "$TOP" ] && [ "$(cd "$B/$PLUGIN_REL" && pwd -P)" = "$TOP/$PLUGIN_REL" ] && [[ $SHA =~ ^[0-9a-f]{40}$ ]] && printf '%s\n' "$SHA" >"$ST/installed.sha.tmp.$$"; then
-      mv -f "$ST/installed.sha.tmp.$$" "$ST/installed.sha" || echo "home-ui: WARNING: could not write $ST/installed.sha" >&2
+    if [ -n "$TOP" ] && [ "$(cd "$B/$PLUGIN_REL" && pwd -P)" = "$TOP/$PLUGIN_REL" ] && [[ $SHA =~ ^[0-9a-f]{40}$ ]]; then
+      if [ "$SHA" != "$COMMIT" ]; then
+        stamp_warning "$B/$PLUGIN_REL is at $SHA, expected $COMMIT; installed.sha was not updated"
+      elif ! printf '%s\n' "$SHA" >"$ST/installed.sha.tmp.$$"; then
+        rm -f "$ST/installed.sha.tmp.$$" || true
+        stamp_warning "could not write temporary installed.sha in $ST; installed.sha was not updated"
+      elif ! mv -f "$ST/installed.sha.tmp.$$" "$ST/installed.sha"; then
+        rm -f "$ST/installed.sha.tmp.$$" || true
+        stamp_warning "could not replace $ST/installed.sha; installed.sha was not updated"
+      fi
     else
-      rm -f "$ST/installed.sha.tmp.$$"
-      echo "home-ui: WARNING: $B/$PLUGIN_REL is not a checkout of the plugin; installed.sha was not updated" >&2
+      rm -f "$ST/installed.sha.tmp.$$" || true
+      stamp_warning "$B/$PLUGIN_REL is not a checkout of the plugin; installed.sha was not updated"
     fi
   else
-    echo "home-ui: WARNING: no state dir $ST; installed.sha was not updated" >&2
+    stamp_warning "no state dir $ST; installed.sha was not updated"
   fi
   # installed.sha write: end
   echo "deployed $COMMIT; Home is running"
@@ -553,20 +562,27 @@ rollback)
   fi
   install_build "$PREV" || exit 5
   # installed.sha write: begin (mk-zq345.5)
+  stamp_warning() { echo "home-ui: WARNING: $*" >&2 || true; echo "home-ui: WARNING: $*" || true; }
   # Record the build now installed where the update runner reads it, atomically, only when the state dir exists and the previous
   # build is a checkout of this plugin; anything else only warns, and the rollback still succeeds. Reads nothing from the tool.
   ST=${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update}
   if [ -d "$ST" ]; then
     TOP=$(git -C "$PREV" rev-parse --show-toplevel 2>/dev/null || true)
     SHA=$(git -C "$PREV" rev-parse HEAD 2>/dev/null || true)
-    if [ -n "$TOP" ] && [ "$(cd "$PREV" && pwd -P)" = "$TOP/$PLUGIN_REL" ] && [[ $SHA =~ ^[0-9a-f]{40}$ ]] && printf '%s\n' "$SHA" >"$ST/installed.sha.tmp.$$"; then
-      mv -f "$ST/installed.sha.tmp.$$" "$ST/installed.sha" || echo "home-ui: WARNING: could not write $ST/installed.sha" >&2
+    if [ -n "$TOP" ] && [ "$(cd "$PREV" && pwd -P)" = "$TOP/$PLUGIN_REL" ] && [[ $SHA =~ ^[0-9a-f]{40}$ ]]; then
+      if ! printf '%s\n' "$SHA" >"$ST/installed.sha.tmp.$$"; then
+        rm -f "$ST/installed.sha.tmp.$$" || true
+        stamp_warning "could not write temporary installed.sha in $ST; installed.sha was not updated"
+      elif ! mv -f "$ST/installed.sha.tmp.$$" "$ST/installed.sha"; then
+        rm -f "$ST/installed.sha.tmp.$$" || true
+        stamp_warning "could not replace $ST/installed.sha; installed.sha was not updated"
+      fi
     else
-      rm -f "$ST/installed.sha.tmp.$$"
-      echo "home-ui: WARNING: $PREV is not a checkout of the plugin; installed.sha was not updated" >&2
+      rm -f "$ST/installed.sha.tmp.$$" || true
+      stamp_warning "$PREV is not a checkout of the plugin; installed.sha was not updated"
     fi
   else
-    echo "home-ui: WARNING: no state dir $ST; installed.sha was not updated" >&2
+    stamp_warning "no state dir $ST; installed.sha was not updated"
   fi
   # installed.sha write: end
   echo "rolled back to $PREV" ;;
