@@ -1,12 +1,29 @@
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { validateEvidence } from "../evidence.js";
 import { defaultEvidenceRoot, readEvidence } from "../evidencestore.js";
 import { parseAsk } from "../model.js";
+
+vi.mock("node:fs", async (importOriginal) => {
+ const fs = await importOriginal<typeof import("node:fs")>();
+ return { ...fs, openSync: vi.fn(fs.openSync) };
+});
+
+it.each([undefined, "win32"] as const)("refuses a regular-file root before opening a child (%s)", (platform) => {
+ const base = mkdtempSync(join(tmpdir(), "evidence-file-root-"));
+ const root = join(base, "file");
+ try {
+  writeFileSync(root, "not a directory", {mode: 0o600});
+  vi.mocked(openSync).mockClear();
+  expect(readEvidence("a".repeat(64), root, platform)).toEqual({ok: false});
+  // ENOTDIR would also return ok:false; pin rejection at the root check itself.
+  expect(openSync).not.toHaveBeenCalled();
+ } finally { rmSync(base, {recursive: true, force: true}); }
+});
 
 const vectors=JSON.parse(readFileSync(fileURLToPath(new URL("../../../testdata/evidence-vectors.json",import.meta.url)),"utf8")) as {name:string;evidence?:unknown;raw_evidence?:string;valid:boolean}[];
 it("loads at least the Go floor of 50 shared vectors", () => { expect(vectors.length).toBeGreaterThanOrEqual(50); });

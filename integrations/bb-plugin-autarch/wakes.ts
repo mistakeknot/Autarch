@@ -569,8 +569,11 @@ export function sdkAdapter(threads: ThreadsLike): WakeSdk {
   };
   return {
     async send(a) {
+      const attr: Partial<WakeAttribution> = {};
+      if (a.wakeCause) attr.wakeCause = a.wakeCause;
+      if (a.wakeRef) attr.wakeRef = a.wakeRef;
       const r = (await threads.send({ threadId: a.threadId, input: [{ type: "text", text: a.input }, ...(a.images ?? []).map((path) => ({ type: "localImage" as const, path }))], mode: a.mode,
-        ...(a.wakeCause ? { wakeCause: a.wakeCause } satisfies Partial<WakeAttribution> : {}), ...(a.wakeRef ? { wakeRef: a.wakeRef } satisfies Partial<WakeAttribution> : {}) })) as {
+        ...attr })) as {
         delivery: "sent" | "queued";
         queuedMessage?: { id: string };
         messageId?: string;

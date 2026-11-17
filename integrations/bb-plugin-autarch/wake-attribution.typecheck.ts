@@ -9,3 +9,12 @@ const attribution = { wakeCause: "card_pick", wakeRef: "pick:example" } satisfie
 ({ threadId: "example", input: [], wakeCuase: "card_pick" }) satisfies SendArgs;
 // @ts-expect-error Misspelled reference keys must be rejected too.
 ({ threadId: "example", input: [], wakeReff: "pick:example" }) satisfies SendArgs;
+
+const attr: Partial<WakeAttribution> = {
+  wakeCause: "card_pick",
+  // @ts-expect-error A typed attribution object rejects a misspelled key before spreading.
+  wakeReff: "pick:example",
+};
+({ threadId: "example", input: [], ...attr }) satisfies SendArgs;
+// @ts-expect-error Conditional assignments on the typed object also reject misspelled keys.
+attr.wakeReff = "pick:example";
