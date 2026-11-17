@@ -182,7 +182,9 @@ func cleanupWork(work, mirror, product string, created bool) error {
 	return errors.Join(gitErr, os.RemoveAll(work))
 }
 
-func repoLockName() string { return fmt.Sprintf("/tmp/autarch-verify-%d-1140086114.lock", os.Getuid()) }
+// Tests replace this function only in their separately built fixture driver.
+var repoLockName = func() string { return fmt.Sprintf("/tmp/autarch-verify-%d-1140086114.lock", os.Getuid()) }
+
 func acquireRepoLock(name string) (*os.File, error) {
 	fd, err := syscall.Open(name, syscall.O_CREAT|syscall.O_RDWR|syscall.O_NOFOLLOW|syscall.O_CLOEXEC|syscall.O_NONBLOCK, 0600)
 	if err != nil {

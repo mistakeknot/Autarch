@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -125,6 +126,7 @@ func TestExecuteMergeBaseRanges(t *testing.T) {
 		}
 		write("scripts/verify/"+name, data)
 	}
+	write("scripts/verify/fixture_lock.go", []byte(fmt.Sprintf("package main\nfunc init() { repoLockName = func() string { return %q } }\n", filepath.Join(ownedTestDir(t), "verify.lock"))))
 	write("go.mod", []byte("module verifyfixture\n\ngo 1.25.0\n"))
 	run("add", ".")
 	run("commit", "-qm", "verifier fixture")
@@ -145,7 +147,7 @@ func TestExecuteMergeBaseRanges(t *testing.T) {
 	bin := filepath.Join(ownedTestDir(t), "verify")
 	build := exec.Command("go", "build", "-race", "-buildvcs=true", "-o", bin, "./scripts/verify")
 	build.Dir = root
-	build.Env = append(os.Environ(), "GOWORK=off", "GOMAXPROCS=2", "GOFLAGS=-p=2")
+	build.Env = append(os.Environ(), "GOWORK=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOMAXPROCS=2", "GOFLAGS=-p=2")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build driver: %v\n%s", err, out)
 	}
