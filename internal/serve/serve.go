@@ -15,12 +15,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/bigend/daemon"
 	gserver "github.com/mistakeknot/autarch/internal/gurgeh/server"
+	"github.com/mistakeknot/autarch/pkg/callerlog"
 	"github.com/mistakeknot/autarch/pkg/netguard"
 	"github.com/mistakeknot/autarch/pkg/signals"
 )
@@ -34,16 +36,18 @@ type Config struct {
 	ProjectDirs  []string
 	TokenPath    string
 	AllowOrigins []string
+	CallerLogDir string // defaults to audit/ under the token directory; override for isolated callers
 }
 
 // Server is the consolidated service.
 type Server struct {
-	cfg      Config
-	token    string
-	resolver *Resolver
-	broker   *signals.Broker
-	gurgeh   *gurgehMounts
-	handler  http.Handler
+	callerLog *callerlog.Log
+	cfg       Config
+	token     string
+	resolver  *Resolver
+	broker    *signals.Broker
+	gurgeh    *gurgehMounts
+	handler   http.Handler
 }
 
 // New builds the service: it loads or creates the token and wires the mux.
@@ -71,8 +75,20 @@ func New(cfg Config) (*Server, error) {
 	mux.Handle("/bigend/", http.StripPrefix("/bigend", bigend.Handler()))
 	mux.Handle("/signals/", http.StripPrefix("/signals", sig.Handler()))
 	mux.Handle("/gurgeh/{project}/", s.gurgeh)
-	s.handler = guard(token, cfg.AllowOrigins, cfg.Addr, mux)
+	dir := cfg.CallerLogDir
+	if dir == "" {
+		dir = filepath.Join(filepath.Dir(cfg.TokenPath), "audit")
+	}
+	s.callerLog = callerlog.New(dir)
+	s.handler = callerLogging(s.callerLog, mux, guard(token, cfg.AllowOrigins, cfg.Addr, mux))
 	return s, nil
+}
+
+// Close drains the audit queue and stops its worker. Call after handlers stop.
+func (s *Server) Close() {
+	if s.callerLog != nil {
+		s.callerLog.Close()
+	}
 }
 
 // Handler returns the guarded mux.
@@ -88,6 +104,7 @@ func (s *Server) Listen() (net.Listener, error) {
 
 // Serve serves on ln until ctx is done, then shuts down with a 5 s timeout.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	defer s.Close()
 	srv := &http.Server{
 		Handler:           s.handler,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -118,6 +135,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 
 // Run is EnsureLocalOnly, Listen, Serve, and shutdown when ctx ends.
 func (s *Server) Run(ctx context.Context) error {
+	defer s.Close()
 	ln, err := s.Listen()
 	if err != nil {
 		return err

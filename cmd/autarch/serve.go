@@ -61,6 +61,7 @@ project roots. The service holds no decisions and only binds loopback addresses.
 			if err != nil {
 				return err
 			}
+			defer srv.Close()
 			ln, err := srv.Listen()
 			if err != nil {
 				return err

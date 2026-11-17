@@ -12,10 +12,12 @@ import (
 	"sync"
 
 	"github.com/mistakeknot/autarch/internal/homeask"
+	"github.com/mistakeknot/autarch/pkg/callerlog"
 )
 
 // Server implements the MCP protocol for Autarch tools.
 type Server struct {
+	callerLog   *callerlog.Log
 	projectPath string
 	tools       map[string]Tool
 	mu          sync.RWMutex
@@ -37,6 +39,13 @@ func NewServer(projectPath string) *Server {
 		stderr:      os.Stderr,
 	}
 	s.registerDefaultTools()
+	return s
+}
+
+// WithCallerLog injects an audit writer and its directory. The caller owns Close.
+// Configure before serving requests.
+func (s *Server) WithCallerLog(log *callerlog.Log) *Server {
+	s.callerLog = log
 	return s
 }
 
@@ -352,6 +361,11 @@ func (s *Server) handleToolsCall(ctx context.Context, req *JSONRPCRequest) {
 	// points attach StdioCaller explicitly.
 	if tool.RequiredScope != "" {
 		caller, hasCaller := CallerFromContext(ctx)
+		log := s.callerLog
+		if log == nil {
+			log = callerlog.Default()
+		}
+		log.Record(map[string]any{"tool": params.Name, "required_scope": tool.RequiredScope, "caller_id": caller.AgentID, "draft_would_allow": hasCaller && (tool.RequiredScope == "read" || tool.RequiredScope == "write" || caller.HasScope("admin")), "would_deny_cards:file": !hasCaller || tool.RequiredScope != "write", "would_deny_cards:read": !hasCaller || tool.RequiredScope != "read", "would_deny_admin": !hasCaller}, "")
 		if !hasCaller || !caller.HasScope(tool.RequiredScope) {
 			s.sendError(req.ID, -32603, "Forbidden", fmt.Sprintf("tool %s requires scope %q", params.Name, tool.RequiredScope))
 			return
