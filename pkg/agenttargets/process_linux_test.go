@@ -2,11 +2,14 @@ package agenttargets
 
 import (
 	"context"
+	"golang.org/x/sys/unix"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -18,7 +21,9 @@ func TestParentDeath(t *testing.T) {
 		if _, err := startProcess(cmd); err != nil {
 			os.Exit(2)
 		}
-		select {}
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, syscall.SIGTERM)
+		<-signals
 	}
 	file := filepath.Join(t.TempDir(), "pid")
 	parent := exec.Command(os.Args[0], "-test.run=^TestParentDeath$")
@@ -40,11 +45,21 @@ func TestParentDeath(t *testing.T) {
 	if pid == 0 {
 		t.Fatal("helper never ready")
 	}
-	defer func() {
-		if p, e := os.FindProcess(pid); e == nil {
-			p.Kill()
-		}
-	}()
+	// Open a stable process handle while the helper is alive, and verify
+	// ownership before arming cleanup. Signals through the pidfd cannot target
+	// a later process that reuses this PID.
+	fd, err := unix.PidfdOpen(pid, 0)
+	if err != nil {
+		t.Fatalf("open child pidfd: %v", err)
+	}
+	defer unix.Close(fd)
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	fields := strings.Fields(string(stat)[strings.LastIndex(string(stat), ")")+1:])
+	if err != nil || len(fields) < 2 || fields[1] != strconv.Itoa(parent.Process.Pid) {
+		t.Fatal("child ownership could not be verified")
+	}
+	defer unix.PidfdSendSignal(fd, syscall.SIGKILL, nil, 0)
+
 	parent.Process.Kill()
 	for time.Now().Before(deadline) {
 		b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")

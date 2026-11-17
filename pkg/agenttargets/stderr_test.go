@@ -237,3 +237,26 @@ func TestCodexTranscriptRedactedInError(t *testing.T) {
 		t.Fatalf("unexpected transcript error: %v", err)
 	}
 }
+
+func TestMoreSecretShapes(t *testing.T) {
+	for _, input := range []string{"ghs_xxxxxxxxxxxx", "ghu_xxxxxxxxxxxx", "ghr_xxxxxxxxxxxx", "x-api-key: xxxxxxxxxxxx", "https://example.test/?access_token=xxxxxxxxxxxx&ok=yes", `{"refresh_token":"xxxxxxxxxxxx"}`, `{"id_token":"xxxxxxxxxxxx"}`, `{"client_secret":"xxxxxxxxxxxx"}`, `{"apiKey":"xxxxxxxxxxxx"}`, `{"token":"xxxxxxxxxxxx`} {
+		t.Run(input, func(t *testing.T) {
+			if got := sanitizedStderr([]byte(input)); strings.Contains(got, "xxxxxxxxxxxx") {
+				t.Fatalf("unredacted: %s", got)
+			}
+		})
+	}
+}
+func TestTailCutInsideKeywords(t *testing.T) {
+	for _, key := range []string{`"access_token"`, `"api_key"`, `"token"`, "Authorization", "Bearer", `"refresh_token"`, `"id_token"`, `"client_secret"`, `"apiKey"`, "x-api-key", "access_token="} {
+		for offset := 0; offset < len(key); offset++ {
+			suffix := key[offset:] + `: "xxxxxxxxxxxx"` + "\nuseful diagnostic\n"
+			input := strings.Repeat("a", 5000) + suffix + strings.Repeat(" ", stderrTailBytes-len(suffix))
+			var tail stderrTail
+			tail.Write([]byte(input))
+			if got := sanitizedStderr(tail.data); strings.Contains(got, "xxxxxxxxxxxx") || !strings.Contains(got, "useful diagnostic") {
+				t.Fatalf("key %q cut %d leaked: %.100s", key, offset, got)
+			}
+		}
+	}
+}

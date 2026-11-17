@@ -6,6 +6,9 @@ import (
 	"syscall"
 )
 
+// configureParentDeath protects the direct agent process only. Descendants do
+// not inherit Pdeathsig. Context cancellation still kills the process group,
+// including descendants that remain in that group.
 func configureParentDeath(cmd *exec.Cmd) { cmd.SysProcAttr.Pdeathsig = syscall.SIGKILL }
 
 // startProcess keeps the creating OS thread alive until Wait completes. Linux

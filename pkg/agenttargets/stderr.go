@@ -29,18 +29,19 @@ func (t *stderrTail) Write(p []byte) (int, error) {
 }
 
 var stderrANSI = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))`)
-var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|(?:ghp_|gho_|github_pat_)[a-z0-9_]+|Bearer[ \t]+[^\s]+|Authorization[ \t]*:[^\r\n]*|"(?:access_token|api_key|token)"\s*:\s*"(?:[^"\\]|\\.)*"`)
+var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|(?:ghp_|gho_|ghs_|ghu_|ghr_|github_pat_)[a-z0-9_]+|Bearer[ \t]+[^\s]+|(?:Authorization|x-api-key)[ \t]*:[^\r\n]*|"(?:access_token|api_key|token|refresh_token|id_token|client_secret|apiKey)"\s*:\s*"(?:[^"\\]|\\.)*(?:"|$)|access_token=[^&\s]*`)
 
 func sanitizedStderr(data []byte) string {
-	// A full tail may begin inside a credential. Conservatively discard its
-	// first token-like word, including when the original prefix is unavailable.
+	// A full tail may start inside a credential keyword or its value. Drop
+	// the entire first line: retaining only its suffix loses redaction context.
 	if len(data) >= stderrTailBytes {
-		i := 0
-		for i < len(data) && (data[i] >= 'a' && data[i] <= 'z' || data[i] >= 'A' && data[i] <= 'Z' || data[i] >= '0' && data[i] <= '9' || strings.ContainsRune("_-/+=.", rune(data[i]))) {
-			i++
+		if end := strings.IndexByte(string(data), '\n'); end >= 0 {
+			data = data[end+1:]
+		} else {
+			data = nil
 		}
-		data = data[i:]
 	}
+
 	text := stderrANSI.ReplaceAllString(string(data), "")
 	text = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) && r != '\n' && r != '\t' {

@@ -144,7 +144,10 @@ func (a *Agent) GenerateWithOutput(ctx context.Context, req GenerateRequest, onO
 	}
 
 	if _, err := handle.Wait(); err != nil {
-		return nil, err
+		if streamErr != nil {
+			return nil, fmt.Errorf("%s: %w", streamErr, err)
+		}
+		return nil, fmt.Errorf("%s execution failed: %w", cfg.PreferredAgent, err)
 	}
 	if streamErr != nil {
 		return nil, streamErr

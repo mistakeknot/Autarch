@@ -391,6 +391,9 @@ func dispatchAndCollect(ctx context.Context, cfg agenttargets.DispatchConfig, cw
 	}
 
 	if _, err := handle.Wait(); err != nil {
+		if isError {
+			return "", fmt.Errorf("agent returned error: %s: %w", finalResult, err)
+		}
 		return "", err
 	}
 

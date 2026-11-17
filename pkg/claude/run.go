@@ -95,6 +95,9 @@ func Run(ctx context.Context, cwd string, args []string) (string, error) {
 	}
 
 	if _, err := handle.Wait(); err != nil {
+		if resultIsError {
+			return "", fmt.Errorf("agent returned error: %s: %w", resultText, err)
+		}
 		return "", err
 	}
 	if resultIsError {
