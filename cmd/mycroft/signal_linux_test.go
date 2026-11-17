@@ -31,10 +31,17 @@ func TestSpawnTerminalSignalDuringSeatResolve(t *testing.T) {
 	release := filepath.Join(dir, "release")
 	called := filepath.Join(dir, "bb-called")
 	// Pause the fake resolver until the test has delivered SIGTERM. No real
-	// routing service or worker CLI is used in this subprocess.
+	// routing service or worker CLI is used in this subprocess. SIGTERM
+	// orphans this shell, so the loop must end on its own: it stops when the
+	// test's temp dir is gone and after about 30 seconds at most.
 	ic := `#!/bin/sh
 echo $$ > "$RESOLVE_READY"
-while [ ! -e "$RESOLVE_RELEASE" ]; do sleep 0.01; done
+n=0
+while [ ! -e "$RESOLVE_RELEASE" ]; do
+  [ -d "${RESOLVE_RELEASE%/*}" ] || exit 0
+  n=$((n+1)); [ "$n" -lt 3000 ] || exit 1
+  sleep 0.01
+done
 printf '%s\n' '{"requested_role":"routine-execution","profile_ref":"fixture","profile":{"backend":"codex","model":"fixture","reasoning_effort":"medium"},"policy_hash":"fixture","frontier_required":false}'
 `
 	bb := `#!/bin/sh
@@ -58,13 +65,16 @@ esac
 		"MYCROFT_SIGNAL_HELPER=spawn", "MYCROFT_DATA_DIR="+dir,
 		"CLAVAIN_ROUTING_POLICY=fixture", "AUTARCH_BB_PROJECT=fixture", "AUTARCH_BB_ENVIRONMENT=fixture",
 		"RESOLVE_READY="+ready, "RESOLVE_RELEASE="+release, "BB_CALLED="+called)
+	// Run the helper in its own process group, so cleanup can also reach the
+	// fake resolver it starts, which outlives the helper after SIGTERM.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		_ = os.WriteFile(release, nil, 0600)
 	})
 	deadline := time.Now().Add(3 * time.Second)
@@ -108,6 +118,35 @@ esac
 	} else if !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
+	// The fake resolver must not outlive the test.
+	data, err := os.ReadFile(ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatalf("resolver pid %q: %v", data, err)
+	}
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	deadline = time.Now().Add(3 * time.Second)
+	for processLive(resolver) {
+		if time.Now().After(deadline) {
+			t.Fatalf("fake resolver %d still running after its process group was killed", resolver)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// processLive reports whether pid names a process that has not exited. A
+// zombie waiting to be reaped counts as exited.
+func processLive(pid int) bool {
+	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return false
+	}
+	s := string(stat)
+	i := strings.LastIndexByte(s, ')')
+	return i < 0 || i+2 >= len(s) || s[i+2] != 'Z'
 }
 
 func TestPreDispatchTerminalSignal(t *testing.T) {
