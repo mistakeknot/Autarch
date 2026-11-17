@@ -211,6 +211,11 @@ func (a *UnifiedApp) initAgentSelector() {
 		return
 	}
 
+	a.initAgentSelectorWithOptions(projectRoot, options)
+}
+
+// initAgentSelectorWithOptions separates preference resolution from tool discovery.
+func (a *UnifiedApp) initAgentSelectorWithOptions(projectRoot string, options []pkgtui.AgentOption) {
 	options = filterSupportedAgentOptions(options)
 	selection := a.codingAgent
 	if selection == nil {
@@ -226,7 +231,7 @@ func (a *UnifiedApp) initAgentSelector() {
 		source = "configured, not detected"
 	}
 	if filepath.IsAbs(source) {
-		source = "project config"
+		source = "project config (current directory)"
 	}
 	found := false
 	for i := range options {
@@ -541,7 +546,7 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.selectedAgent = msg.Name
 			a.setSelectorIndex(msg.Name)
 			if a.agentSelector != nil && len(a.agentSelector.Options) > 0 {
-				a.agentSelector.Options[a.agentSelector.Index].Source = "explicit agent selection"
+				a.agentSelector.Options[a.agentSelector.Index].Source = "UI choice; dispatch resolves per operation"
 			}
 			a.attachAgentName(a.currentView)
 		} else {

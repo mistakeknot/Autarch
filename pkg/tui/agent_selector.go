@@ -74,6 +74,7 @@ func (s *AgentSelector) Update(msg tea.KeyMsg) (tea.Msg, tea.Cmd) {
 	case "enter":
 		if len(s.Options) > 0 {
 			opt := s.Options[s.Index]
+			s.Index = s.openingIndex
 			s.Open = false
 			return AgentSelectedMsg{Name: opt.Name}, nil
 		}
@@ -90,7 +91,7 @@ func (s *AgentSelector) View(width ...int) string {
 	}
 	if !s.Open {
 		name := s.currentLabel()
-		label := fmt.Sprintf("Model: %s (ctrl+g)", name)
+		label := fmt.Sprintf("UI model choice: %s (ctrl+g)", name)
 		label = lipgloss.NewStyle().Foreground(ColorMuted).Render(label)
 		if len(width) > 0 {
 			label = ansi.Truncate(label, max(0, width[0]), "…")

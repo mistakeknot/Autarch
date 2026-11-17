@@ -48,7 +48,7 @@ func TestAgentSelectorIgnoresNumericPick(t *testing.T) {
 func TestAgentSelectorRendersAsModelControl(t *testing.T) {
 	sel := NewAgentSelector([]AgentOption{{Name: "codex"}})
 	view := sel.View()
-	if !strings.Contains(view, "Model") {
+	if !strings.Contains(view, "UI model choice") {
 		t.Fatalf("expected model label")
 	}
 }
@@ -89,7 +89,8 @@ func TestAgentSelectorCancelRestoresEffectiveLabel(t *testing.T) {
 			s.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
 			s.Update(tea.KeyMsg{Type: tea.KeyDown})
 			s.Update(tea.KeyMsg{Type: tea.KeyEnter})
-			s.Options[1].Source = "explicit agent selection"
+			s.Index = 1 // app confirms the requested choice
+			s.Options[1].Source = "UI choice; dispatch resolves per operation"
 			before = s.View()
 			s.Update(tea.KeyMsg{Type: tea.KeyF2})
 			s.Update(tea.KeyMsg{Type: tea.KeyUp})
@@ -98,5 +99,19 @@ func TestAgentSelectorCancelRestoresEffectiveLabel(t *testing.T) {
 				t.Fatal("cancel lost confirmed selection")
 			}
 		})
+	}
+}
+
+func TestAgentSelectorEnterWaitsForConfirmation(t *testing.T) {
+	s := NewAgentSelector([]AgentOption{{Name: "codex", Source: "AUTARCH_DISPATCH_AGENT"}, {Name: "claude", Source: "detected"}})
+	before := s.View()
+	s.Update(tea.KeyMsg{Type: tea.KeyF2})
+	s.Update(tea.KeyMsg{Type: tea.KeyDown})
+	msg, _ := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if picked, ok := msg.(AgentSelectedMsg); !ok || picked.Name != "claude" {
+		t.Fatal("lost requested pick")
+	}
+	if s.Open || s.View() != before {
+		t.Fatal("unconfirmed pick changed closed label:", s.View())
 	}
 }

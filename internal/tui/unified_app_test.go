@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mistakeknot/autarch/pkg/agenttargets"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -385,12 +386,13 @@ func TestSignalsOverlayBlocksKeysToView(t *testing.T) {
 func TestAgentSelectorUsesDispatchPreference(t *testing.T) {
 	for _, tc := range []struct{ name, env, config, want, source string }{
 		{"environment", "codex", "", "codex", "AUTARCH_DISPATCH_AGENT"},
-		{"project", "", "[dispatch]\npreferred_agent = \"codex\"\n", "codex", "project config"},
+		{"project", "", "[dispatch]\npreferred_agent = \"codex\"\n", "codex", "project config (current directory)"},
 		{"automatic", "", "", "claude", "automatic detection"},
 		{"unknown", "unavailable-agent", "", "unavailable-agent", "AUTARCH_DISPATCH_AGENT"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
+			isolateSelectorEnvironment(t)
 			t.Chdir(root)
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 			t.Setenv("PATH", t.TempDir())
@@ -403,7 +405,7 @@ func TestAgentSelectorUsesDispatchPreference(t *testing.T) {
 			}
 			app := NewUnifiedApp(nil)
 			app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
-			app.initAgentSelector()
+			initAgentSelectorWithoutDetection(t, app)
 			if app.selectedAgent != tc.want {
 				t.Fatalf("selected = %q, want %q", app.selectedAgent, tc.want)
 			}
@@ -416,6 +418,7 @@ func TestAgentSelectorUsesDispatchPreference(t *testing.T) {
 }
 
 func TestAgentSelectionFailureKeepsEffectiveLabel(t *testing.T) {
+	isolateSelectorEnvironment(t)
 	t.Setenv("AUTARCH_DISPATCH_AGENT", "codex")
 	app := NewUnifiedApp(nil)
 	app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
@@ -441,7 +444,7 @@ func TestAgentSelectorConfiguredOptionsWithoutDetection(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := NewUnifiedApp(nil)
-	app.initAgentSelector()
+	initAgentSelectorWithoutDetection(t, app)
 	if app.agentSelector == nil {
 		t.Fatal("configured options lost without detection")
 	}
@@ -450,24 +453,25 @@ func TestAgentSelectorConfiguredOptionsWithoutDetection(t *testing.T) {
 	}
 }
 
-func TestAgentSelectionExplicitOverridesPreference(t *testing.T) {
+func TestAgentSelectionLabelsUIChoice(t *testing.T) {
 	if os.Getenv("AUTARCH_SELECTION_TEST_CHILD") == "1" {
 		app := NewUnifiedApp(nil)
 		app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
 		app.agentSelector = pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
 		app.Update(pkgtui.AgentSelectedMsg{Name: "codex"})
 		name, source := app.codingAgent.DispatchPreference(".")
-		if name != "codex" || source != "explicit agent selection" || !strings.Contains(app.agentSelector.View(), "explicit agent selection") {
-			t.Fatalf("selection did not override preference: %s %s %s", name, source, app.agentSelector.View())
+		if name != "codex" || source != "explicit agent selection" || !strings.Contains(app.agentSelector.View(), "UI choice; dispatch resolves per operation") {
+			t.Fatalf("UI choice mislabeled: %s %s %s", name, source, app.agentSelector.View())
 		}
 		return
 	}
+	isolateSelectorEnvironment(t)
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte("#!/bin/sh\necho test-version\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestAgentSelectionExplicitOverridesPreference$")
-	cmd.Env = append(os.Environ(), "AUTARCH_SELECTION_TEST_CHILD=1", "AUTARCH_DISPATCH_AGENT=claude", "PATH="+dir)
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAgentSelectionLabelsUIChoice$")
+	cmd.Env = append(os.Environ(), "AUTARCH_SELECTION_TEST_CHILD=1", "AUTARCH_DISPATCH_AGENT=claude", "PATH="+dir, "HOME="+t.TempDir(), "XDG_CONFIG_HOME="+t.TempDir())
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("child: %v %s", err, out)
 	}
@@ -486,7 +490,7 @@ func TestAgentSelectorMatchesPreferenceIgnoringCase(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := NewUnifiedApp(nil)
-	app.initAgentSelector()
+	initAgentSelectorWithoutDetection(t, app)
 	count := 0
 	for _, opt := range app.agentSelector.Options {
 		if strings.EqualFold(opt.Name, "codex") {
@@ -496,4 +500,25 @@ func TestAgentSelectorMatchesPreferenceIgnoringCase(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("got %d codex options", count)
 	}
+}
+
+func isolateSelectorEnvironment(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+}
+
+// Supply only fixture registries so fallback install paths cannot discover host CLIs.
+func initAgentSelectorWithoutDetection(t *testing.T, app *UnifiedApp) {
+	t.Helper()
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	global, project, err := agenttargets.Load(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "autarch", "agents.toml"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.initAgentSelectorWithOptions(root, buildAgentOptionsFromRegistry(agenttargets.Merge(global, project)))
 }
