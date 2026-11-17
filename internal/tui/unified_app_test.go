@@ -599,3 +599,96 @@ func TestScanSelectorReloadFailureKeepsViewsConsistent(t *testing.T) {
 		t.Fatal("app and view have different selectors")
 	}
 }
+
+// Run in a child so the process-wide detector cache cannot reuse a host CLI.
+// Both detector names resolve in the fixture PATH before fallback probe dirs.
+func TestScanReloadPreservesAgentPickAcrossTabs(t *testing.T) {
+	if os.Getenv("AUTARCH_RELOAD_PICK_CHILD") != "1" {
+		bin := t.TempDir()
+		for _, name := range []string{"claude", "codex"} {
+			if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\necho fixture-version\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		cmd := exec.Command(os.Args[0], "-test.run=^TestScanReloadPreservesAgentPickAcrossTabs$", "-test.count=1")
+		cmd.Env = append(os.Environ(), "AUTARCH_RELOAD_PICK_CHILD=1", "PATH="+bin, "HOME="+t.TempDir(), "XDG_CONFIG_HOME="+t.TempDir())
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("child: %v\n%s", err, out)
+		}
+		return
+	}
+	t.Chdir(t.TempDir())
+	t.Setenv("AUTARCH_DISPATCH_AGENT", "claude")
+	t.Setenv("AUTARCH_DISPATCH_BACKEND", "")
+	for _, failReload := range []bool{false, true} {
+		name := "success"
+		if failReload {
+			name = "failure"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.Mkdir(filepath.Join(root, ".gurgeh"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			config := "[dispatch]\npreferred_agent = \"claude\"\n"
+			if failReload {
+				config = "invalid = ["
+			}
+			if err := os.WriteFile(filepath.Join(root, ".gurgeh", "agents.toml"), []byte(config), 0600); err != nil {
+				t.Fatal(err)
+			}
+			app := NewUnifiedApp(nil)
+			app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
+			app.initAgentSelectorWithOptions(".", []pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
+			views := []*reloadPickView{{}, {}, {}, {}}
+			app.tabs = NewTabBar([]string{"Bigend", "Gurgeh", "Coldwine", "Pollard"})
+			for _, view := range views {
+				app.dashViews = append(app.dashViews, view)
+			}
+			app.currentView = views[0]
+			app.Update(pkgtui.AgentSelectedMsg{Name: "codex"})
+			if app.selectedAgent != "codex" {
+				t.Fatal("fixture pick failed")
+			}
+			oldAgent, oldSelector := app.codingAgent, app.agentSelector
+			// Check that the fixture exercises the intended reload outcome.
+			if _, err := LoadAgentOptions(root); (err != nil) != failReload {
+				t.Fatalf("reload error = %v, want failure %v", err, failReload)
+			}
+			app.Update(ScanCodebaseMsg{Path: root})
+			if app.codingAgent == oldAgent {
+				t.Fatal("scan did not replace agent snapshot")
+			}
+			if (app.agentSelector == oldSelector) != failReload {
+				t.Fatal("unexpected selector reload outcome")
+			}
+			// Tab switching does not reattach state: inactive views must already
+			// have received the scan's new project and selection snapshot.
+			for i, view := range views {
+				app.switchToTab(i)
+				if app.currentView != view {
+					t.Fatalf("tab %d did not activate", i)
+				}
+				if view.name != "codex" || view.selector == nil || !strings.Contains(view.selector.View(), "codex") || !strings.Contains(view.selector.View(), "explicit agent selection") {
+					t.Fatalf("tab %d label lost pick: %q, %+v", i, view.name, view.selector)
+				}
+				if view.codingAgent == nil || view.codingAgent.ProjectRoot != root {
+					t.Fatalf("tab %d has stale dispatch project", i)
+				}
+				cfg := view.codingAgent.ApplyDispatchConfig(agenttargets.LoadDispatchConfig(view.codingAgent.ProjectRoot))
+				if cfg.PreferredAgent != "codex" || cfg.PreferredAgentSource != "explicit agent selection" {
+					t.Fatalf("tab %d dispatch config: %+v", i, cfg)
+				}
+			}
+		})
+	}
+}
+
+type reloadPickView struct {
+	selectorReceivingView
+	name string
+}
+
+func (v *reloadPickView) SetAgentName(name string) { v.name = name }
+
+func (v *reloadPickView) Update(tea.Msg) (pkgtui.View, tea.Cmd) { return v, nil }
