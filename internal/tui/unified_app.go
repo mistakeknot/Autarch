@@ -783,7 +783,7 @@ func (a *UnifiedApp) initPaletteCommands() {
 		})
 	}
 	cmds = append(cmds, Command{
-		Name:        "Toggle Dispatch agent selector",
+		Name:        "Choose Dispatch agent (Ctrl+G / F2)",
 		Description: "Choose Dispatch agent",
 		Action: func() tea.Cmd {
 			return func() tea.Msg {
@@ -1155,7 +1155,7 @@ func (a *UnifiedApp) renderHelpOverlay() string {
 		{Key: "/big /gur etc.", Description: "Switch tabs (Bigend/Gurgeh/Coldwine/Pollard)"},
 		{Key: "ctrl+left/right", Description: "Cycle tabs"},
 		{Key: "ctrl+p", Description: "Command palette"},
-		{Key: "ctrl+g", Description: "Dispatch agent"},
+		{Key: "ctrl+g", Description: "Choose Dispatch agent"},
 		{Key: "/bigend, etc.", Description: "Switch to tool by name"},
 		{Key: "ctrl+l", Description: "Toggle log pane"},
 		{Key: "/sig", Description: "Toggle signals overlay"},

@@ -1,12 +1,12 @@
 package tui
 
 import (
-	"github.com/charmbracelet/x/ansi"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestAgentSelectorToggleAndSelect(t *testing.T) {
@@ -157,6 +157,57 @@ func TestAgentSelectorHighlightedOptionVisible(t *testing.T) {
 			}
 			if strings.Contains(plain, "\x1b") {
 				t.Fatalf("broken ANSI: %q", got)
+			}
+		}
+	}
+}
+
+func TestAgentSelectorOptionWindow(t *testing.T) {
+	s := NewAgentSelector([]AgentOption{{Name: "claude"}, {Name: "codex"}, {Name: "gemini"}, {Name: "kimi"}})
+	s.Open = true
+	for index := range s.Options {
+		s.Index = index
+		full := s.View()
+		fullWidth := lipgloss.Width(full)
+		if got := s.View(fullWidth); got != full {
+			t.Fatalf("full width changed: %q != %q", got, full)
+		}
+		for width := 0; width < fullWidth; width++ {
+			got := ansi.Strip(s.View(width))
+			selected := "> " + s.Options[index].Name
+			if lipgloss.Width(got) > width {
+				t.Fatalf("width %d overflow: %q", width, got)
+			}
+			if width > 0 && !strings.Contains(got, ">") {
+				t.Fatalf("width %d hides highlight: %q", width, got)
+			}
+			if width >= lipgloss.Width(selected) && !strings.Contains(got, selected) {
+				t.Fatalf("width %d hides option: %q", width, got)
+			}
+			if width >= lipgloss.Width("Dispatch: "+selected) && !strings.HasPrefix(got, "Dispatch: ") {
+				t.Fatalf("width %d loses prefix: %q", width, got)
+			}
+			neighbourVisible := false
+			for i, opt := range s.Options {
+				if i != index && strings.Contains(got, opt.Name) {
+					neighbourVisible = true
+				}
+			}
+			if width == fullWidth-1 && !neighbourVisible {
+				t.Fatalf("near full width loses neighbours: %q", got)
+			}
+		}
+	}
+}
+
+func TestAgentSelectorInvalidIndexFitsWidth(t *testing.T) {
+	s := NewAgentSelector([]AgentOption{{Name: "claude"}, {Name: "codex"}})
+	s.Open = true
+	for _, index := range []int{-1, len(s.Options)} {
+		s.Index = index
+		for width := 0; width <= 30; width++ {
+			if got := lipgloss.Width(s.View(width)); got > width {
+				t.Fatalf("index %d width %d: rendered width %d", index, width, got)
 			}
 		}
 	}

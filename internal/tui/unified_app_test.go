@@ -702,6 +702,11 @@ func TestDispatchPaletteLabelsDescribeModes(t *testing.T) {
 	assertDispatch := func(want string) {
 		t.Helper()
 		for _, cmd := range app.palette.commands {
+			if cmd.Name == cmd.Description {
+				t.Errorf("palette repeats name as description: %q", cmd.Name)
+			}
+		}
+		for _, cmd := range app.palette.commands {
 			if cmd.Name == want {
 				msg := cmd.Action()()
 				if key, ok := msg.(tea.KeyMsg); !ok || key.Type != tea.KeyF2 {
@@ -712,7 +717,7 @@ func TestDispatchPaletteLabelsDescribeModes(t *testing.T) {
 		}
 		t.Errorf("missing palette label %q", want)
 	}
-	assertDispatch("Toggle Dispatch agent selector")
+	assertDispatch("Choose Dispatch agent (Ctrl+G / F2)")
 	app.updateCommands()
 	assertDispatch("Choose Dispatch agent (Ctrl+G / F2)")
 }

@@ -110,17 +110,42 @@ func (s *AgentSelector) View(width ...int) string {
 		parts = append(parts, label)
 	}
 
-	label := lipgloss.NewStyle().Foreground(ColorFgDim).Render("Dispatch: ") + strings.Join(parts, "  ")
-	if len(width) > 0 && lipgloss.Width(label) > max(0, width[0]) {
-		// Prioritize the highlighted option over the prefix and other options.
-		// Omitting the ellipsis preserves the highlight even in a single column.
-		for i, part := range parts {
-			if i == s.Index {
-				return ansi.Truncate(part, max(0, width[0]), "")
-			}
-		}
-		label = ansi.Truncate(label, max(0, width[0]), "…")
+	prefix := lipgloss.NewStyle().Foreground(ColorFgDim).Render("Dispatch: ")
+	label := prefix + strings.Join(parts, "  ")
+	if len(width) == 0 || lipgloss.Width(label) <= max(0, width[0]) {
+		return label
 	}
+	available := max(0, width[0])
+	if s.Index < 0 || s.Index >= len(parts) {
+		// Public selector fields can be populated with an invalid index by callers.
+		return ansi.Truncate(label, available, "…")
+	}
+	selectedWidth := lipgloss.Width(parts[s.Index])
+	if available < selectedWidth {
+		return ansi.Truncate(parts[s.Index], available, "")
+	}
+	// Keep the prefix whenever it fits with the complete highlighted option.
+	if lipgloss.Width(prefix)+selectedWidth > available {
+		prefix = ""
+	}
+	used := lipgloss.Width(prefix) + selectedWidth
+	start, end := s.Index, s.Index+1
+	// Expand a contiguous window, preferring the side closer to the highlight.
+	for start > 0 || end < len(parts) {
+		leftFits := start > 0 && used+2+lipgloss.Width(parts[start-1]) <= available
+		rightFits := end < len(parts) && used+2+lipgloss.Width(parts[end]) <= available
+		if !leftFits && !rightFits {
+			break
+		}
+		if leftFits && (!rightFits || s.Index-start <= end-s.Index-1) {
+			start--
+			used += 2 + lipgloss.Width(parts[start])
+		} else {
+			used += 2 + lipgloss.Width(parts[end])
+			end++
+		}
+	}
+	label = prefix + strings.Join(parts[start:end], "  ")
 	return label
 }
 
