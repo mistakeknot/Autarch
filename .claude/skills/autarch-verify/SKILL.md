@@ -74,3 +74,12 @@ A catch pair is comparable only when verifier manifest hashes and product
 e2e tree hashes match. Historical heads without the scenario are not exercisable.
 Passing regression checks never count as incremental catches. Keep cold, warm,
 retry, incomplete and verifier-changed observations separate.
+
+Base and head must resolve to distinct commits; identical or unresolved refs are
+errors. An empty or docs-only diff is NO-FLOW, with nothing verified from that
+diff. It never yields PASS, including when additional journeys are requested.
+
+Suite outcomes supplied through `--suite-results` are operator-supplied,
+unverified claims. The claimed head is recorded and must equal the resolved
+product head. JSON and Markdown identify this provenance; verify the underlying
+same-head suite evidence independently before counting an incremental catch.

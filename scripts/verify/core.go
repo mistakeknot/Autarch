@@ -75,6 +75,9 @@ type Mapping struct {
 }
 
 func verdict(values []string) string {
+	if len(values) == 0 {
+		return "NO-FLOW"
+	}
 	for _, v := range []string{"FAIL", "INCOMPLETE", "VERIFIER-CHANGED", "NO-FLOW"} {
 		for _, have := range values {
 			if have == v {
@@ -299,6 +302,9 @@ func classifyHarness(code int, lines []byte) string {
 	}
 	if !seen || code != 0 {
 		states = append(states, "INCOMPLETE")
+	}
+	if seen && len(states) == 0 {
+		states = append(states, "PASS")
 	}
 	return verdict(states)
 }

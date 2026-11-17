@@ -26,6 +26,67 @@ import (
 
 const plugin = "integrations/bb-plugin-autarch"
 
+var verifierPaths = []string{"scripts/verify", ".claude/skills/autarch-verify"}
+var headVerifierPaths = []string{plugin + "/e2e", plugin + "/scripts", plugin + "/__tests__/fake-bb-server.ts", plugin + "/__tests__/fixtures"}
+
+func verifierInput(name string) bool {
+	for _, group := range [][]string{verifierPaths, headVerifierPaths} {
+		for _, prefix := range group {
+			if name == prefix || strings.HasPrefix(name, prefix+"/") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func coverageVerdicts(paths []Mapping) ([]string, bool) {
+	values := []string{}
+	nothing := true
+	for _, p := range paths {
+		if p.Coverage != "ignored" {
+			nothing = false
+		}
+		if p.Coverage == "NO-FLOW" {
+			values = append(values, "NO-FLOW")
+		}
+		if verifierInput(p.Path) {
+			values = append(values, "VERIFIER-CHANGED")
+		}
+	}
+	if nothing {
+		values = append(values, "NO-FLOW")
+	}
+	return values, nothing
+}
+
+func resolveRange(root, base, head string) (string, string, error) {
+	b, err := git(root, "rev-parse", "--verify", base+"^{commit}")
+	if err != nil {
+		return "", "", fmt.Errorf("resolve base: %w", err)
+	}
+	h, err := git(root, "rev-parse", "--verify", head+"^{commit}")
+	if err != nil {
+		return "", "", fmt.Errorf("resolve head: %w", err)
+	}
+	if b == h {
+		return "", "", fmt.Errorf("base and head resolve to the same commit; nothing can be verified")
+	}
+	return b, h, nil
+}
+
+func seedMirror(root, mirror, head string) error {
+	if _, err := git(root, "clone", "--bare", "--no-local", root, mirror); err != nil {
+		return err
+	}
+	// Bare clones copy branch/tag tips, not remote-tracking or dangling heads.
+	// Fetch only the already resolved local object; network transport stays off.
+	if _, err := git(mirror, "fetch", "--no-tags", root, head); err != nil {
+		return fmt.Errorf("resolved head unavailable in owned mirror: %w", err)
+	}
+	return nil
+}
+
 func hash(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
 
 func treeHash(root string) (string, error) {
@@ -166,6 +227,8 @@ type Report struct {
 	State           string            `json:"cache_state"`
 	PR              string            `json:"pr"`
 	Suites          map[string]string `json:"same_head_suites"`
+	SuiteSource     string            `json:"suite_results_source"`
+	SuiteClaimHead  string            `json:"suite_results_claimed_head,omitempty"`
 	Cause           string            `json:"cause,omitempty"`
 }
 
@@ -195,7 +258,7 @@ func loadMap(name string) ([]Row, error) {
 	return out, nil
 }
 func manifest(root string) (map[string]string, string, error) {
-	names, e := git(root, "ls-files", "-z", "--", "scripts/verify", ".claude/skills/autarch-verify")
+	names, e := git(root, append([]string{"ls-files", "-z", "--"}, verifierPaths...)...)
 	if e != nil {
 		return nil, "", e
 	}
@@ -217,7 +280,7 @@ func manifest(root string) (map[string]string, string, error) {
 // Head-owned harness fixtures and build helpers are executed inputs too. Keep
 // them in the content manifest as well as recording the separate e2e tree ID.
 func productVerifierManifest(product string, r *Report) error {
-	names, err := git(product, "ls-files", "-z", "--", plugin+"/e2e", plugin+"/scripts", plugin+"/__tests__/fake-bb-server.ts", plugin+"/__tests__/fixtures")
+	names, err := git(product, append([]string{"ls-files", "-z", "--"}, headVerifierPaths...)...)
 	if err != nil {
 		return err
 	}
@@ -315,6 +378,13 @@ func nodeToolchain() (string, string, []string, error) {
 }
 
 func writeReport(out, ledger string, r Report) error {
+	if r.SuiteSource == "" {
+		if len(r.Suites) != 0 {
+			r.SuiteSource = "operator-supplied, unverified"
+		} else {
+			r.SuiteSource = "not supplied"
+		}
+	}
 	b, e := json.MarshalIndent(r, "", "  ")
 	if e != nil {
 		return e
@@ -343,6 +413,9 @@ func writeReport(out, ledger string, r Report) error {
 		suites = append(suites, name)
 	}
 	sort.Strings(suites)
+	if len(suites) != 0 {
+		fmt.Fprintf(&md, "\nSuite results: %s. Claimed head: `%s`. Claims alone do not establish an incremental catch.\n", r.SuiteSource, r.SuiteClaimHead)
+	}
 	for _, name := range suites {
 		fmt.Fprintf(&md, "\n- %s: %s\n", name, r.Suites[name])
 	}
@@ -478,11 +551,7 @@ func execute(started time.Time) (resultErr error) {
 	if status != "" {
 		return fmt.Errorf("dirty verifier refused")
 	}
-	baseSHA, e := git(root, "rev-parse", "--verify", *base+"^{commit}")
-	if e != nil {
-		return e
-	}
-	headSHA, e := git(root, "rev-parse", "--verify", *head+"^{commit}")
+	baseSHA, headSHA, e := resolveRange(root, *base, *head)
 	if e != nil {
 		return e
 	}
@@ -526,7 +595,7 @@ func execute(started time.Time) (resultErr error) {
 	if e != nil {
 		return e
 	}
-	r := Report{Schema: "autarch-verify/v1", Base: baseSHA, Head: headSHA, MergeBase: mergeBase, HeadTree: headTree, Verifier: *pin, State: *state, PR: *pr, Artifacts: map[string]string{}, Cache: map[string]any{}, Suites: map[string]string{"go test -race ./...": "not supplied", "plugin vitest": "not supplied"}, Journeys: []Result{}}
+	r := Report{Schema: "autarch-verify/v1", Base: baseSHA, Head: headSHA, MergeBase: mergeBase, HeadTree: headTree, Verifier: *pin, State: *state, PR: *pr, Artifacts: map[string]string{}, Cache: map[string]any{}, Suites: map[string]string{"go test -race ./...": "not supplied", "plugin vitest": "not supplied"}, SuiteSource: "not supplied", Journeys: []Result{}}
 	if executable, err := os.Executable(); err == nil {
 		if bytes, err := os.ReadFile(executable); err == nil {
 			r.Artifacts["verifier_binary_sha256"] = hash(bytes)
@@ -552,6 +621,8 @@ func execute(started time.Time) (resultErr error) {
 			return fmt.Errorf("suite evidence must name this exact head and results")
 		}
 		r.Suites = supplied.Results
+		r.SuiteSource = "operator-supplied, unverified"
+		r.SuiteClaimHead = supplied.Head
 	}
 	r.Manifest, r.ManifestHash, e = manifest(root)
 	if e != nil {
@@ -568,14 +639,13 @@ func execute(started time.Time) (resultErr error) {
 	}
 	r.Paths, _ = selectFlows(names, rows, nil)
 	_, flows := selectFlows(names, rows, strings.Split(*flowsArg, ","))
-	values := []string{}
+	values, nothing := coverageVerdicts(r.Paths)
+	if nothing {
+		r.Cause = "NO-FLOW: no non-ignored paths changed; nothing verified from this diff."
+	}
 	for _, p := range r.Paths {
-		if p.Coverage == "NO-FLOW" {
-			values = append(values, "NO-FLOW")
-		}
-		if strings.HasPrefix(p.Path, "scripts/verify/") || strings.HasPrefix(p.Path, ".claude/skills/autarch-verify/") || strings.HasPrefix(p.Path, plugin+"/e2e/") || strings.HasPrefix(p.Path, plugin+"/scripts/") {
+		if verifierInput(p.Path) {
 			r.VerifierChanged = true
-			values = append(values, "VERIFIER-CHANGED")
 		}
 	}
 	work, e := os.MkdirTemp("/tmp", "autarch-verify-")
@@ -600,7 +670,7 @@ func execute(started time.Time) (resultErr error) {
 		}
 		fmt.Printf("%s %s\n", r.Verdict, filepath.Join(out, "report.md"))
 	}()
-	if _, e = git(root, "clone", "--bare", "--no-local", root, mirror); e != nil {
+	if e = seedMirror(root, mirror, headSHA); e != nil {
 		values = append(values, "INCOMPLETE")
 		r.Cause = e.Error()
 		return nil

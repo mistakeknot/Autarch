@@ -503,7 +503,7 @@ func TestPrecedence(t *testing.T) {
 		in   []string
 		want string
 	}{
-		{nil, "PASS"}, {[]string{"NO-FLOW"}, "NO-FLOW"},
+		{nil, "NO-FLOW"}, {[]string{"PASS"}, "PASS"}, {[]string{"NO-FLOW"}, "NO-FLOW"},
 		{[]string{"NO-FLOW", "VERIFIER-CHANGED"}, "VERIFIER-CHANGED"},
 		{[]string{"VERIFIER-CHANGED", "INCOMPLETE"}, "INCOMPLETE"},
 		{[]string{"FAIL", "INCOMPLETE"}, "FAIL"},
