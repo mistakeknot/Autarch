@@ -277,10 +277,10 @@ Type `/` in the chat composer to open a fuzzy finder for commands. Use `â†‘`/`â†
 
 ### Agent dispatch
 
-Autarch generation and Gurgeh exploration read project preferences from
+Autarch generation, Gurgeh exploration and `gurgeh export briefs` read project preferences from
 `.gurgeh/agents.toml`. They use `.praude/agents.toml` only when `.gurgeh` is absent.
 Autarch generation uses the process working directory; exploration uses its
-supplied project directory. Global agent target files do not supply dispatch preferences.
+supplied project directory, as does brief export. Global agent target files do not supply dispatch preferences.
 
 ```toml
 [dispatch]
@@ -305,7 +305,8 @@ rejected before launch. Dispatch does not start paid API calls.
 A valid project `timeout` (Go duration syntax) replaces each site's timeout:
 Autarch generation defaults to 30 minutes; exploration, phase generation,
 phase generation from context, revision and change propagation default to
-10, 5, 3, 5 and 8 minutes respectively. An invalid duration leaves the caller's
+10, 5, 3, 5 and 8 minutes respectively. Brief export defaults to 10 minutes and
+Claude, with an optional explicit agent choice through the Decompose Go API. An invalid duration leaves the caller's
 timeout unchanged. Explicit model and session arguments retain precedence;
 this configuration defines no model or session preference or environment override.
 Malformed or unreadable files produce a warning naming the file and fall back to
