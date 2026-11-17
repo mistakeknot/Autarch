@@ -8,7 +8,7 @@ import (
 )
 
 // Explicit staging keeps capture-only commits behaviorally identical.
-const recoveryStage = 0
+const recoveryStage = 1
 const recoveryNotice = "[stderr withheld: 4096 bytes with no complete line]"
 
 type recoveryCase struct {
@@ -124,5 +124,105 @@ func TestRecoveryExact(t *testing.T) {
 	}
 	if got := sanitizedStderr([]byte(strings.Repeat("x", 5000))); got != "[stderr withheld: 5000 bytes with no complete line]" {
 		t.Fatal(got)
+	}
+}
+
+func TestRecoveryInconsistentWindow(t *testing.T) {
+	tail := &stderrTail{started: true, seen: 5000, history: []byte(strings.Repeat("x", 5000)), data: []byte(strings.Repeat("y", 4096))}
+	if _, ok := tail.completeHistory(); ok {
+		t.Fatal("inconsistent history certified")
+	}
+	if got := recoveryOutput(t, tail); got != recoveryNotice {
+		t.Fatal(got)
+	}
+}
+
+func TestRecoveryPrepopulatedWrite(t *testing.T) {
+	for _, n := range []int{4096, 5000} {
+		for _, chunk := range []int{n, 7} {
+			t.Run(fmt.Sprintf("%d/%d", n, chunk), func(t *testing.T) {
+				tail := &stderrTail{data: []byte("old")}
+				input := strings.Repeat("x", n)
+				for p := 0; p < n; p += chunk {
+					tail.Write([]byte(input[p:min(p+chunk, n)]))
+				}
+				if !tail.historyLost {
+					t.Fatal("initial loss not sticky")
+				}
+				if got := recoveryOutput(t, tail); got != recoveryNotice {
+					t.Fatal("prepopulated recovery", got)
+				}
+			})
+		}
+	}
+}
+
+func TestRecoveryLazyCapture(t *testing.T) {
+	tail := new(stderrTail)
+	tail.Write(nil)
+	if tail.started {
+		t.Fatal("zero write started capture")
+	}
+	tail.Write([]byte(strings.Repeat("x", 4095)))
+	if tail.history != nil || tail.seen != 4095 {
+		t.Fatal("eager history")
+	}
+	tail.Write([]byte("y"))
+	if tail.history != nil || tail.seen != 4096 {
+		t.Fatal("history at exact window")
+	}
+	tail.Write([]byte("z"))
+	if cap(tail.history) != 8192 || string(tail.history) != strings.Repeat("x", 4095)+"yz" {
+		t.Fatal("threshold seed")
+	}
+	tail.Write([]byte(strings.Repeat("q", 4095)))
+	if len(tail.history) != 8192 || tail.historyLost {
+		t.Fatal("exact cap")
+	}
+	tail.Write([]byte("!"))
+	if !tail.historyLost || tail.history != nil || tail.seen != 8193 {
+		t.Fatal("overflow")
+	}
+	for _, end := range []string{"\r", "\n", " ", "\t", "\ruseful", strings.Repeat("x", 4096)} {
+		tail.Write([]byte(end))
+		if !tail.historyLost || tail.history != nil {
+			t.Fatal("lost state reentered")
+		}
+	}
+	for _, chunk := range []int{1, 7, 4096, 8193} {
+		other := recoveryWrite(strings.Repeat("x", 8193), chunk)
+		if !other.historyLost || other.history != nil {
+			t.Fatal("chunk overflow")
+		}
+	}
+	short := recoveryWrite("short", 1)
+	if short.history != nil || processError(nil, false, short) != nil {
+		t.Fatal("short success")
+	}
+}
+
+func TestRecoveryCallerOwnership(t *testing.T) {
+	input := strings.Repeat("x", 5000) + "\rError: quota exceeded\r\n"
+	for _, chunk := range []int{1, 7, 1024, 4095, 4096, len(input)} {
+		tail := new(stderrTail)
+		buffer := make([]byte, chunk)
+		for p := 0; p < len(input); p += chunk {
+			n := copy(buffer, input[p:min(p+chunk, len(input))])
+			tail.Write(buffer[:n])
+			for i := range buffer {
+				buffer[i] = 'q'
+			}
+		}
+		h, ok := tail.completeHistory()
+		if !ok || string(h) != input {
+			t.Fatal("writer buffer retained")
+		}
+		want := recoveryNotice
+		if recoveryStage == 2 {
+			want = "Error: quota exceeded\n"
+		}
+		if got := recoveryOutput(t, tail); got != want {
+			t.Fatal(got)
+		}
 	}
 }

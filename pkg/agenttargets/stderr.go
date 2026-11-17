@@ -1,6 +1,7 @@
 package agenttargets
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"strings"
@@ -8,13 +9,46 @@ import (
 )
 
 const stderrTailBytes = 4096
+const stderrHistoryBytes = 8192
 
 // stderrTail retains only the last bytes. The process reader owns it until Wait
 // completes, so callers must only inspect it after that reader has finished.
-type stderrTail struct{ data []byte }
+type stderrTail struct {
+	data        []byte
+	started     bool
+	seen        int
+	historyLost bool
+	history     []byte
+}
 
 func (t *stderrTail) Write(p []byte) (int, error) {
 	n := len(p)
+	if n == 0 {
+		return 0, nil
+	}
+	if !t.started {
+		t.started = true
+		if len(t.data) != 0 {
+			t.historyLost = true
+		}
+	}
+	if !t.historyLost {
+		if n > stderrHistoryBytes-t.seen {
+			t.historyLost = true
+			t.history = nil
+			t.seen = stderrHistoryBytes + 1
+		} else {
+			total := t.seen + n
+			if total > stderrTailBytes {
+				if t.seen <= stderrTailBytes {
+					t.history = make([]byte, 0, stderrHistoryBytes)
+					t.history = append(t.history, t.data...)
+				}
+				t.history = append(t.history, p...)
+			}
+			t.seen = total
+		}
+	}
 	if n >= stderrTailBytes {
 		t.data = append(t.data[:0], p[n-stderrTailBytes:]...)
 	} else {
@@ -25,6 +59,23 @@ func (t *stderrTail) Write(p []byte) (int, error) {
 		t.data = append(t.data, p...)
 	}
 	return n, nil
+}
+
+// completeHistory certifies process-start history independently of its content.
+func (t *stderrTail) completeHistory() ([]byte, bool) {
+	if !t.started || t.historyLost || t.seen < stderrTailBytes || t.seen > stderrHistoryBytes || len(t.data) != stderrTailBytes {
+		return nil, false
+	}
+	if t.seen == stderrTailBytes {
+		if len(t.history) != 0 {
+			return nil, false
+		}
+		return t.data, true
+	}
+	if len(t.history) != t.seen || !bytes.Equal(t.data, t.history[len(t.history)-stderrTailBytes:]) {
+		return nil, false
+	}
+	return t.history, true
 }
 
 var stderrANSI = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))`)
