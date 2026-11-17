@@ -112,8 +112,12 @@ func registryFromConfig(cfg fileConfig) Registry {
 // and applies environment variable overrides. Returns DefaultDispatchConfig() if
 // no config file is found.
 func LoadDispatchConfig(projectRoot string) DispatchConfig {
-	cfg := DefaultDispatchConfig()
+	return LoadDispatchConfigWithDefaults(projectRoot, DefaultDispatchConfig())
+}
 
+// LoadDispatchConfigWithDefaults applies project preferences and environment overrides
+// over caller defaults. Environment overrides take precedence over project settings.
+func LoadDispatchConfigWithDefaults(projectRoot string, cfg DispatchConfig) DispatchConfig {
 	if projectRoot == "" {
 		applyDispatchEnvOverrides(&cfg)
 		return cfg

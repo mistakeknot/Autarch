@@ -105,6 +105,8 @@ func (a *Agent) Generate(ctx context.Context, req GenerateRequest) (*GenerateRes
 func (a *Agent) GenerateWithOutput(ctx context.Context, req GenerateRequest, onOutput OutputCallback) (*GenerateResponse, error) {
 	cfg := agenttargets.DefaultDispatchConfig()
 	cfg.PreferredAgent = string(a.Type)
+	// This path inherits the process working directory.
+	cfg = agenttargets.LoadDispatchConfigWithDefaults(".", cfg)
 
 	handle, err := agenttargets.Dispatch(ctx, cfg, "", req.Prompt)
 	if err != nil {

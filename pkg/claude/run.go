@@ -41,7 +41,7 @@ type StreamEvent struct {
 // This is now a thin shim over agenttargets.Dispatch().
 func RunStreaming(ctx context.Context, cwd string, args []string) (<-chan StreamEvent, error) {
 	// Extract prompt and build config from args.
-	cfg, prompt := configFromArgs(args)
+	cfg, prompt := configFromArgsInProject(cwd, args)
 
 	handle, err := agenttargets.Dispatch(ctx, cfg, cwd, prompt)
 	if err != nil {
@@ -108,10 +108,17 @@ func Run(ctx context.Context, cwd string, args []string) (string, error) {
 // configFromArgs extracts a DispatchConfig and prompt from raw CLI args.
 // This handles the common patterns used by callers: -p <prompt>, --resume, --model, etc.
 func configFromArgs(args []string) (agenttargets.DispatchConfig, string) {
-	cfg := agenttargets.DispatchConfig{
+	return configFromArgsInProject("", args)
+}
+
+func configFromArgsInProject(cwd string, args []string) (agenttargets.DispatchConfig, string) {
+	if cwd == "" {
+		cwd = "."
+	}
+	cfg := agenttargets.LoadDispatchConfigWithDefaults(cwd, agenttargets.DispatchConfig{
 		PreferredBackend: agenttargets.BackendSubscriptionCLI,
 		PreferredAgent:   "claude",
-	}
+	})
 
 	var prompt string
 	var extraArgs []string
