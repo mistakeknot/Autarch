@@ -126,11 +126,13 @@ backfilled.
 
 - Module: `github.com/mistakeknot/autarch`
 - Shared TUI package with Tokyo Night colors
-- Bubble Tea for all TUIs; htmx + Tailwind for Bigend web
+- Bubble Tea for all TUIs
+- htmx + Tailwind for Bigend web
 - SQLite for local state (read-only to external DBs)
-- Local-only by default: servers bind to loopback; remote deferred
+- Local-only by default: servers bind to loopback; remote/multi-host deferred; non-loopback requires explicit opt-in + auth
 - tmux integration via CLI commands
 - Pollard tech hunters use free API tiers (no auth required)
-- Intermute for cross-tool coordination
+- Pollard general-purpose hunters: some require API keys (USDA, CourtListener)
+- Intermute for cross-tool coordination (REST + WebSocket + embedded in-process; first-class Spec, Insight, CUJ entities)
 - L2 (Clavain) for policy-governing sprint mutations; L1 (Intercore) for kernel state
 - Legacy tool names (Vauxhall/Praude/Tandemonium) still work via aliases

@@ -462,9 +462,6 @@ Templates use htmx for dynamic updates:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VAUXHALL_PORT` | 8099 | Web server port |
-| `VAUXHALL_HOST` | 0.0.0.0 | Web server host |
-| `VAUXHALL_SCAN_ROOTS` | ~/projects | Comma-separated scan roots |
 | `INTERMUTE_URL` | - | Intermute server URL (required for agents) |
 | `INTERMUTE_API_KEY` | - | Intermute authentication |
 | `INTERMUTE_PROJECT` | - | Intermute project scope |
