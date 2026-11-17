@@ -1,6 +1,11 @@
 package agenttargets
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+	"strings"
+	"unicode"
+)
 
 const stderrTailBytes = 4096
 
@@ -22,6 +27,24 @@ func (t *stderrTail) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+var stderrANSI = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))`)
+var stderrToken = regexp.MustCompile(`(?i)sk-[a-z0-9_-]+|Bearer[ \t]+[^\s]+`)
+
+func sanitizedStderr(data []byte) string {
+	text := stderrANSI.ReplaceAllString(string(data), "")
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+		return r
+	}, text)
+	text = stderrToken.ReplaceAllString(text, "[REDACTED]")
+	if len(text) > stderrTailBytes {
+		text = text[len(text)-stderrTailBytes:]
+	}
+	return text
+}
+
 func processError(err error, timedOut bool, tail *stderrTail) error {
 	if err == nil && !timedOut {
 		return nil
@@ -32,5 +55,5 @@ func processError(err error, timedOut bool, tail *stderrTail) error {
 	if len(tail.data) == 0 {
 		return err
 	}
-	return fmt.Errorf("%w (timed out: %t): stderr: %s", err, timedOut, tail.data)
+	return fmt.Errorf("%w (timed out: %t): stderr: %s", err, timedOut, sanitizedStderr(tail.data))
 }

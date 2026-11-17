@@ -45,22 +45,40 @@ func (b *CodexBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wor
 		cmd.Dir = workDir
 	}
 	applyEnv(cmd, cfg)
+	configureProcess(cmd)
+	cmd.WaitDelay = time.Second
 
-	stderrPipe, err := cmd.StderrPipe()
+	stderrPipe, stderrWriter, err := os.Pipe()
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("codex stderr pipe: %w", err)
 	}
 
+	cmd.Stderr = stderrWriter
 	var stderr stderrTail
 	startedAt := time.Now()
 	if err := cmd.Start(); err != nil {
+		stderrPipe.Close()
+		stderrWriter.Close()
 		cancel()
 		if execErr, ok := err.(*exec.Error); ok && execErr.Err == exec.ErrNotFound {
 			return nil, fmt.Errorf("codex CLI not found: install with 'npm install -g @openai/codex'")
 		}
 		return nil, fmt.Errorf("failed to start codex: %w", err)
 	}
+
+	stderrWriter.Close()
+	// Wait independently of stderr EOF: descendants may retain the write end.
+	doneReading := make(chan struct{})
+	waited := make(chan error, 1)
+	stopClose := context.AfterFunc(runCtx, func() { stderrPipe.Close() })
+	go func() {
+		err := cmd.Wait()
+		timer := time.AfterFunc(time.Second, func() { stderrPipe.Close() })
+		waited <- err
+		<-doneReading
+		timer.Stop()
+	}()
 
 	events := make(chan StreamEvent)
 	doneCh := make(chan struct{})
@@ -93,8 +111,11 @@ func (b *CodexBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wor
 
 	go func() {
 		defer close(events)
+		defer stderrPipe.Close()
+		defer stopClose()
 		defer func() {
-			cmdErr := cmd.Wait()
+			close(doneReading)
+			cmdErr := <-waited
 			duration := time.Since(startedAt)
 
 			exitCode := 0
@@ -141,7 +162,7 @@ func (b *CodexBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wor
 			result = RunResult{
 				ExitCode: exitCode,
 				Output:   []byte(resultText),
-				TimedOut: runCtx.Err() == context.DeadlineExceeded,
+				TimedOut: exitCode == -1 && runCtx.Err() == context.DeadlineExceeded,
 				Duration: duration,
 			}
 			waitErr = processError(cmdErr, result.TimedOut, &stderr)

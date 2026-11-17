@@ -55,6 +55,8 @@ func (b *ClaudeBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wo
 		cmd.Dir = workDir
 	}
 	applyEnv(cmd, cfg)
+	configureProcess(cmd)
+	cmd.WaitDelay = time.Second
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -120,7 +122,7 @@ func (b *ClaudeBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wo
 
 			result = RunResult{
 				ExitCode: exitCode,
-				TimedOut: runCtx.Err() == context.DeadlineExceeded,
+				TimedOut: exitCode == -1 && runCtx.Err() == context.DeadlineExceeded,
 				Duration: duration,
 			}
 			waitErr = processError(cmdErr, result.TimedOut, &stderr)
