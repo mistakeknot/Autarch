@@ -257,6 +257,48 @@ export class Real {
 
   // ---- scenarios ---------------------------------------------------------------------
   readonly scenarios: Record<string, () => Promise<Evidence>> = {
+    // Source: bead mk-05q0j.3. This crosses the browser boundary: never call this.pick here.
+    "pick-click": async () => {
+      const owner = this.spawn("pick-click");
+      const other = this.spawn("pick-click-other");
+      await this.settle(owner);
+      await this.settle(other);
+      const decision = await this.ask(owner, `e2e: pick-click ${this.runId}`);
+      const card = /^card-(.+)-g\d+$/.exec(decision)?.[1];
+      assert.ok(card, "filed decision has no card");
+      const p = await this.page();
+      await p.goto(`${this.env.url}/plugins/autarch/home`);
+      await p.locator('[data-queue-tab="decide"]').click();
+      const article = p.locator(`[data-decision="${decision}"]`);
+      await article.waitFor({ state: "visible", timeout: 60_000 });
+      await article.locator('button[data-option="project"]').click();
+      await this.waitFor("the persisted browser pick", () => this.db("SELECT 1 FROM picks WHERE decision_id = ? AND option_id = 'project'", decision).length === 1);
+      await this.waitFor("the persisted wake", () => this.db("SELECT 1 FROM obligations WHERE decision_id = ? AND kind = 'wake' AND state = 'done'", decision).length === 1);
+      const carries = (thread: string) => this.events(thread).some((e) => e.type === "client/turn/requested" && (e.data?.input ?? []).some((part) => (part.text ?? "").includes(decision) && (part.text ?? "").includes("group per project")));
+      await this.waitFor("the owning thread's ruling turn", () => carries(owner));
+      assert.equal(carries(other), false, "the ruling reached another thread");
+      let comment: string | undefined;
+      for (let i = 0; i < 60 && !comment; i++) {
+        const r = await rigRpc<{ comments: { id: string; body: string }[] }>(this.target, "tasks", "listComments", { taskId: card });
+        comment = r.comments.find((c) => c.body.startsWith("Ruled:"))?.id;
+        if (!comment) await sleep(500);
+      }
+      assert.ok(comment, "card has no Ruled: comment");
+      await p.reload();
+      // A loaded navigation bar alone cannot prove that the owed data arrived.
+      await p.locator('[data-queue-tab="decide"]').click();
+      await p.waitForFunction(() => document.querySelector('[data-queue-tab="decide"][aria-selected="true"]') !== null);
+      await p.locator('[data-queue-section="asks"]').getByText("Nothing needs you.", { exact: true }).waitFor({ state: "visible", timeout: 30_000 });
+      assert.equal(await p.locator(`[data-decision="${decision}"]`).count(), 0, "settled decision remains in owed view");
+      assert.equal(await p.locator(`[data-queue-id="${decision}"]`).count(), 0, "settled card remains in owed view");
+      await p.locator("[data-home-tabs]").getByRole("button", { name: "Archive", exact: true }).click();
+      await p.locator("[data-archive-panel]").waitFor({ state: "visible" });
+      const archived = p.locator("[data-archive-row]").filter({ hasText: `e2e: pick-click ${this.runId}` });
+      await archived.waitFor({ state: "visible", timeout: 30_000 });
+      assert.match(await archived.locator("[data-archive-pick]").innerText(), /Collapse per project/);
+      assert.equal(await archived.locator("button[data-option]").count(), 0, "archive offers a pick option");
+      return { threads: [owner, other], decision, card_id: card, comment_by: comment, pick_persisted: true, wake_persisted: true, correct_recipient: true, owed_loaded_after_reload: true, archive_settled: true };
+    },
     "answer-instruction": async () => {
       const t = this.spawn("answer-instruction");
       await this.settle(t);
