@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -210,26 +211,40 @@ func (a *UnifiedApp) initAgentSelector() {
 		return
 	}
 
+	a.initAgentSelectorWithOptions(projectRoot, options)
+}
+
+// initAgentSelectorWithOptions separates preference resolution from tool discovery.
+func (a *UnifiedApp) initAgentSelectorWithOptions(projectRoot string, options []pkgtui.AgentOption) {
 	options = filterSupportedAgentOptions(options)
-	if len(options) == 0 {
-		return
+	selection := a.codingAgent
+	if selection == nil {
+		selection = &agent.Agent{}
 	}
-
+	var source string
+	a.selectedAgent, source = selection.DispatchPreference(projectRoot)
+	if a.selectedAgent == "" {
+		if len(options) == 0 {
+			return
+		}
+		a.selectedAgent = options[0].Name
+		source = "configured, not detected"
+	}
+	if filepath.IsAbs(source) {
+		source = "project config (current directory)"
+	}
+	found := false
+	for i := range options {
+		if strings.EqualFold(options[i].Name, a.selectedAgent) {
+			options[i].Source = source
+			found = true
+		}
+	}
+	if !found {
+		options = append(options, pkgtui.AgentOption{Name: a.selectedAgent, Source: source})
+	}
 	a.agentSelector = pkgtui.NewAgentSelector(options)
-	if a.selectedAgent != "" {
-		a.setSelectorIndex(a.selectedAgent)
-		return
-	}
-	if a.codingAgent != nil {
-		a.selectedAgent = string(a.codingAgent.Type)
-		a.setSelectorIndex(a.selectedAgent)
-		return
-	}
-
-	a.selectedAgent = options[0].Name
-	if resolved, err := agent.DetectAgentByName(a.selectedAgent, exec.LookPath); err == nil {
-		a.codingAgent = resolved
-	}
+	a.setSelectorIndex(a.selectedAgent)
 }
 
 func (a *UnifiedApp) setSelectorIndex(name string) {
@@ -300,7 +315,6 @@ func (a *UnifiedApp) Init() tea.Cmd {
 	detectedAgent, err := agent.DetectAgent()
 	if err == nil {
 		a.codingAgent = detectedAgent
-		a.selectedAgent = string(detectedAgent.Type)
 	}
 	// Note: We don't error here - we'll handle missing agent when we need it
 	a.initAgentSelector()
@@ -383,7 +397,7 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "model", "m":
 			// Toggle model selector
 			if a.agentSelector != nil {
-				a.agentSelector.Open = !a.agentSelector.Open
+				a.agentSelector.Toggle()
 			}
 			return a, nil
 		case "palette", "p":
@@ -527,12 +541,19 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case pkgtui.AgentSelectedMsg:
-		a.selectedAgent = msg.Name
-		a.setSelectorIndex(msg.Name)
 		if resolved, err := agent.DetectAgentByName(msg.Name, exec.LookPath); err == nil {
 			a.codingAgent = resolved
+			a.selectedAgent = msg.Name
+			a.setSelectorIndex(msg.Name)
+			if a.agentSelector != nil && len(a.agentSelector.Options) > 0 {
+				a.agentSelector.Options[a.agentSelector.Index].Source = "runs use config; picked"
+			}
+			a.attachAgentName(a.currentView)
+		} else {
+			// Navigation moves the cursor before confirmation; restore the
+			// effective preference if the requested agent is unavailable.
+			a.setSelectorIndex(a.selectedAgent)
 		}
-		a.attachAgentName(a.currentView)
 		return a, nil
 
 	case OnboardingCompleteMsg:
