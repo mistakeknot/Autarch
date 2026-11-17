@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // AgentOption represents a selectable agent option.
@@ -71,17 +72,19 @@ func (s *AgentSelector) Update(msg tea.KeyMsg) (tea.Msg, tea.Cmd) {
 }
 
 // View renders the selector line.
-func (s *AgentSelector) View() string {
+// An optional width limits the closed label to the caller's allocated columns.
+func (s *AgentSelector) View(width ...int) string {
 	if len(s.Options) == 0 {
 		return ""
 	}
 	if !s.Open {
-		name := s.currentName()
-		if s.Index >= 0 && s.Index < len(s.Options) && s.Options[s.Index].Source != "" {
-			name += " · " + s.Options[s.Index].Source
-		}
+		name := s.currentLabel()
 		label := fmt.Sprintf("Model: %s (ctrl+g)", name)
-		return lipgloss.NewStyle().Foreground(ColorMuted).Render(label)
+		label = lipgloss.NewStyle().Foreground(ColorMuted).Render(label)
+		if len(width) > 0 {
+			label = ansi.Truncate(label, max(0, width[0]), "…")
+		}
+		return label
 	}
 
 	var parts []string
@@ -106,4 +109,12 @@ func (s *AgentSelector) currentName() string {
 		return s.Options[0].Name
 	}
 	return s.Options[s.Index].Name
+}
+
+func (s *AgentSelector) currentLabel() string {
+	name := s.currentName()
+	if s.Index >= 0 && s.Index < len(s.Options) && s.Options[s.Index].Source != "" {
+		name += " · " + s.Options[s.Index].Source
+	}
+	return name
 }

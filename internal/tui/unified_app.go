@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -218,11 +219,18 @@ func (a *UnifiedApp) initAgentSelector() {
 	var source string
 	a.selectedAgent, source = selection.DispatchPreference(projectRoot)
 	if a.selectedAgent == "" {
-		return
+		if len(options) == 0 {
+			return
+		}
+		a.selectedAgent = options[0].Name
+		source = "automatic detection"
+	}
+	if filepath.IsAbs(source) {
+		source = "project config"
 	}
 	found := false
 	for i := range options {
-		if options[i].Name == a.selectedAgent {
+		if strings.EqualFold(options[i].Name, a.selectedAgent) {
 			options[i].Source = source
 			found = true
 		}
@@ -528,15 +536,19 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case pkgtui.AgentSelectedMsg:
-		a.selectedAgent = msg.Name
-		a.setSelectorIndex(msg.Name)
-		if a.agentSelector != nil && len(a.agentSelector.Options) > 0 {
-			a.agentSelector.Options[a.agentSelector.Index].Source = "explicit agent selection"
-		}
 		if resolved, err := agent.DetectAgentByName(msg.Name, exec.LookPath); err == nil {
 			a.codingAgent = resolved
+			a.selectedAgent = msg.Name
+			a.setSelectorIndex(msg.Name)
+			if a.agentSelector != nil && len(a.agentSelector.Options) > 0 {
+				a.agentSelector.Options[a.agentSelector.Index].Source = "explicit agent selection"
+			}
+			a.attachAgentName(a.currentView)
+		} else {
+			// Navigation moves the cursor before confirmation; restore the
+			// effective preference if the requested agent is unavailable.
+			a.setSelectorIndex(a.selectedAgent)
 		}
-		a.attachAgentName(a.currentView)
 		return a, nil
 
 	case OnboardingCompleteMsg:

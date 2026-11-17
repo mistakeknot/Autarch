@@ -425,7 +425,7 @@ func (v *EpicReviewView) renderChat() string {
 
 	if v.agentSelector != nil {
 		lines = append(lines, "")
-		lines = append(lines, v.agentSelector.View())
+		lines = append(lines, v.agentSelector.View(max(0, v.shell.SplitLayout().RightWidth()-4)))
 	}
 
 	return strings.Join(lines, "\n")

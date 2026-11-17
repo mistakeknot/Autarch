@@ -4,6 +4,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	"github.com/mistakeknot/autarch/internal/testutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -382,11 +383,11 @@ func TestSignalsOverlayBlocksKeysToView(t *testing.T) {
 }
 
 func TestAgentSelectorUsesDispatchPreference(t *testing.T) {
-	for _, tc := range []struct{ name, env, config, want string }{
-		{"environment", "codex", "", "codex"},
-		{"project", "", "[dispatch]\npreferred_agent = \"codex\"\n", "codex"},
-		{"automatic", "", "", "claude"},
-		{"unknown", "unavailable-agent", "", "unavailable-agent"},
+	for _, tc := range []struct{ name, env, config, want, source string }{
+		{"environment", "codex", "", "codex", "AUTARCH_DISPATCH_AGENT"},
+		{"project", "", "[dispatch]\npreferred_agent = \"codex\"\n", "codex", "project config"},
+		{"automatic", "", "", "claude", "automatic detection"},
+		{"unknown", "unavailable-agent", "", "unavailable-agent", "AUTARCH_DISPATCH_AGENT"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -406,10 +407,89 @@ func TestAgentSelectorUsesDispatchPreference(t *testing.T) {
 			if app.selectedAgent != tc.want {
 				t.Fatalf("selected = %q, want %q", app.selectedAgent, tc.want)
 			}
-			_, source := app.codingAgent.DispatchPreference(root)
+			source := tc.source
 			if app.agentSelector == nil || !strings.Contains(app.agentSelector.View(), tc.want) || !strings.Contains(app.agentSelector.View(), source) {
 				t.Fatal("selector does not display dispatch preference")
 			}
 		})
+	}
+}
+
+func TestAgentSelectionFailureKeepsEffectiveLabel(t *testing.T) {
+	t.Setenv("AUTARCH_DISPATCH_AGENT", "codex")
+	app := NewUnifiedApp(nil)
+	app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
+	app.selectedAgent = "codex"
+	app.agentSelector = pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "codex", Source: "AUTARCH_DISPATCH_AGENT"}, {Name: "missing-agent"}})
+	app.agentSelector.Index = 1 // navigation has already moved the cursor
+	app.Update(pkgtui.AgentSelectedMsg{Name: "missing-agent"})
+	if app.selectedAgent != "codex" || app.agentSelector.Index != 0 || !strings.Contains(app.agentSelector.View(), "AUTARCH_DISPATCH_AGENT") {
+		t.Fatal("failed selection changed effective label:", app.agentSelector.View())
+	}
+}
+
+func TestAgentSelectorConfiguredOptionsWithoutDetection(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AUTARCH_DISPATCH_AGENT", "")
+	if err := os.MkdirAll(".gurgeh", 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(".gurgeh/agents.toml", []byte("[targets.codex]\ntype = \"command\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := NewUnifiedApp(nil)
+	app.initAgentSelector()
+	if app.agentSelector == nil {
+		t.Fatal("configured options lost without detection")
+	}
+	if strings.Contains(app.agentSelector.View(), "explicit") {
+		t.Fatal("automatic option marked explicit")
+	}
+}
+
+func TestAgentSelectionExplicitOverridesPreference(t *testing.T) {
+	if os.Getenv("AUTARCH_SELECTION_TEST_CHILD") == "1" {
+		app := NewUnifiedApp(nil)
+		app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
+		app.agentSelector = pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
+		app.Update(pkgtui.AgentSelectedMsg{Name: "codex"})
+		name, source := app.codingAgent.DispatchPreference(".")
+		if name != "codex" || source != "explicit agent selection" || !strings.Contains(app.agentSelector.View(), "explicit agent selection") {
+			t.Fatalf("selection did not override preference: %s %s %s", name, source, app.agentSelector.View())
+		}
+		return
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte("#!/bin/sh\necho test-version\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAgentSelectionExplicitOverridesPreference$")
+	cmd.Env = append(os.Environ(), "AUTARCH_SELECTION_TEST_CHILD=1", "AUTARCH_DISPATCH_AGENT=claude", "PATH="+dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("child: %v %s", err, out)
+	}
+}
+
+func TestAgentSelectorMatchesPreferenceIgnoringCase(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AUTARCH_DISPATCH_AGENT", "Codex")
+	if err := os.MkdirAll(".gurgeh", 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(".gurgeh/agents.toml", []byte("[targets.codex]\ntype = \"command\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := NewUnifiedApp(nil)
+	app.initAgentSelector()
+	count := 0
+	for _, opt := range app.agentSelector.Options {
+		if strings.EqualFold(opt.Name, "codex") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("got %d codex options", count)
 	}
 }

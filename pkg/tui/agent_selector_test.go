@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestAgentSelectorToggleAndSelect(t *testing.T) {
@@ -49,5 +50,23 @@ func TestAgentSelectorRendersAsModelControl(t *testing.T) {
 	view := sel.View()
 	if !strings.Contains(view, "Model") {
 		t.Fatalf("expected model label")
+	}
+}
+
+func TestAgentSelectorClosedLabelFitsWidth(t *testing.T) {
+	s := NewAgentSelector([]AgentOption{{Name: "\x1b[31m模型\x1b[0m", Source: "project config"}})
+	for _, width := range []int{0, 1, 12, 30} {
+		if got := lipgloss.Width(s.View(width)); got > width {
+			t.Fatalf("width %d exceeds allocation %d", got, width)
+		}
+	}
+}
+
+func TestChatPanelShowsAgentPreferenceSource(t *testing.T) {
+	p := NewChatPanel()
+	p.SetSize(60, 20)
+	p.SetAgentSelector(NewAgentSelector([]AgentOption{{Name: "codex", Source: "project config"}}))
+	if !strings.Contains(p.View(), "project config") {
+		t.Fatal("closed composer lost preference source")
 	}
 }
