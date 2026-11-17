@@ -61,6 +61,7 @@ func TestParentDeath(t *testing.T) {
 	defer unix.PidfdSendSignal(fd, syscall.SIGKILL, nil, 0)
 
 	parent.Process.Kill()
+	deadline = time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 		// An orphan can remain a zombie until the host reaps it; it cannot run.

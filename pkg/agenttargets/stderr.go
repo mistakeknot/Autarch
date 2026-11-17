@@ -35,10 +35,14 @@ func sanitizedStderr(data []byte) string {
 	// A full tail may start inside a credential keyword or its value. Drop
 	// the entire first line: retaining only its suffix loses redaction context.
 	if len(data) >= stderrTailBytes {
+		retainedBytes := len(data)
 		if end := strings.IndexByte(string(data), '\n'); end >= 0 {
 			data = data[end+1:]
 		} else {
 			data = nil
+		}
+		if strings.TrimSpace(string(data)) == "" {
+			return fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", retainedBytes)
 		}
 	}
 
