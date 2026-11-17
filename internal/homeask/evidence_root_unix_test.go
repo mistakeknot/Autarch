@@ -67,3 +67,31 @@ func TestEvidenceRootPermissions(t *testing.T) {
 		})
 	}
 }
+
+func TestEvidenceRootRefusesNonDirectories(t *testing.T) {
+	for _, kind := range []string{"symlink", "file", "symlink-trailing-slash"} {
+		t.Run(kind, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "store")
+			if kind == "file" {
+				if err := os.WriteFile(root, nil, 0600); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				target := t.TempDir()
+				if err := os.Chmod(target, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, root); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if kind == "symlink-trailing-slash" {
+				root += string(os.PathSeparator)
+			}
+			t.Setenv("AUTARCH_HOME_EVIDENCE", root)
+			if err := prepareEvidenceRoot(EvidenceRoot()); err == nil {
+				t.Fatal("accepted non-directory evidence root")
+			}
+		})
+	}
+}
