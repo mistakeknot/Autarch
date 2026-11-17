@@ -377,9 +377,9 @@ type Detector struct {
 }
 
 func (d *Detector) EnrichSessions(sessions []Session) []EnrichedSession {
-    // Match session CWD to project paths
-    // Detect agent type from session name patterns
-    // Attach DetectAgent output to each session
+    // Call DetectAgent per session: match the name against agent patterns.
+    // For a matched name, set AgentInfo.ProjectPath to the project matching its CWD.
+    // Unmatched names get no AgentInfo, regardless of CWD.
 }
 ```
 
