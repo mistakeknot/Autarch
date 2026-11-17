@@ -185,3 +185,33 @@ func TestCardReadbackWithoutProjectIsTransient(t *testing.T) {
 		})
 	}
 }
+
+// Polling can stop before the caller context expires when another interval
+// would cross its deadline. Report the limit, and retain safe replay advice.
+func TestFileCardReadbackCallerDeadlineBeforeNextPoll(t *testing.T) {
+	f := newFake(t, registryOnCreate)
+	polls := 0
+	f.fail = func(args []string) *BBResult {
+		if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
+			polls++
+			return badRes(1, "unknown card")
+		}
+		return nil
+	}
+	fl := f.filer()
+	fl.ReadbackTimeout, fl.ReadbackInterval = 2*time.Second, 200*time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	res, err := fl.FileCard(ctx, testReq())
+	if !errors.Is(err, ErrOutcomeUnknown) || res.ID != "T1" || polls != 1 {
+		t.Fatalf("res=%+v err=%v polls=%d", res, err, polls)
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("caller context already expired: %v", ctx.Err())
+	}
+	if !strings.Contains(err.Error(), "before the caller's deadline") ||
+		!strings.Contains(err.Error(), "re-run with --request "+res.Key+" and unchanged input") ||
+		strings.Contains(err.Error(), "within 2s") {
+		t.Fatalf("message=%q", err)
+	}
+}
