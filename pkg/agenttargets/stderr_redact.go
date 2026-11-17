@@ -79,20 +79,32 @@ func stderrSourceMask(raw []byte, start int) (stderrRegion, []int32) {
 
 func renderStderr(raw []byte, start int) string {
 	region, mask := stderrSourceMask(raw, start)
+	frames := stderrFrameStarts(raw, start, region.ansi)
 	var out strings.Builder
 	out.Grow(len(region.text))
 	hiddenRun := false
+	emitted := false
 	for i := 0; i < len(region.text); {
 		_, n := utf8.DecodeRune(region.text[i:])
 		hidden := false
+		selected, anySelected := true, false
 		for _, p := range region.source[i : i+n] {
 			hidden = hidden || mask[p] > 0
+			after := p >= frames[p]
+			selected = selected && after
+			anySelected = anySelected || after
 		}
 		if hidden {
 			if !hiddenRun {
-				out.WriteString("[REDACTED]")
+				emitted = false
 			}
-		} else {
+			// Delay a hidden run's marker until its first source in the selected
+			// frame. A run straddling CR stays whole, even across a joined rune.
+			if anySelected && !emitted {
+				out.WriteString("[REDACTED]")
+				emitted = true
+			}
+		} else if selected {
 			out.Write(region.text[i : i+n])
 		}
 		hiddenRun = hidden
@@ -369,4 +381,33 @@ func maskStderrURLs(diff []int32, region stderrRegion) {
 			}
 		}
 	}
+}
+
+// stderrFrameStarts records the last CR outside ANSI for each raw line. One
+// CR immediately before LF is a terminator, not a new (empty) frame. The ANSI
+// spans are those already found while normalizing region (a).
+func stderrFrameStarts(raw []byte, start int, ansi [][]int) []int32 {
+	frames := make([]int32, len(raw))
+	lineStart, cutoff, next := start, start, 0
+	fill := func(end int) {
+		for p := lineStart; p < end; p++ {
+			frames[p] = int32(cutoff)
+		}
+	}
+	for i := start; i < len(raw); i++ {
+		for next < len(ansi) && i >= start+ansi[next][1] {
+			next++
+		}
+		outside := next == len(ansi) || i < start+ansi[next][0]
+		if raw[i] == '\r' && outside && (i+1 == len(raw) || raw[i+1] != '\n') {
+			cutoff = i + 1
+		}
+		if raw[i] == '\n' {
+			fill(i + 1)
+			lineStart = i + 1
+			cutoff = lineStart
+		}
+	}
+	fill(len(raw))
+	return frames
 }

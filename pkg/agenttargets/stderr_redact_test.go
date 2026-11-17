@@ -6,7 +6,7 @@ import (
 )
 
 // Stages and exact outputs follow the reviewed plan for mk-rkkao.2.
-const redactStage = 4
+const redactStage = 5
 
 type redactCase struct {
 	input, want string
