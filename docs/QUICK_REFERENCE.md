@@ -277,9 +277,7 @@ Type `/` in the chat composer to open a fuzzy finder for commands. Use `â†‘`/`â†
 
 ### Bigend
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude configuration directory used to discover sessions |
+Bigend has no tool-specific environment variables. Configure it with flags (`--port`, default 8099; `--host`; `--config`; `--scan-root`; `--tui`; `--daemon`) and `~/.config/bigend/config.toml`. The shared `INTERMUTE_*` variables below also apply.
 
 ### Intermute (Cross-Tool)
 
