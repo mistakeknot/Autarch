@@ -59,3 +59,23 @@ it("reads the lexically cleaned root and rejects symlinked and nonprivate roots"
   expect(readEvidence(hash,root)).toEqual({ok:false});
  } finally { rmSync(base,{recursive:true,force:true}); }
 });
+
+it.each([
+ ["linux", false],
+ ["darwin", false],
+ ["win32", true],
+] as const)("applies root permissions for %s", (platform, accepted) => {
+ const root=mkdtempSync(join(tmpdir(),"evidence-mode-"));
+ const image=Buffer.from("iVBORw0KGgo=","base64");
+ const hash=createHash("sha256").update(image).digest("hex");
+ try {
+  writeFileSync(join(root,hash),image);
+  chmodSync(root,0o755);
+  expect(readEvidence(hash,root,platform).ok).toBe(accepted);
+  const link=root+"-link";
+  try {
+   symlinkSync(root,link);
+   expect(readEvidence(hash,link,platform)).toEqual({ok:false});
+  } finally { rmSync(link,{force:true}); }
+ } finally { rmSync(root,{recursive:true,force:true}); }
+});

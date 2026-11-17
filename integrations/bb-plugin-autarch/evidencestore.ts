@@ -17,13 +17,13 @@ export function defaultEvidenceRoot(env: Record<string, string | undefined> = pr
  return override && isAbsolute(override) ? cleanEvidenceRoot(override) : join(homedir(), ".autarch", "home-evidence");
 }
 /** Reads a hash, never a supplied path. All failures look like a missing image. */
-export function readEvidence(sha256: string, root = defaultEvidenceRoot()): { ok: true; mime: string; data_base64: string } | { ok: false } {
+export function readEvidence(sha256: string, root = defaultEvidenceRoot(), platform: NodeJS.Platform = process.platform): { ok: true; mime: string; data_base64: string } | { ok: false } {
  if (!/^[0-9a-f]{64}$/.test(sha256)) return { ok: false };
  let fd: number | undefined;
  try {
   root = cleanEvidenceRoot(root);
   const dir = lstatSync(root);
-  if (!dir.isDirectory() || dir.isSymbolicLink() || (dir.mode & 0o077) !== 0) return { ok: false };
+  if (!dir.isDirectory() || dir.isSymbolicLink() || (platform !== "win32" && (dir.mode & 0o077) !== 0)) return { ok: false };
   fd = openSync(join(root, sha256), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   const st = fstatSync(fd);
   if (!st.isFile() || st.size > 2 * 1024 * 1024) return { ok: false };
