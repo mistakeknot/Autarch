@@ -318,7 +318,7 @@ func TestReviewCredentialCuts(t *testing.T) {
 				rest := pair + strings.Repeat(" ", 512-len(pair)+offset-4) + " end"
 				var tail stderrTail
 				tail.Write([]byte(strings.Repeat("x", 5000) + " " + rest))
-				if got := sanitizedStderr(tail.data); strings.Contains(got, "xxxx") || !strings.Contains(got, "end") {
+				if got := sanitizedStderr(tail.data); strings.Contains(got, "xxxx") || (!strings.Contains(pair, "Authorization:") && !strings.Contains(pair, "x-api-key:") && !strings.Contains(got, "end")) {
 					t.Fatalf("cut %d: %q", offset, got)
 				}
 			}
@@ -356,6 +356,80 @@ func TestReviewQuotingAndFrames(t *testing.T) {
 		want := input[strings.LastIndexByte(input, '\r')+1:]
 		if got := sanitizedStderr([]byte(input)); got != want {
 			t.Errorf("spinner: got %q want %q", got, want)
+		}
+	}
+}
+
+func TestRoundTwoAuthorization(t *testing.T) {
+	for _, input := range []string{
+		"Authorization: token xxxxxxxxxxxx",
+		"Authorization: Bot xxxxxxxxxxxx",
+		`Authorization: Digest username="xxx", response="xxxxxxxxxxxx"`,
+		"Authorization: AWS4-HMAC-SHA256 Credential=xxx, Signature=xxxxxxxxxxxx",
+		"prefixAuthorization: Bot xxxxxxxxxxxx",
+	} {
+		if got := sanitizedStderr([]byte(input)); strings.Contains(got, "xxxx") {
+			t.Errorf("header credential survived: %q", got)
+		}
+	}
+}
+
+func TestRoundTwoRawCuts(t *testing.T) {
+	for _, pair := range []string{
+		"token: xxxxxxxxxxxx", "Bearer xxxxxxxxxxxx", "api_key = xxxxxxxxxxxx",
+		"x-api-key: xxxxxxxxxxxx", `"token": "xxxxxxxxxxxx"`,
+		"Authorization: Basic xxxxxxxxxxxx", `secret = "xxxx xxxxxxxxxxxx"`,
+		"https://xxx:xxxxxxxxxxxx@example.test/",
+	} {
+		t.Run(pair, func(t *testing.T) {
+			for offset := 0; offset < len(pair); offset++ {
+				suffix := pair[offset:]
+				padding := strings.Repeat("\x1b[0m\a", stderrTailBytes/5)
+				suffix += padding[:stderrTailBytes-len(suffix)-4] + " end"
+				var tail stderrTail
+				tail.Write([]byte(strings.Repeat("x", 5000) + suffix))
+				if got := sanitizedStderr(tail.data); strings.Contains(got, "xxxx") {
+					t.Fatalf("raw cut %d: %q", offset, got)
+				}
+			}
+		})
+	}
+}
+
+func TestRoundTwoCRLF(t *testing.T) {
+	for _, input := range []string{
+		"Error: quota exceeded\r\nsecond line\r\n",
+		"< HTTP/1.1 401 Unauthorized\r\n< x: y\r\n",
+		"Working...\rError: quota exceeded\r\n",
+	} {
+		want := strings.ReplaceAll(input, "\r\n", "\n")
+		want = strings.TrimPrefix(want, "Working...\r")
+		if got := sanitizedStderr([]byte(input)); got != want {
+			t.Errorf("CRLF got %q want %q", got, want)
+		}
+	}
+}
+
+func TestRoundTwoAdditionalNamesAndExceptions(t *testing.T) {
+	for _, input := range []string{
+		"token: expiredxxxxxxxxxxxx", "token=expiredxxxxxxxxxxxx",
+		"key: unknown fieldxxxxxxxxxxxx",
+		"GITHUB_TOKEN=xxxxxxxxxxxx", "CLAUDE_CODE_OAUTH_TOKEN=xxxxxxxxxxxx",
+		"DB_PASSWORD=xxxxxxxxxxxx", "auth_token=xxxxxxxxxxxx", "private_key=xxxxxxxxxxxx",
+		`{"secretKey":"xxxxxxxxxxxx"}`, "(api_key=xxxxxxxxxxxx)", "[token=xxxxxxxxxxxx]",
+		"--password xxxxxxxxxxxx", "Set-Cookie: session=xxxxxxxxxxxx",
+	} {
+		if got := sanitizedStderr([]byte(input)); strings.Contains(got, "xxxx") {
+			t.Errorf("credential survived: %q", got)
+		}
+	}
+	for _, tc := range []struct{ input, want string }{
+		{"https://example.test/x?token=xxxxxxxxxxxx", "https://example.test/x?[REDACTED]"},
+		{"https://xxx:xxxxxxxxxxxx@example.test/", "https://xxx:[REDACTED]@example.test/"},
+		{"https://xxxxxxxxxxxx@example.test/", "https://[REDACTED]@example.test/"},
+	} {
+		if got := sanitizedStderr([]byte(tc.input)); got != tc.want {
+			t.Errorf("URL got %q want %q", got, tc.want)
 		}
 	}
 }

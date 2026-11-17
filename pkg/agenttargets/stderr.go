@@ -34,10 +34,13 @@ var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|(?:ghp_|gho_|ghs_|ghu
 
 // Match complete credential names at field boundaries, rather than arbitrary
 // words ending in "key". Go's regexp engine guarantees linear-time matching.
-var stderrAssignment = regexp.MustCompile(`(?i)(^|[ \t{,?&"'\x5c])(?:token|key|secret|password|passwd|authorization|cookie|(?:access|refresh|id)[_-]?token|client[_-]?secret|(?:[a-z0-9]+[_-])*api[_-]?key|x-api-key)\\?["']?[ \t]*[=:][ \t]*(?:\\".*?(?:\\"|$)|"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|unknown field|not found in vault|expired|[^\s&,;}]+)`)
-var stderrFlags = regexp.MustCompile(`(?i)(^|[ \t])--(?:api-key|token)[ \t]+[^\s]+`)
-var stderrHeader = regexp.MustCompile(`(?i)(^|[ \t])(?:Authorization[ \t]*:[ \t]*(?:(?:Basic|Bearer)[ \t]+)?[^\s]+|Cookie[ \t]*:[^\r\n]*)`)
-var stderrURLCredential = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s@]+@`)
+var stderrAssignment = regexp.MustCompile(`(?i)(^|[ \t{(\[,?&"'\x5c])(?:token|key|secret|password|passwd|authorization|cookie|(?:access|refresh|id)[_-]?token|client[_-]?secret|secretKey|(?:[a-z0-9]+[_-])+(?:token|key|secret|password|passwd)|api[_-]?key|x-api-key)\\?["']?[ \t]*[=:][ \t]*(?:\\".*?(?:\\"|$)|"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s&,;}\]\)]+(?:[ \t][^\s&,;}\]\)]+)*)`)
+var stderrFlags = regexp.MustCompile(`(?i)(^|[ \t])--(?:api-key|token|password|passwd|secret)[ \t]+[^\s]+`)
+
+// Preserve the original header coverage: arbitrary schemes and embedded
+// Authorization/x-api-key headers are sensitive through the end of the frame.
+var stderrHeader = regexp.MustCompile(`(?i)(?:Authorization|x-api-key|Set-Cookie|Cookie)[ \t]*:[^\r\n]*`)
+var stderrURLCredential = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)([^/\s:@]+)(?::[^/\s@]*)?@`)
 
 func redactStderrFrame(text string) string {
 	text = stderrToken.ReplaceAllString(text, "[REDACTED]")
@@ -53,12 +56,19 @@ func redactStderrFrame(text string) string {
 			}
 		}
 		prefix := ""
-		if strings.ContainsRune(" \t{,&\"'\\", rune(field[0])) {
+		if strings.ContainsRune(" \t{([,?&\"'\\", rune(field[0])) {
 			prefix = field[:1]
 		}
 		return prefix + "[REDACTED]"
 	})
-	return stderrURLCredential.ReplaceAllString(text, "[REDACTED]")
+	return stderrURLCredential.ReplaceAllStringFunc(text, func(value string) string {
+		end := strings.Index(value, "://") + 3
+		userinfo := value[end : len(value)-1]
+		if colon := strings.IndexByte(userinfo, ':'); colon >= 0 {
+			return value[:end] + userinfo[:colon] + ":[REDACTED]@"
+		}
+		return value[:end] + "[REDACTED]@"
+	})
 }
 
 func sanitizedStderr(data []byte) string {
@@ -69,6 +79,14 @@ func sanitizedStderr(data []byte) string {
 		if end := strings.IndexAny(string(data), "\r\n"); end >= 0 {
 			data = data[end+1:]
 		} else {
+			// Without a frame boundary, terminal escapes and controls can hide
+			// most of a credential after the raw cut. Context cannot be recovered
+			// safely; suppress this ambiguous frame rather than expose a suffix.
+			for _, c := range data {
+				if c < 32 && c != '\t' {
+					return "[REDACTED]"
+				}
+			}
 			fallback = true
 		}
 	}
@@ -78,6 +96,7 @@ func sanitizedStderr(data []byte) string {
 	// on each line before redaction so a value cannot consume the next frame.
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
+		line = strings.TrimSuffix(line, "\r")
 		if end := strings.LastIndexByte(line, '\r'); end >= 0 {
 			line = line[end+1:]
 		}
