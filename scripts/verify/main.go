@@ -289,6 +289,31 @@ func namespace(root, product string, ro []string, argv []string) []string {
 	a = append(a, "--chdir", product, "--")
 	return append(a, argv...)
 }
+
+func nodeToolchain() (string, string, []string, error) {
+	resolve := func(name string) (string, error) {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			return "", err
+		}
+		return filepath.EvalSymlinks(path)
+	}
+	node, err := resolve("node")
+	if err != nil {
+		return "", "", nil, err
+	}
+	npmCLI, err := resolve("npm")
+	if err != nil {
+		return "", "", nil, err
+	}
+	if filepath.Base(npmCLI) != "npm-cli.js" {
+		return "", "", nil, fmt.Errorf("npm must resolve to its package's npm-cli.js")
+	}
+	// Only Node's executable and npm's package enter the namespace. A hosted
+	// toolchain prefix can contain unrelated programs and must not be exposed.
+	return node, npmCLI, []string{node, filepath.Dir(filepath.Dir(npmCLI))}, nil
+}
+
 func writeReport(out, ledger string, r Report) error {
 	b, e := json.MarshalIndent(r, "", "  ")
 	if e != nil {
@@ -674,7 +699,7 @@ func runHomePick(work, product, out, cache, app, seed string, row Row, report *R
 	if e = os.WriteFile(filepath.Join(owned, "bin/fake-bb.mjs"), f, 0600); e != nil {
 		return incomplete(e.Error())
 	}
-	node, e := exec.LookPath("node")
+	node, npmCLI, nodeRoots, e := nodeToolchain()
 	if e != nil {
 		return incomplete(e.Error())
 	}
@@ -682,15 +707,22 @@ func runHomePick(work, product, out, cache, app, seed string, row Row, report *R
 	if e != nil {
 		return incomplete(e.Error())
 	}
-	node, _ = filepath.EvalSymlinks(node)
-	goBin, _ = filepath.EvalSymlinks(goBin)
+	goBin, e = filepath.EvalSymlinks(goBin)
+	if e != nil {
+		return incomplete(e.Error())
+	}
 	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }
 	shim := []byte("#!/bin/sh\nexec " + quote(node) + " " + quote(filepath.Join(owned, "bin/fake-bb.mjs")) + " \"$@\"\n")
 	if e = os.WriteFile(filepath.Join(owned, "bin/bb"), shim, 0700); e != nil {
 		return incomplete(e.Error())
 	}
 	report.Artifacts["fake_bb_shim_sha256"] = hash(shim)
-	tools := []string{filepath.Dir(filepath.Dir(goBin)), filepath.Dir(node)}
+	npmShim := []byte("#!/bin/sh\nexec " + quote(node) + " " + quote(npmCLI) + " \"$@\"\n")
+	if e = os.WriteFile(filepath.Join(owned, "bin/npm"), npmShim, 0700); e != nil {
+		return incomplete(e.Error())
+	}
+	report.Artifacts["npm_shim_sha256"] = hash(npmShim)
+	tools := append([]string{filepath.Dir(filepath.Dir(goBin))}, nodeRoots...)
 	for _, toolRoot := range tools {
 		if _, err := safePath(toolRoot, product); err != nil {
 			return incomplete(err.Error())
@@ -778,7 +810,7 @@ func runHomePick(work, product, out, cache, app, seed string, row Row, report *R
 	}
 	env := childEnv(owned, filepath.Join(owned, "bin")+":"+filepath.Dir(node)+":"+filepath.Dir(goBin)+":/usr/bin:/bin")
 	env = append(env, "GOMODCACHE="+modCache, "GOCACHE="+goCache, "npm_config_cache="+npmCache, "PLAYWRIGHT_BROWSERS_PATH="+browser)
-	ro := []string{npmCache, modCache, browser, app, seed, filepath.Dir(filepath.Dir(goBin)), filepath.Dir(node), filepath.Join(owned, "bin"), filepath.Join(product, ".git")}
+	ro := append([]string{npmCache, modCache, browser, app, seed, filepath.Dir(filepath.Dir(goBin)), filepath.Join(owned, "bin"), filepath.Join(product, ".git")}, nodeRoots...)
 	if _, err := os.Stat(filepath.Join(work, "objects.git")); err == nil {
 		ro = append(ro, filepath.Join(work, "objects.git"))
 	}
@@ -798,7 +830,7 @@ func runHomePick(work, product, out, cache, app, seed string, row Row, report *R
 		return runGroup(argv, dir, env, remaining, filepath.Join(out, name+".log"))
 	}
 	// npm must run from the plugin directory, with offline settings reaching install hooks.
-	npm := step("npm", []string{"/usr/bin/npm", "--prefix", filepath.Join(product, plugin), "ci", "--offline", "--no-audit", "--no-fund"}, product)
+	npm := step("npm", []string{node, npmCLI, "--prefix", filepath.Join(product, plugin), "ci", "--offline", "--no-audit", "--no-fund"}, product)
 	if npm.Verdict != "PASS" {
 		npm.Flow = row.Flow
 		npm.Label = row.Label

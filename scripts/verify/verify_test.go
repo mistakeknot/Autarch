@@ -280,6 +280,22 @@ func TestOfflineNamespaceOutbound(t *testing.T) {
 	if err != nil {
 		t.Skip("INCOMPLETE: node missing")
 	}
+	// Hosted toolchains need not live below the namespace's system mounts.
+	// Put Node outside the workspace to require an explicit toolchain bind.
+	toolDir := t.TempDir()
+	nodeBytes, err := os.ReadFile(node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node = filepath.Join(toolDir, "node")
+	if err = os.WriteFile(node, nodeBytes, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", toolDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	node, npmCLI, tools, err := nodeToolchain()
+	if err != nil {
+		t.Fatal(err)
+	}
 	work := t.TempDir()
 	product := filepath.Join(work, "product")
 	if err = os.Mkdir(product, 0700); err != nil {
@@ -289,7 +305,7 @@ func TestOfflineNamespaceOutbound(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			script := filepath.Join(product, "outbound.cjs")
 			// A numeric external address avoids relying on DNS failure as proof of network isolation.
-			if err = os.WriteFile(script, []byte("const s=require('node:net').connect(443,'192.0.2.1');s.setTimeout(500);s.on('connect',()=>process.exit(0));s.on('error',e=>{console.error(e.code);process.exit(37)});s.on('timeout',()=>process.exit(38));"), 0600); err != nil {
+			if err = os.WriteFile(script, []byte("if(process.execPath!=="+strconv.Quote(node)+"){console.error('unexpected Node executable');process.exit(39)};const s=require('node:net').connect(443,'192.0.2.1');s.setTimeout(500);s.on('connect',()=>process.exit(0));s.on('error',e=>{console.error(e.code);process.exit(37)});s.on('timeout',()=>process.exit(38));"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			argv := []string{node, script}
@@ -297,9 +313,9 @@ func TestOfflineNamespaceOutbound(t *testing.T) {
 				if err = os.WriteFile(filepath.Join(product, "package.json"), []byte(`{"name":"outbound-probe","version":"1.0.0","scripts":{"install":"node outbound.cjs"}}`), 0600); err != nil {
 					t.Fatal(err)
 				}
-				argv = []string{"/usr/bin/npm", "--prefix", product, "install", "--offline", "--no-audit", "--no-fund", "--cache", filepath.Join(work, "npm-cache")}
+				argv = []string{node, npmCLI, "--prefix", product, "install", "--offline", "--no-audit", "--no-fund", "--cache", filepath.Join(work, "npm-cache")}
 			}
-			r := runGroup(namespace(work, product, nil, argv), product, childEnv(work, "/usr/bin:/bin"), 10*time.Second, filepath.Join(work, kind+".log"))
+			r := runGroup(namespace(work, product, tools, argv), product, childEnv(work, toolDir+":/usr/bin:/bin"), 10*time.Second, filepath.Join(work, kind+".log"))
 			if r.Verdict != "INCOMPLETE" || r.TimedOut {
 				t.Fatal("outbound connection was not refused inside namespace", r)
 			}
