@@ -64,6 +64,16 @@ func referenceRegion(t testing.TB, raw []byte, base int) (string, []int, []bool)
 	return normalized, sources, mask
 }
 
+// Independent normalization for the cleaned-notice exception (mk-o9xlb).
+func referenceCleanedRemainder(raw []byte) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+		return r
+	}, frozenANSI.ReplaceAllString(string(raw), ""))
+}
+
 func referenceStart(raw []byte) (int, bool) {
 	if len(raw) < stderrTailBytes {
 		return 0, false
@@ -75,7 +85,7 @@ func referenceStart(raw []byte) (int, bool) {
 			break
 		}
 	}
-	return start, strings.TrimSpace(string(raw[start:])) == ""
+	return start, strings.TrimSpace(referenceCleanedRemainder(raw[start:])) == ""
 }
 
 // Verify each output byte can be attributed to a source main exposes, in order.
@@ -177,9 +187,7 @@ func observeStderr(t testing.TB, raw []byte, got string) *stderrObservation {
 	t.Helper()
 	start, notice := referenceStart(raw)
 	o := &stderrObservation{raw: raw, got: got, start: start, notice: notice}
-	if !notice {
-		o.text, o.source, o.mask = referenceRegion(t, raw[start:], start)
-	}
+	o.text, o.source, o.mask = referenceRegion(t, raw[start:], start)
 	return o
 }
 func (o *stderrObservation) region(t testing.TB, base int) (string, []int, []bool) {
@@ -194,7 +202,7 @@ func (o *stderrObservation) region(t testing.TB, base int) (string, []int, []boo
 	return o.whole.text, o.whole.source, o.whole.mask
 }
 func (o *stderrObservation) frozenOutput() string {
-	if o.notice {
+	if len(o.raw) >= stderrTailBytes && strings.TrimSpace(string(o.raw[o.start:])) == "" {
 		return fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(o.raw))
 	}
 	text := frozenToken.ReplaceAllString(o.text, "[REDACTED]")
@@ -670,7 +678,13 @@ func TestStderrSweeps(t *testing.T) {
 					got := checkConstructed(t, input)
 					var tail stderrTail
 					tail.Write([]byte(input))
-					if got != frozenStderr(tail.data) {
+					want := frozenStderr(tail.data)
+					// The sole intended exception to frozen notice behavior:
+					// a full tail with a content-free cleaned remainder.
+					if _, notice := referenceStart(tail.data); notice {
+						want = fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(tail.data))
+					}
+					if got != want {
 						t.Fatalf("SW6 %q", got)
 					}
 				}
@@ -943,7 +957,7 @@ func FuzzSanitizedStderrSuperset(f *testing.F) {
 		var tail stderrTail
 		tail.Write(input)
 		raw := tail.data
-		// Raw condition selects the branch, even on a literal notice collision.
+		// Cleaned condition selects the branch, even on a literal notice collision.
 		start, notice := referenceStart(raw)
 		got := sanitizedStderr(raw)
 		if notice {
