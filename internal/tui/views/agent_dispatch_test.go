@@ -2,10 +2,13 @@ package views
 
 import (
 	"context"
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	"github.com/mistakeknot/autarch/internal/tui"
 	"github.com/mistakeknot/autarch/pkg/agenttargets"
+	"github.com/mistakeknot/autarch/pkg/autarch"
+	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -153,4 +156,58 @@ func TestScanProgressWithoutPreferenceNamesCodingAgent(t *testing.T) {
 		t.Fatalf("empty preference label: %q", msg.Details)
 	}
 	<-done
+}
+
+func TestCrossTabAgentSelection(t *testing.T) {
+	if os.Getenv("CROSS_TAB_CHILD") != "1" {
+		dir := t.TempDir()
+		for _, name := range []string{"claude", "codex"} {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\necho fixture-version\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		cmd := exec.Command(os.Args[0], "-test.run=^TestCrossTabAgentSelection$")
+		cmd.Env = append(os.Environ(), "CROSS_TAB_CHILD=1", "PATH="+dir, "HOME="+t.TempDir(), "XDG_CONFIG_HOME="+t.TempDir(), "AUTARCH_DISPATCH_AGENT=", "AUTARCH_DISPATCH_BACKEND=")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+		return
+	}
+	t.Chdir(t.TempDir())
+	for _, late := range []bool{false, true} {
+		t.Run(fmt.Sprint("createdAfterPick=", late), func(t *testing.T) {
+			app := tui.NewUnifiedApp(nil)
+			var gurgeh *GurgehView
+			var kickoff *KickoffView
+			factory := func(*autarch.Client) []tui.View {
+				if late {
+					app.Update(pkgtui.AgentSelectedMsg{Name: "codex"})
+				}
+				kickoff = NewKickoffView()
+				gurgeh = NewGurgehView(nil, &tui.GurgehConfig{CreateKickoffView: func() tui.View { return kickoff }})
+				return []tui.View{NewKickoffView(), gurgeh}
+			}
+			app.SetDashboardViewFactory(factory)
+			app.Init()
+			if !late {
+				app.Update(pkgtui.AgentSelectedMsg{Name: "codex"})
+			}
+
+			defer gurgeh.onboarding.cancel()
+			app.Update(tea.KeyMsg{Type: tea.KeyCtrlRight})
+			if gurgeh.onboarding.selectedAgent != "codex" || kickoff.resolvedScanAgent(".") != "codex" || !strings.Contains(gurgeh.onboarding.agentSelector.View(), "codex") || !strings.Contains(gurgeh.onboarding.agentSelector.View(), "explicit agent selection") {
+				t.Fatal("Gurgeh label did not receive pick from other tab")
+			}
+			configs := make(chan agenttargets.DispatchConfig, 1)
+			gurgeh.onboarding.explore = func(_ context.Context, _ string, cfg agenttargets.DispatchConfig) (map[string]any, string, error) {
+				configs <- cfg
+				return map[string]any{}, "", nil
+			}
+			gurgeh.onboarding.scanCodebase(".")
+			cfg := <-configs
+			if cfg.PreferredAgent != "codex" || cfg.PreferredAgentSource != "explicit agent selection" {
+				t.Fatalf("dispatch received %+v", cfg)
+			}
+		})
+	}
 }

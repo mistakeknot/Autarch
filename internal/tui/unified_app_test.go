@@ -458,6 +458,7 @@ func TestAgentSelectionLabelsUIChoice(t *testing.T) {
 		app := NewUnifiedApp(nil)
 		app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
 		app.agentSelector = pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
+		t.Setenv("AUTARCH_DISPATCH_AGENT", "")
 		receiver := &agentReceivingView{}
 		app.currentView = receiver
 		app.Update(pkgtui.AgentSelectedMsg{Name: "codex"})

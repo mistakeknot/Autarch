@@ -269,6 +269,15 @@ func (a *UnifiedApp) setSelectorIndex(name string) {
 	}
 }
 
+// attachDashboardAgents keeps inactive tabs and the current view on the same selection.
+// enterDashboard also attaches this state to each newly created view.
+func (a *UnifiedApp) attachDashboardAgents() {
+	for _, view := range a.dashViews {
+		a.attachAgentSelector(view)
+	}
+	a.attachAgentSelector(a.currentView)
+}
+
 func (a *UnifiedApp) attachAgentSelector(view View) {
 	if view == nil {
 		return
@@ -560,6 +569,11 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				baseline.Type = a.codingAgent.Type
 			}
 			previous, source := baseline.DispatchPreference(a.projectRoot)
+			if a.codingAgent != nil && source == "automatic detection" {
+				if current, currentSource := a.codingAgent.DispatchPreference(a.projectRoot); strings.EqualFold(current, msg.Name) && currentSource == "explicit agent selection" {
+					source = currentSource
+				}
+			}
 			resolved.ProjectRoot = a.projectRoot
 			a.codingAgent = resolved
 			a.selectedAgent = msg.Name
@@ -570,7 +584,7 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				a.agentSelector.Options[a.agentSelector.Index].Source = source
 			}
-			a.attachAgentName(a.currentView)
+			a.attachDashboardAgents()
 		} else {
 			// Navigation moves the cursor before confirmation; restore the
 			// effective preference if the requested agent is unavailable.
@@ -587,7 +601,7 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.codingAgent = a.codingAgent.Clone()
 			a.codingAgent.ProjectRoot = msg.Path
 		}
-		a.attachAgentSelector(a.currentView)
+		a.attachDashboardAgents()
 		if a.currentView != nil {
 			var cmd tea.Cmd
 			a.currentView, cmd = a.currentView.Update(msg)
