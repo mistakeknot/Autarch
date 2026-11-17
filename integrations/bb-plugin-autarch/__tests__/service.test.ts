@@ -817,6 +817,9 @@ describe("wake attribution from durable structured provenance", () => {
     ["notice", "notice:d:t", "card_pick"], ["hold-ended", "hold-end:t:n", "timer"],
     ["note", "note:t:n", "message"], ["notice", "unreadable:d", "message"],
     ["void-notice", "void:d", "card_pick"],
+    ["pick-relay", "pick-relay:d:p", "card_pick"],
+    ["pick-receipt", "pick-receipt:d:p", "card_pick"],
+    ["owner", "owner:t", "unknown"],
     ["notice", "undelivered:t", "message"], ["notice", "legacy", "unknown"],
     ["notice-digest", "notice-digest:t:o", "unknown"],
   ])("classifies %s / %s as %s", (kind, op, wakeCause) => {

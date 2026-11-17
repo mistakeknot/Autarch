@@ -10,7 +10,6 @@ import { THREAD_EVENT_PAGE_CAP, threadEventLimit } from "./hostLimits.js";
 import { claimPickReceipt, reconcilePickReceipts } from "./pickcapture.js";
 import { hasAcceptedPickEvidence } from "./pickhandler.js";
 import type { WakeAttribution } from "./wake-attribution.js";
-import type { ThreadSendArgs } from "@get-bb/plugin-sdk";
 
 export type SendResult = { delivery: "sent"; messageId?: string } | { delivery: "queued"; queuedMessageId: string };
 export interface QueuedRow {
@@ -550,7 +549,7 @@ const textOf = (parts: unknown): string =>
 
 /** The slice of bb.sdk.threads the adapter uses. */
 export interface ThreadsLike {
-  send(a: { threadId: string; input: readonly ({ type: "text"; text: string } | { type: "localImage"; path: string })[]; mode?: string } & Partial<Pick<ThreadSendArgs, "wakeCause" | "wakeRef">>): Promise<unknown>;
+  send(a: { threadId: string; input: readonly ({ type: "text"; text: string } | { type: "localImage"; path: string })[]; mode?: string } & Partial<WakeAttribution>): Promise<unknown>;
   queuedMessages: {
     list(a: { threadId: string }): Promise<unknown>;
     delete(a: { threadId: string; queuedMessageId: string }): Promise<unknown>;
@@ -571,7 +570,7 @@ export function sdkAdapter(threads: ThreadsLike): WakeSdk {
   return {
     async send(a) {
       const r = (await threads.send({ threadId: a.threadId, input: [{ type: "text", text: a.input }, ...(a.images ?? []).map((path) => ({ type: "localImage" as const, path }))], mode: a.mode,
-        ...(a.wakeCause ? { wakeCause: a.wakeCause } : {}), ...(a.wakeRef ? { wakeRef: a.wakeRef } : {}) })) as {
+        ...(a.wakeCause ? { wakeCause: a.wakeCause } satisfies Partial<WakeAttribution> : {}), ...(a.wakeRef ? { wakeRef: a.wakeRef } satisfies Partial<WakeAttribution> : {}) })) as {
         delivery: "sent" | "queued";
         queuedMessage?: { id: string };
         messageId?: string;
