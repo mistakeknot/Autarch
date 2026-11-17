@@ -6,7 +6,7 @@ import (
 )
 
 // Stages and exact outputs follow the reviewed plan for mk-rkkao.2.
-const redactStage = 0
+const redactStage = 2
 
 type redactCase struct {
 	input, want string
@@ -169,4 +169,22 @@ func legacyGuardInputs() []string {
 		inputs = append(inputs, prefix+strings.Repeat("Q", 300)+strings.Repeat("\x1b[2K\x1b[1G", 500))
 	}
 	return inputs
+}
+
+func TestNormalizeIndexMap(t *testing.T) {
+	for _, input := range []string{"\xc3\x1b[0m\xa9", "Bearer \xef\xbf\xbd11 ok", "Bearer \xff11 ok", "\x1b]0;t\nx\x07y", "\x1b[0m\x1b[0msk-1111 ok"} {
+		normalized, src, _ := referenceRegion(t, []byte(input), 0)
+		got := normalizeStderr([]byte(input), 0)
+		if string(got.text) != normalized || len(got.source) != len(src) {
+			t.Fatalf("normalization %q", input)
+		}
+		for i, p := range src {
+			if got.source[i] != int32(p) {
+				t.Fatalf("source %q at %d", input, i)
+			}
+		}
+		if sanitizedStderr([]byte(input)) != frozenStderr([]byte(input)) {
+			t.Fatalf("normalization output %q", input)
+		}
+	}
 }

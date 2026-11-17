@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 )
 
 const stderrTailBytes = 4096
@@ -32,6 +30,7 @@ var stderrANSI = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?
 var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|(?:ghp_|gho_|ghs_|ghu_|ghr_|github_pat_)[a-z0-9_]+|Bearer[ \t]+[^\s]+|(?:Authorization|x-api-key)[ \t]*:[^\r\n]*|"(?:access_token|api_key|token|refresh_token|id_token|client_secret|apiKey)"\s*:\s*"(?:[^"\\]|\\.)*(?:"|$)|access_token=[^&\s]*`)
 
 func sanitizedStderr(data []byte) string {
+	raw := data
 	// A full tail may start inside a credential keyword or its value. Drop
 	// the entire first line: retaining only its suffix loses redaction context.
 	if len(data) >= stderrTailBytes {
@@ -46,22 +45,7 @@ func sanitizedStderr(data []byte) string {
 		}
 	}
 
-	text := stderrANSI.ReplaceAllString(string(data), "")
-	text = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) && r != '\n' && r != '\t' {
-			return -1
-		}
-		return r
-	}, text)
-	text = stderrToken.ReplaceAllString(text, "[REDACTED]")
-	if len(text) > stderrTailBytes {
-		start := len(text) - stderrTailBytes
-		for start < len(text) && !utf8.RuneStart(text[start]) {
-			start++
-		}
-		text = text[start:]
-	}
-	return text
+	return renderStderr(raw, len(raw)-len(data))
 }
 
 func processError(err error, timedOut bool, tail *stderrTail) error {

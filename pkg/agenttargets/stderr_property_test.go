@@ -87,6 +87,12 @@ func checkMainSuperset(t testing.TB, raw []byte) {
 		return
 	}
 	text, src, mask := referenceRegion(t, raw[start:], start)
+	_, actualMask := stderrSourceMask(raw, start)
+	for p, hidden := range mask {
+		if hidden && actualMask[p] <= 0 {
+			t.Fatalf("legacy source %d exposed for %q", p, raw)
+		}
+	}
 	var visible strings.Builder
 	for i := 0; i < len(text); {
 		_, n := utf8.DecodeRuneInString(text[i:])
