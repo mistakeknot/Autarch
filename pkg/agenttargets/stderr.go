@@ -163,6 +163,12 @@ func sanitizedStderrTail(t *stderrTail) string {
 
 func stderrHasVisibleText(text string) bool {
 	for _, r := range text {
+		// Cf includes marks some fonts or terminals draw: U+0600–U+0605,
+		// U+06DD, U+070F, U+110BD, U+FFF9–U+FFFB, and soft hyphen U+00AD.
+		// A final frame of only these marks gets the constant notice when
+		// frame selection hides visible content. This is deliberately fail-safe:
+		// the fixed text discloses nothing, and such a frame has no diagnostic
+		// value. Streams made only of format characters keep their old output.
 		if !unicode.IsSpace(r) && !unicode.Is(unicode.Cf, r) {
 			return true
 		}
