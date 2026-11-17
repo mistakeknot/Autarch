@@ -695,3 +695,29 @@ type reloadPickView struct {
 func (v *reloadPickView) SetAgentName(name string) { v.name = name }
 
 func (v *reloadPickView) Update(tea.Msg) (pkgtui.View, tea.Cmd) { return v, nil }
+
+func TestDispatchPaletteLabelsDescribeModes(t *testing.T) {
+	app := NewUnifiedApp(nil)
+	app.initPaletteCommands()
+	assertDispatch := func(want string) {
+		t.Helper()
+		for _, cmd := range app.palette.commands {
+			if cmd.Name == cmd.Description {
+				t.Errorf("palette repeats name as description: %q", cmd.Name)
+			}
+		}
+		for _, cmd := range app.palette.commands {
+			if cmd.Name == want {
+				msg := cmd.Action()()
+				if key, ok := msg.(tea.KeyMsg); !ok || key.Type != tea.KeyF2 {
+					t.Fatalf("%s action = %#v", want, msg)
+				}
+				return
+			}
+		}
+		t.Errorf("missing palette label %q", want)
+	}
+	assertDispatch("Choose Dispatch agent (Ctrl+G / F2)")
+	app.updateCommands()
+	assertDispatch("Choose Dispatch agent (Ctrl+G / F2)")
+}

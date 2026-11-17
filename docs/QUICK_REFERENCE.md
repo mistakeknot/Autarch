@@ -174,7 +174,7 @@ todo → in_progress → review → done
 | `Ctrl+F` | Search |
 | `Ctrl+R` | Refresh |
 | `Ctrl+P` | Command palette |
-| `Ctrl+G` | Dispatch agent |
+| `Ctrl+G` | Choose Dispatch agent |
 | `Ctrl+A` | Accept (context-dependent) |
 | `Ctrl+X` | Delete (context-dependent) |
 | `Ctrl+S` | Scan (in kickoff) |
