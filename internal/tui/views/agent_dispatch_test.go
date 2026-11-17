@@ -198,6 +198,19 @@ func TestCrossTabAgentSelection(t *testing.T) {
 			if gurgeh.onboarding.selectedAgent != "codex" || kickoff.resolvedScanAgent(".") != "codex" || !strings.Contains(gurgeh.onboarding.agentSelector.View(), "codex") || !strings.Contains(gurgeh.onboarding.agentSelector.View(), "explicit agent selection") {
 				t.Fatal("Gurgeh label did not receive pick from other tab")
 			}
+			if gurgeh.onboarding.agentSelector == nil || gurgeh.onboarding.selectedAgent != "codex" || gurgeh.onboarding.codingAgent == nil {
+				t.Fatal("Gurgeh setters did not reach onboarding")
+			}
+			replacement := pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "codex", Source: "explicit agent selection"}})
+			gurgeh.SetAgentSelector(replacement)
+			if gurgeh.onboarding.agentSelector != replacement {
+				t.Fatal("Gurgeh did not forward selector identity")
+			}
+			gurgeh.SetAgentName("claude")
+			if gurgeh.onboarding.selectedAgent != "claude" || kickoff.scanAgentName != "claude" {
+				t.Fatal("Gurgeh did not forward updated agent name")
+			}
+			gurgeh.SetAgentName("codex")
 			configs := make(chan agenttargets.DispatchConfig, 1)
 			gurgeh.onboarding.explore = func(_ context.Context, _ string, cfg agenttargets.DispatchConfig) (map[string]any, string, error) {
 				configs <- cfg
@@ -207,6 +220,51 @@ func TestCrossTabAgentSelection(t *testing.T) {
 			cfg := <-configs
 			if cfg.PreferredAgent != "codex" || cfg.PreferredAgentSource != "explicit agent selection" {
 				t.Fatalf("dispatch received %+v", cfg)
+			}
+		})
+	}
+}
+
+// Mutating the shared selector after attachment also checks that panels retain
+// the live selector rather than a copy; its pointer is private to pkg/tui.
+func TestRealTabChatPanelsShareAgentSelector(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	t.Chdir(t.TempDir())
+	bigend := NewBigendView(nil)
+	gurgeh := NewGurgehView(nil, &tui.GurgehConfig{})
+	defer gurgeh.onboarding.cancel()
+	coldwine := NewColdwineView(nil)
+	pollard := NewPollardView(nil, nil)
+	for _, tc := range []struct {
+		name  string
+		set   func(*pkgtui.AgentSelector)
+		panel *pkgtui.ChatPanel
+	}{
+		{"Bigend", bigend.SetAgentSelector, bigend.chatPanel},
+		{"Gurgeh", gurgeh.SetAgentSelector, gurgeh.chatPanel},
+		{"Coldwine", coldwine.SetAgentSelector, coldwine.chatPanel},
+		{"Pollard", pollard.SetAgentSelector, pollard.chatPanel},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			selector := pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
+			tc.panel.SetSize(120, 30)
+			tc.set(selector)
+			if !strings.Contains(tc.panel.View(), "Choice: claude") {
+				t.Fatal("initial selector label missing from chat panel")
+			}
+			selector.Index = 1
+			if !strings.Contains(tc.panel.View(), "Choice: codex") {
+				t.Fatal("chat panel did not retain shared selector")
+			}
+			replacement := pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "replacement-agent"}})
+			tc.set(replacement)
+			if !strings.Contains(tc.panel.View(), "Choice: replacement-agent") {
+				t.Fatal("chat panel did not replace selector")
+			}
+			if tc.name == "Gurgeh" && gurgeh.onboarding.agentSelector != replacement {
+				t.Fatal("onboarding selector identity differs")
 			}
 		})
 	}

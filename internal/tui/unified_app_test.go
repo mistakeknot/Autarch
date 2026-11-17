@@ -669,6 +669,9 @@ func TestScanReloadPreservesAgentPickAcrossTabs(t *testing.T) {
 				if app.currentView != view {
 					t.Fatalf("tab %d did not activate", i)
 				}
+				if view.selector != app.agentSelector {
+					t.Fatalf("tab %d retained a different selector after reload", i)
+				}
 				if view.name != "codex" || view.selector == nil || !strings.Contains(view.selector.View(), "codex") || !strings.Contains(view.selector.View(), "explicit agent selection") {
 					t.Fatalf("tab %d label lost pick: %q, %+v", i, view.name, view.selector)
 				}
