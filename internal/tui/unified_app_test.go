@@ -386,7 +386,7 @@ func TestSignalsOverlayBlocksKeysToView(t *testing.T) {
 func TestAgentSelectorUsesDispatchPreference(t *testing.T) {
 	for _, tc := range []struct{ name, env, config, want, source string }{
 		{"environment", "codex", "", "codex", "AUTARCH_DISPATCH_AGENT"},
-		{"project", "", "[dispatch]\npreferred_agent = \"codex\"\n", "codex", "project config (current directory)"},
+		{"project", "", "[dispatch]\npreferred_agent = \"codex\"\n", "codex", "project config"},
 		{"automatic", "", "", "claude", "automatic detection"},
 		{"unknown", "unavailable-agent", "", "unavailable-agent", "AUTARCH_DISPATCH_AGENT"},
 	} {
@@ -458,10 +458,29 @@ func TestAgentSelectionLabelsUIChoice(t *testing.T) {
 		app := NewUnifiedApp(nil)
 		app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
 		app.agentSelector = pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
+		t.Setenv("AUTARCH_DISPATCH_AGENT", "")
+		receiver := &agentReceivingView{}
+		app.currentView = receiver
 		app.Update(pkgtui.AgentSelectedMsg{Name: "codex"})
+		if receiver.codingAgent != app.codingAgent {
+			t.Fatal("pick did not reach view")
+		}
 		name, source := app.codingAgent.DispatchPreference(".")
-		if name != "codex" || source != "explicit agent selection" || !strings.Contains(app.agentSelector.View(), "runs use config; picked") {
+		if name != "codex" || source != "explicit agent selection" || !strings.Contains(app.agentSelector.View(), "explicit agent selection") {
 			t.Fatalf("UI choice mislabeled: %s %s %s", name, source, app.agentSelector.View())
+		}
+		app.Update(pkgtui.AgentSelectedMsg{Name: "codex"})
+		if !strings.Contains(app.agentSelector.View(), "explicit agent selection") {
+			t.Fatal("lost explicit source")
+		}
+		t.Setenv("AUTARCH_DISPATCH_AGENT", "codex")
+		app.Update(pkgtui.AgentSelectedMsg{Name: "codex"})
+		if !strings.Contains(app.agentSelector.View(), "AUTARCH_DISPATCH_AGENT") {
+			t.Fatal("lost environment source")
+		}
+		app.initAgentSelectorWithOptions(t.TempDir(), []pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
+		if !strings.Contains(app.agentSelector.View(), "AUTARCH_DISPATCH_AGENT") {
+			t.Fatal("reload lost matching environment source")
 		}
 		return
 	}
@@ -521,4 +540,62 @@ func initAgentSelectorWithoutDetection(t *testing.T, app *UnifiedApp) {
 		t.Fatal(err)
 	}
 	app.initAgentSelectorWithOptions(root, buildAgentOptionsFromRegistry(agenttargets.Merge(global, project)))
+}
+
+type agentReceivingView struct {
+	noopDashboardView
+	codingAgent *agent.Agent
+}
+
+func (v *agentReceivingView) SetCodingAgent(a *agent.Agent) { v.codingAgent = a }
+
+func TestSelectorResolvesScannedProject(t *testing.T) {
+	isolateSelectorEnvironment(t)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("AUTARCH_DISPATCH_AGENT", "")
+	t.Chdir(t.TempDir())
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".gurgeh"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gurgeh", "agents.toml"), []byte("[dispatch]\npreferred_agent = \"codex\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := NewUnifiedApp(nil)
+	app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
+	app.initAgentSelectorWithOptions(root, []pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
+	if app.codingAgent.ProjectRoot != root {
+		t.Fatal("generation root differs from label root")
+	}
+	if app.selectedAgent != "codex" {
+		t.Fatal("label used current directory instead of scanned project")
+	}
+}
+
+type selectorReceivingView struct {
+	agentReceivingView
+	selector *pkgtui.AgentSelector
+}
+
+func (v *selectorReceivingView) SetAgentSelector(s *pkgtui.AgentSelector) { v.selector = s }
+
+func TestScanSelectorReloadFailureKeepsViewsConsistent(t *testing.T) {
+	isolateSelectorEnvironment(t)
+	t.Setenv("PATH", t.TempDir())
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".gurgeh"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gurgeh", "agents.toml"), []byte("invalid = ["), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := NewUnifiedApp(nil)
+	old := pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "claude"}})
+	app.agentSelector = old
+	view := &selectorReceivingView{selector: old}
+	app.currentView = view
+	app.Update(ScanCodebaseMsg{Path: root})
+	if app.agentSelector != view.selector {
+		t.Fatal("app and view have different selectors")
+	}
 }

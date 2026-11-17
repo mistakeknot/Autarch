@@ -18,11 +18,20 @@ import (
 // Session ID can be used with GeneratePhase() to avoid re-exploration.
 // Tool usage is streamed to slog (appears in log pane when TUI is running).
 func Explore(ctx context.Context, cwd string) (map[string]any, string, error) {
-	slog.Info("exploration starting", "path", cwd)
+	cfg := Config(cwd)
+	return ExploreWithConfig(ctx, cwd, cfg)
+}
 
+// Config resolves scan preferences from the scanned project.
+func Config(cwd string) agenttargets.DispatchConfig {
 	cfg := agenttargets.DefaultDispatchConfig()
 	cfg.Timeout = 10 * time.Minute
-	cfg = agenttargets.LoadDispatchConfigWithDefaults(cwd, cfg)
+	return agenttargets.LoadDispatchConfigWithDefaults(cwd, cfg)
+}
+
+// ExploreWithConfig runs exploration with an already resolved dispatch configuration.
+func ExploreWithConfig(ctx context.Context, cwd string, cfg agenttargets.DispatchConfig) (map[string]any, string, error) {
+	slog.Info("exploration starting", "path", cwd)
 
 	handle, err := agenttargets.Dispatch(ctx, cfg, cwd, prompt)
 	if err != nil {

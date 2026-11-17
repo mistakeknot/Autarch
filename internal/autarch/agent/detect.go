@@ -20,12 +20,22 @@ const (
 
 // Agent represents a detected coding agent
 type Agent struct {
-	Type    Type
-	Path    string
-	Version string
+	ProjectRoot string // Project used for dispatch preference resolution.
+	Type        Type
+	Path        string
+	Version     string
 
 	// explicitSelection distinguishes a named user choice from automatic detection.
 	explicitSelection bool
+}
+
+// Clone returns an independent snapshot for a command goroutine.
+func (a *Agent) Clone() *Agent {
+	if a == nil {
+		return nil
+	}
+	copy := *a
+	return &copy
 }
 
 // DetectAgent finds available coding agents on the system.
@@ -107,9 +117,13 @@ func (a *Agent) Generate(ctx context.Context, req GenerateRequest) (*GenerateRes
 // GenerateWithOutput runs a prompt and streams output to a callback.
 // This dispatches via agenttargets.Dispatch() regardless of agent type.
 func (a *Agent) GenerateWithOutput(ctx context.Context, req GenerateRequest, onOutput OutputCallback) (*GenerateResponse, error) {
-	cfg := a.dispatchConfig(".")
+	root := a.ProjectRoot
+	if root == "" {
+		root = "."
+	}
+	cfg := a.dispatchConfig(root)
 
-	handle, err := agenttargets.Dispatch(ctx, cfg, "", req.Prompt)
+	handle, err := agenttargets.Dispatch(ctx, cfg, root, req.Prompt)
 	if err != nil {
 		return nil, fmt.Errorf("%s execution failed: %w", cfg.PreferredAgent, err)
 	}
@@ -173,10 +187,16 @@ func (a *Agent) String() string {
 
 // dispatchConfig preserves an explicit agent selection over project and environment preferences.
 func (a *Agent) dispatchConfig(projectRoot string) agenttargets.DispatchConfig {
-	cfg := agenttargets.LoadDispatchConfig(projectRoot)
+	return a.ApplyDispatchConfig(agenttargets.LoadDispatchConfig(projectRoot))
+}
+
+// ApplyDispatchConfig applies this agent selection to caller-specific defaults.
+func (a *Agent) ApplyDispatchConfig(cfg agenttargets.DispatchConfig) agenttargets.DispatchConfig {
+	if a == nil {
+		return cfg
+	}
 	if a.explicitSelection && a.Type != "" {
-		cfg.PreferredAgent = string(a.Type)
-		cfg.PreferredAgentSource = "explicit agent selection"
+		cfg = agenttargets.WithExplicitAgent(cfg, string(a.Type))
 	}
 	if cfg.PreferredAgent == "" && a.Type != "" {
 		cfg.PreferredAgent = string(a.Type)

@@ -32,6 +32,7 @@ type UnifiedApp struct {
 
 	// Agent for AI generation
 	codingAgent   *agent.Agent
+	projectRoot   string
 	agentSelector *pkgtui.AgentSelector
 	selectedAgent string
 
@@ -201,9 +202,9 @@ func (a *UnifiedApp) initAgentSelector() {
 		return
 	}
 
-	projectRoot := ""
-	if cwd, err := os.Getwd(); err == nil {
-		projectRoot = cwd
+	projectRoot := a.projectRoot
+	if projectRoot == "" {
+		projectRoot, _ = os.Getwd()
 	}
 
 	options, err := LoadAgentOptions(projectRoot)
@@ -216,6 +217,11 @@ func (a *UnifiedApp) initAgentSelector() {
 
 // initAgentSelectorWithOptions separates preference resolution from tool discovery.
 func (a *UnifiedApp) initAgentSelectorWithOptions(projectRoot string, options []pkgtui.AgentOption) {
+	a.projectRoot = projectRoot
+	if a.codingAgent != nil {
+		a.codingAgent = a.codingAgent.Clone()
+		a.codingAgent.ProjectRoot = projectRoot
+	}
 	options = filterSupportedAgentOptions(options)
 	selection := a.codingAgent
 	if selection == nil {
@@ -223,6 +229,10 @@ func (a *UnifiedApp) initAgentSelectorWithOptions(projectRoot string, options []
 	}
 	var source string
 	a.selectedAgent, source = selection.DispatchPreference(projectRoot)
+	baseline := &agent.Agent{Type: selection.Type}
+	if name, baselineSource := baseline.DispatchPreference(projectRoot); strings.EqualFold(name, a.selectedAgent) && baselineSource != "automatic detection" {
+		source = baselineSource
+	}
 	if a.selectedAgent == "" {
 		if len(options) == 0 {
 			return
@@ -231,7 +241,7 @@ func (a *UnifiedApp) initAgentSelectorWithOptions(projectRoot string, options []
 		source = "configured, not detected"
 	}
 	if filepath.IsAbs(source) {
-		source = "project config (current directory)"
+		source = "project config"
 	}
 	found := false
 	for i := range options {
@@ -259,6 +269,15 @@ func (a *UnifiedApp) setSelectorIndex(name string) {
 	}
 }
 
+// attachDashboardAgents keeps inactive tabs and the current view on the same selection.
+// enterDashboard also attaches this state to each newly created view.
+func (a *UnifiedApp) attachDashboardAgents() {
+	for _, view := range a.dashViews {
+		a.attachAgentSelector(view)
+	}
+	a.attachAgentSelector(a.currentView)
+}
+
 func (a *UnifiedApp) attachAgentSelector(view View) {
 	if view == nil {
 		return
@@ -273,8 +292,11 @@ func (a *UnifiedApp) attachAgentSelector(view View) {
 }
 
 func (a *UnifiedApp) attachAgentName(view View) {
-	if view == nil || a.selectedAgent == "" {
+	if view == nil {
 		return
+	}
+	if setter, ok := view.(interface{ SetCodingAgent(*agent.Agent) }); ok {
+		setter.SetCodingAgent(a.codingAgent)
 	}
 	if setter, ok := view.(agentNameSetter); ok {
 		setter.SetAgentName(a.selectedAgent)
@@ -542,17 +564,48 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pkgtui.AgentSelectedMsg:
 		if resolved, err := agent.DetectAgentByName(msg.Name, exec.LookPath); err == nil {
+			baseline := &agent.Agent{}
+			if a.codingAgent != nil {
+				baseline.Type = a.codingAgent.Type
+			}
+			previous, source := baseline.DispatchPreference(a.projectRoot)
+			if a.codingAgent != nil && source == "automatic detection" {
+				if current, currentSource := a.codingAgent.DispatchPreference(a.projectRoot); strings.EqualFold(current, msg.Name) && currentSource == "explicit agent selection" {
+					source = currentSource
+				}
+			}
+			resolved.ProjectRoot = a.projectRoot
 			a.codingAgent = resolved
 			a.selectedAgent = msg.Name
 			a.setSelectorIndex(msg.Name)
 			if a.agentSelector != nil && len(a.agentSelector.Options) > 0 {
-				a.agentSelector.Options[a.agentSelector.Index].Source = "runs use config; picked"
+				if !strings.EqualFold(previous, msg.Name) {
+					source = "explicit agent selection"
+				}
+				a.agentSelector.Options[a.agentSelector.Index].Source = source
 			}
-			a.attachAgentName(a.currentView)
+			a.attachDashboardAgents()
 		} else {
 			// Navigation moves the cursor before confirmation; restore the
 			// effective preference if the requested agent is unavailable.
 			a.setSelectorIndex(a.selectedAgent)
+		}
+		return a, nil
+
+	case ScanCodebaseMsg:
+		a.projectRoot = msg.Path
+		if options, err := LoadAgentOptions(msg.Path); err == nil {
+			a.initAgentSelectorWithOptions(msg.Path, options)
+		}
+		if a.codingAgent != nil {
+			a.codingAgent = a.codingAgent.Clone()
+			a.codingAgent.ProjectRoot = msg.Path
+		}
+		a.attachDashboardAgents()
+		if a.currentView != nil {
+			var cmd tea.Cmd
+			a.currentView, cmd = a.currentView.Update(msg)
+			return a, cmd
 		}
 		return a, nil
 

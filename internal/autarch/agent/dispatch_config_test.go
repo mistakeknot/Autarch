@@ -17,6 +17,8 @@ func TestGenerateWithOutputRejectsConfiguredBackend(t *testing.T) {
 }
 
 func TestExplicitAgentBeatsProjectAndEnv(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
 	t.Setenv("AUTARCH_DISPATCH_AGENT", "codex")
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, ".gurgeh"), 0700); err != nil {
@@ -99,5 +101,27 @@ func TestDetectionDistinguishesNamedSelection(t *testing.T) {
 	}
 	if got := explicit.dispatchConfig(root).PreferredAgent; got != "claude" {
 		t.Fatalf("explicit = %q", got)
+	}
+}
+
+func TestGenerationWithoutPickUsesCurrentProject(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("AUTARCH_DISPATCH_AGENT", "")
+	t.Setenv("AUTARCH_DISPATCH_BACKEND", "")
+	root := t.TempDir()
+	t.Chdir(root)
+	if err := os.Mkdir(filepath.Join(root, ".gurgeh"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gurgeh", "agents.toml"), []byte("[dispatch]\npreferred_agent = 'codex'\npreferred_backend = 'api'\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{Type: TypeClaude}
+	name, _ := a.DispatchPreference(root)
+	_, err := a.Generate(context.Background(), GenerateRequest{Prompt: "test"})
+	if name != "codex" || err == nil || !strings.Contains(err.Error(), "codex execution failed") {
+		t.Fatalf("label=%s dispatch=%v", name, err)
 	}
 }
