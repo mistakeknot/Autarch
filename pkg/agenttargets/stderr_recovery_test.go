@@ -12,7 +12,7 @@ import (
 const recoveryStage = 2
 const recoveryNotice = "[stderr withheld: 4096 bytes with no complete line]"
 
-var recoveryEvaluations int
+var recoveryEvaluations, recoveryEvaluationStart int
 
 type recoveryCase struct {
 	name, input, baselineWant, finalWant string
@@ -159,19 +159,27 @@ func TestRecoveryAllocBudget(t *testing.T) {
 	for name, input := range recoveryAllocationInputs() {
 		raw := []byte(input)
 		for _, chunk := range []int{len(raw), 1024} {
-			result := testing.Benchmark(func(b *testing.B) {
-				for i := 0; i < b.N; i++ {
-					var tail stderrTail
-					for p := 0; p < len(raw); p += chunk {
-						tail.Write(raw[p:min(p+chunk, len(raw))])
-					}
-					processError(fixedErr, false, &tail)
+			run := func() {
+				var tail stderrTail
+				for p := 0; p < len(raw); p += chunk {
+					tail.Write(raw[p:min(p+chunk, len(raw))])
 				}
-			})
-			runtime.KeepAlive(fixedErr)
-			t.Logf("%s/chunk-%d: %d B/op %d allocs/op", name, chunk, result.AllocedBytesPerOp(), result.AllocsPerOp())
-			if result.AllocedBytesPerOp() > 1<<20 {
-				t.Fatalf("allocation budget %s/chunk-%d: %d B/op", name, chunk, result.AllocedBytesPerOp())
+				processError(fixedErr, false, &tail)
+			}
+			// Warm regexp pools before measuring a fixed number of recoveries.
+			run()
+			const iterations = 5
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			for i := 0; i < iterations; i++ {
+				run()
+			}
+			runtime.ReadMemStats(&after)
+			bytesPerOp := (after.TotalAlloc - before.TotalAlloc) / iterations
+			allocsPerOp := (after.Mallocs - before.Mallocs) / iterations
+			t.Logf("%s/chunk-%d: %d B/op %d allocs/op", name, chunk, bytesPerOp, allocsPerOp)
+			if bytesPerOp > 1<<20 {
+				t.Fatalf("allocation budget %s/chunk-%d: %d B/op", name, chunk, bytesPerOp)
 			}
 		}
 	}
@@ -299,8 +307,9 @@ func TestRecoveryLazyCapture(t *testing.T) {
 
 func TestRecoveryCallerOwnership(t *testing.T) {
 	defer func() {
-		t.Logf("recovery evaluations: %d (cap 1400; fuzz/extended separate)", recoveryEvaluations)
-		if recoveryEvaluations > 1400 {
+		evaluations := recoveryEvaluations - recoveryEvaluationStart
+		t.Logf("recovery evaluations: %d (cap 1400; fuzz/extended separate)", evaluations)
+		if evaluations > 1400 {
 			t.Fatal("default evaluation budget")
 		}
 		if recoveryStage != 2 {
