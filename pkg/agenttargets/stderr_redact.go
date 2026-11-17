@@ -62,6 +62,7 @@ func stderrSourceMask(raw []byte, start int) (stderrRegion, []int32) {
 	a := normalizeStderr(raw[start:], start)
 	diff := make([]int32, len(raw)+1)
 	apply := func(region stderrRegion) {
+		maskStderrNew(diff, region)
 		for _, span := range stderrToken.FindAllIndex(region.text, -1) {
 			maskStderrSpan(diff, region, span[0], span[1])
 		}
@@ -106,4 +107,266 @@ func renderStderr(raw []byte, start int) string {
 		text = text[cut:]
 	}
 	return strings.Clone(text)
+}
+
+func stderrBlank(b byte) bool { return b == ' ' || b == '\t' }
+func stderrSpace(b byte) bool { return stderrBlank(b) || b == '\n' }
+func stderrNameByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_' || b == '-'
+}
+
+func stderrNameClass(name []byte) int {
+	lower := strings.TrimLeft(strings.ToLower(string(name)), "-")
+	for _, suffix := range []string{"password", "passwd", "secret", "credential", "credentials", "authorization", "cookie", "privatekey", "private_key", "private-key"} {
+		if strings.HasSuffix(lower, suffix) {
+			return 1
+		}
+	}
+	for _, suffix := range []string{"token", "apikey", "api_key", "api-key", "accesskey", "access_key", "secretkey", "secret_key"} {
+		if strings.HasSuffix(lower, suffix) {
+			return 2
+		}
+	}
+	if len(lower) > 4 && (strings.HasSuffix(lower, "_key") || strings.HasSuffix(lower, "-key")) {
+		return 3
+	}
+	return 0
+}
+
+type stderrQuoteClass struct {
+	quote   byte
+	slashes int
+}
+type stderrQuoteIndex map[stderrQuoteClass][]int32
+
+func indexStderrQuotes(text []byte) stderrQuoteIndex {
+	counts := make(map[stderrQuoteClass]int)
+	walk := func(visit func(stderrQuoteClass, int)) {
+		slashes := 0
+		for i, b := range text {
+			if b == '\'' || b == '"' {
+				visit(stderrQuoteClass{b, slashes}, i)
+				if slashes%2 == 0 {
+					visit(stderrQuoteClass{b, -1}, i)
+				}
+			}
+			if b == '\\' {
+				slashes++
+			} else {
+				slashes = 0
+			}
+		}
+	}
+	walk(func(k stderrQuoteClass, _ int) { counts[k]++ })
+	index := make(stderrQuoteIndex, len(counts))
+	for k, n := range counts {
+		index[k] = make([]int32, 0, n)
+	}
+	walk(func(k stderrQuoteClass, i int) { index[k] = append(index[k], int32(i)) })
+	return index
+}
+func (index stderrQuoteIndex) close(quote byte, slashes, start, end int) int {
+	class := slashes
+	if slashes == 0 {
+		class = -1
+	}
+	bucket := index[stderrQuoteClass{quote, class}]
+	lo, hi := 0, len(bucket)
+	for lo < hi {
+		m := (lo + hi) / 2
+		if int(bucket[m]) < start {
+			lo = m + 1
+		} else {
+			hi = m
+		}
+	}
+	if lo == len(bucket) || int(bucket[lo]) >= end {
+		return end
+	}
+	return int(bucket[lo]) + 1
+}
+
+// Each stop-class cursor is queried in nondecreasing value-start order. It
+// advances at most once over each byte, including overlapping candidates.
+type stderrStopCursor struct{ pos, last int }
+
+func (cursor *stderrStopCursor) end(text []byte, start int, stop func(byte) bool) int {
+	if start < cursor.last {
+		panic("stderr value starts out of order")
+	}
+	cursor.last = start
+	if cursor.pos < start {
+		cursor.pos = start
+	}
+	for cursor.pos < len(text) && !stop(text[cursor.pos]) {
+		cursor.pos++
+	}
+	return cursor.pos
+}
+
+func maskStderrNew(diff []int32, region stderrRegion) {
+	text := region.text
+	quotes := indexStderrQuotes(text)
+	var eq, scalar, word, line stderrStopCursor
+	quoteToken := func(pos int) (int, int, byte, bool) {
+		begin := pos
+		for pos < len(text) && text[pos] == '\\' {
+			pos++
+		}
+		if pos < len(text) && (text[pos] == '"' || text[pos] == '\'') {
+			return pos + 1, pos - begin, text[pos], true
+		}
+		return begin, 0, 0, false
+	}
+	skip := func(pos int, multiline bool) int {
+		for pos < len(text) && (stderrBlank(text[pos]) || multiline && text[pos] == '\n') {
+			pos++
+		}
+		return pos
+	}
+	value := func(start, kind int, multiline bool) {
+		if start >= len(text) || text[start] == '\n' {
+			return
+		}
+		cap := len(text)
+		if !multiline {
+			cap = line.end(text, start, func(b byte) bool { return b == '\n' })
+		}
+		after, k, q, quoted := quoteToken(start)
+		end := start
+		if kind == 3 {
+			end = cap
+		} else if quoted {
+			end = quotes.close(q, k, after, cap)
+		} else {
+			switch kind {
+			case 0:
+				end = eq.end(text, start, func(b byte) bool { return stderrSpace(b) || b == '&' })
+			case 1:
+				end = scalar.end(text, start, func(b byte) bool { return stderrSpace(b) || b == ',' || b == '}' || b == ']' })
+			case 2:
+				end = word.end(text, start, stderrSpace)
+			case 3:
+				end = cap
+			}
+		}
+		maskStderrSpan(diff, region, start, end)
+	}
+	for i := 0; i < len(text); {
+		if !stderrNameByte(text[i]) {
+			i++
+			continue
+		}
+		begin := i
+		for i < len(text) && stderrNameByte(text[i]) {
+			i++
+		}
+		class := stderrNameClass(text[begin:i])
+		if class == 0 {
+			continue
+		}
+
+		type form struct {
+			start, kind int
+			multiline   bool
+		}
+		var forms [3]form
+		count := 0
+		add := func(start, kind int, multiline bool) { forms[count] = form{start, kind, multiline}; count++ }
+		close, _, _, hasQuote := quoteToken(i)
+		// The optional key close quote is part of the separator, never the value.
+		keyEnd := i
+		if hasQuote {
+			keyEnd = close
+		}
+		sep := skip(keyEnd, false)
+		if sep < len(text) && text[sep] == '=' {
+			start := skip(sep+1, false)
+			add(start, 0, false)
+		}
+		if hasQuote {
+			sep = skip(close, true)
+			if sep < len(text) && text[sep] == ':' {
+				start := skip(sep+1, true)
+				add(start, 1, true)
+			}
+		} else if class != 3 {
+			sep = skip(i, false)
+			if sep < len(text) && text[sep] == ':' {
+				start := skip(sep+1, false)
+				kind := 2
+				if class == 1 {
+					kind = 3
+				}
+				add(start, kind, false)
+			}
+		}
+		if class != 3 && i-begin >= 2 && text[begin] == '-' && text[begin+1] == '-' && i < len(text) && stderrBlank(text[i]) {
+			add(skip(i, false), 2, false)
+		}
+		for j := 1; j < count; j++ {
+			for k := j; k > 0 && forms[k].start < forms[k-1].start; k-- {
+				forms[k], forms[k-1] = forms[k-1], forms[k]
+			}
+		}
+		for _, f := range forms[:count] {
+			value(f.start, f.kind, f.multiline)
+		}
+	}
+	maskStderrURLs(diff, region)
+}
+
+func maskStderrURLs(diff []int32, region stderrRegion) {
+	text := region.text
+	// Last @ in each non-whitespace run, and last @ before each position.
+	lastAt := make([]int32, len(text))
+	previousAt := make([]int32, len(text)+1)
+	previousAt[0] = -1
+	for i, b := range text {
+		previousAt[i+1] = previousAt[i]
+		if b == '@' {
+			previousAt[i+1] = int32(i)
+		}
+	}
+	last := int32(-1)
+	for i := len(text) - 1; i >= 0; i-- {
+		if stderrSpace(text[i]) {
+			last = -1
+		} else if text[i] == '@' && last < 0 {
+			last = int32(i)
+		}
+		lastAt[i] = last
+	}
+	var run, colon, delimiter stderrStopCursor
+	schemeByte := func(b byte) bool {
+		return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '+' || b == '.' || b == '-'
+	}
+	for i := 0; i+2 < len(text); i++ {
+		if text[i] != ':' || text[i+1] != '/' || text[i+2] != '/' {
+			continue
+		}
+		letter := false
+		for p := i - 1; p >= 0 && schemeByte(text[p]); p-- {
+			letter = letter || text[p] >= 'a' && text[p] <= 'z' || text[p] >= 'A' && text[p] <= 'Z'
+		}
+		if !letter {
+			continue
+		}
+		start := i + 3
+		if start == len(text) {
+			continue
+		}
+		end := run.end(text, start, stderrSpace)
+		c := colon.end(text, start, func(b byte) bool { return b == ':' || stderrSpace(b) })
+		d := delimiter.end(text, start, func(b byte) bool { return b == '/' || b == '?' || b == '#' || stderrSpace(b) })
+		last := int(lastAt[start])
+		if c < end && last > c {
+			maskStderrSpan(diff, region, c+1, last)
+		} else {
+			at := int(previousAt[d])
+			if at >= start {
+				maskStderrSpan(diff, region, start, at)
+			}
+		}
+	}
 }

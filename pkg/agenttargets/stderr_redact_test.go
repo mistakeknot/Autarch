@@ -6,7 +6,7 @@ import (
 )
 
 // Stages and exact outputs follow the reviewed plan for mk-rkkao.2.
-const redactStage = 2
+const redactStage = 3
 
 type redactCase struct {
 	input, want string
@@ -124,7 +124,12 @@ func TestLegacyMaskGuards(t *testing.T) {
 	}
 	for _, prefix := range []string{"#", ";", "/", ".", ":", "=", "|", "<", "-", "token: expired;"} {
 		input := prefix + "access_token=1111"
-		checkRedactStage(t, redactCase{input, frozenStderr([]byte(input)), 0}, false)
+		// This guard checks legacy coverage, not preservation of prose that a
+		// new WEAK colon match deliberately hides from stage 3.
+		checkMainSuperset(t, []byte(input))
+		if strings.Contains(sanitizedStderr([]byte(input)), "1111") {
+			t.Fatal("legacy value survived")
+		}
 	}
 	for _, prefix := range []string{"Authorization: ", `{"token":"`} {
 		checkRedactStage(t, redactCase{prefix + strings.Repeat("x", 5000) + "\rxxxx yyyy\nok", "ok", 0}, true)
@@ -185,6 +190,76 @@ func TestNormalizeIndexMap(t *testing.T) {
 		}
 		if sanitizedStderr([]byte(input)) != frozenStderr([]byte(input)) {
 			t.Fatalf("normalization output %q", input)
+		}
+	}
+}
+
+func TestPartialMatches(t *testing.T) {
+	// Main does not cover bare long-s: RE2's leading word boundary is ASCII.
+	// The prefixed row below exercises Unicode folding without changing rules.
+	if got := sanitizedStderr([]byte("ſk-11")); got != "ſk-11" || got != frozenStderr([]byte("ſk-11")) {
+		t.Fatalf("bare long-s changed: %q", got)
+	}
+
+	for _, input := range []string{"sk-11é77", "sk-11\xc3\x1b[0m\xa977", "sk-11\xff77", "ghp_11-77", "Bearer 11\t77", "access_token=11&77", "\"token\": \"11\\\"77", "xſk-11"} {
+		checkMainSuperset(t, []byte(input))
+		got := sanitizedStderr([]byte(input))
+		if strings.Contains(got, "1") || strings.Count(got, "7") > strings.Count(frozenStderr([]byte(input)), "7") {
+			t.Fatalf("partial match %q: %q", input, got)
+		}
+	}
+}
+func TestAcceptedOverRedaction(t *testing.T) {
+	for _, input := range []string{"Error: token: expired", "secret: not found in vault", "/example/.config/api_key:42: syntax error", "CACHE_KEY=build-1", "https://example.test:8080/a@b", "https://u:1@host.example.test/pkg@v1", "(api_key=1111)", "[token=1111]"} {
+		for _, c := range newShapeCases {
+			if c.input == input {
+				checkRedactStage(t, c, false)
+			}
+		}
+	}
+	checkRedactStage(t, redactCase{strings.Repeat("x", 5000) + `{"password":"1111` + "\nuseful", "[REDACTED]", 3}, true)
+}
+
+// Historical test fixtures are ported under the compatibility decisions for
+// mk-rkkao.2; implementation is independent of the earlier attempt.
+func TestPortedCompatibility(t *testing.T) {
+	direct := map[string][]redactCase{
+		"TestCredentialAssignments":                {{`secret = "xxxx xxxx"`, `secret = [REDACTED]`, 3}},
+		"TestReviewOrdinaryErrors":                 {{"open /etc/ssl/server.key: no such file or directory", "open /etc/ssl/server.key: no such file or directory", 0}, {"error parsing config.yaml: key: unknown field", "error parsing config.yaml: key: unknown field", 0}, {"monkey: banana / hotkey=ctrl+c", "monkey: banana / hotkey=ctrl+c", 0}},
+		"TestReviewQuotingAndFrames":               {{`{\"access_token\":\"1111\"}`, `{\"access_token\":[REDACTED]}`, 3}, {`{\"token\": \"1111\"}`, `{\"token\": [REDACTED]}`, 3}},
+		"TestRoundTwoAuthorization":                {{"Authorization: token 1111", "[REDACTED]", 0}, {"Authorization: Bot 1111", "[REDACTED]", 0}, {`Authorization: Digest username="xxx", response="1111"`, "[REDACTED]", 0}, {"Authorization: AWS4-HMAC-SHA256 Credential=xxx, Signature=1111", "[REDACTED]", 0}, {"prefixAuthorization: Bot 1111", "prefix[REDACTED]", 0}},
+		"TestRoundTwoAdditionalNamesAndExceptions": {{"token: expiredxxxxxxxxxxxx", "token: [REDACTED]", 3}, {"token=expiredxxxxxxxxxxxx", "token=[REDACTED]", 3}, {"https://example.test/x?token=1111", "https://example.test/x?token=[REDACTED]", 3}},
+		"TestRoundThreeAssignmentSeparator":        {{"access_token=1111: expired", "[REDACTED] expired", 0}, {"token=1111: expired", "token=[REDACTED] expired", 3}, {"password=1111:unknown field", "password=[REDACTED] field", 3}},
+		"TestRoundThreeURLPassword":                {{"https://xxx:xx@1111@example.test/", "https://xxx:[REDACTED]@example.test/", 3}, {"https://xxx:xx/1111@example.test/", "https://xxx:[REDACTED]@example.test/", 3}, {"https://xxx:xx/@1111@example.test/", "https://xxx:[REDACTED]@example.test/", 3}},
+		"TestRoundTwoCRLF":                         {{"Error: quota exceeded\r\nsecond line\r\n", "Error: quota exceeded\nsecond line\n", 0}, {"< HTTP/1.1 401 Unauthorized\r\n< x: y\r\n", "< HTTP/1.1 401 Unauthorized\n< x: y\n", 0}, {"Working...\rError: quota exceeded\r\n", "Error: quota exceeded\n", 5}},
+	}
+	for name, cases := range direct {
+		t.Run(name+"/direct", func(t *testing.T) {
+			for _, c := range cases {
+				checkRedactStage(t, c, false)
+			}
+		})
+	}
+	// Exact replacement for the old spinner expectation at stages 3–4 and 5.
+	want := "token=[REDACTED]"
+	if redactStage >= 5 {
+		want = "[REDACTED]"
+	}
+	checkRedactStage(t, redactCase{"token=xxx\rdone", want, 3}, false)
+	const notice = "[stderr withheld: 4096 bytes with no complete line]"
+	for _, prefix := range []string{"token=", "Cookie: ", `secret = "`, "okie: "} {
+		for _, ending := range []string{"", "\n", "\r\n"} {
+			checkRedactStage(t, redactCase{prefix + strings.Repeat("x ", 3000) + "end" + ending, notice, 0}, true)
+		}
+	}
+	for _, pair := range []string{"Bearer 1111", "token: 1111", "x-api-key: 1111", `"token": "1111"`, "api_key = 1111", "Authorization: Basic 1111", `secret = "11 11"`, "https://xxx:1111@example.test/"} {
+		for offset := 0; offset < len(pair); offset++ {
+			t.Run("TestReviewCredentialCuts/streamed", func(t *testing.T) {
+				checkRedactStage(t, redactCase{strings.Repeat("x", 5000) + pair + strings.Repeat(" ", 512-len(pair)+offset) + "end", notice, 0}, true)
+			})
+			t.Run("TestRoundTwoRawCuts/streamed", func(t *testing.T) {
+				checkRedactStage(t, redactCase{strings.Repeat("x", 5000) + pair[offset:] + strings.Repeat("\x1b[0m", 1024), notice, 0}, true)
+			})
 		}
 	}
 }
