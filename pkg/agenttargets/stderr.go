@@ -44,12 +44,12 @@ func sanitizedStderr(data []byte) string {
 			data = data[end+1:]
 		} else {
 			// Keep at most 512 bytes, dropping the leading fragment so a
-			// credential whose keyword fell outside the tail cannot survive.
+			// token cut at the boundary is omitted even without its keyword.
 			data = data[len(data)-512:]
 			if end := strings.IndexAny(string(data), " \t"); end >= 0 {
-				data = data[end+1:]
+				data = append([]byte("[REDACTED] "), data[end+1:]...)
 			} else {
-				data = nil
+				data = []byte("[REDACTED]")
 			}
 		}
 	}
