@@ -28,6 +28,7 @@ func newTestServer(t *testing.T, allow ...string) (*Server, *httptest.Server, st
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(s.Close)
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
 	return s, ts, scan

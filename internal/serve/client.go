@@ -37,7 +37,9 @@ func FetchProjects(baseURL, tokenPath string, timeout time.Duration) ([]ProjectI
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
-	req.Header.Set("X-Autarch-Thread", os.Getenv("BB_THREAD_ID"))
+	if thread := os.Getenv("BB_THREAD_ID"); validThreadHeader(thread) {
+		req.Header.Set("X-Autarch-Thread", thread)
+	}
 	// A redirect would leave the loopback-checked destination, so none is followed.
 	hc := &http.Client{Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := hc.Do(req)
@@ -132,4 +134,17 @@ func readToken(path string) (string, error) {
 		return "", fmt.Errorf("token file %s is not a 64 hex-character token", path)
 	}
 	return tok, nil
+}
+
+// Thread IDs are asserted metadata. Invalid metadata must not break preflight.
+func validThreadHeader(thread string) bool {
+	if thread == "" {
+		return false
+	}
+	for _, c := range thread {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
 }

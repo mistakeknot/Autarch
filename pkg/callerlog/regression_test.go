@@ -28,6 +28,9 @@ func TestRejectUnsafeLogTargets(t *testing.T) {
 	}
 	t.Run("symlink", func(t *testing.T) {
 		dir := t.TempDir()
+		if err := os.Chmod(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
 		target := filepath.Join(t.TempDir(), "target")
 		os.WriteFile(target, []byte("unchanged"), 0644)
 		if err := os.Symlink(target, filepath.Join(dir, "caller-log.jsonl")); err != nil {

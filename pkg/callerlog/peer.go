@@ -65,8 +65,13 @@ func resolvePeerAt(root, remote string) any {
 	}
 	defer proc.Close()
 	budget := 8192
+	first := true
 	for budget > 0 && time.Now().Before(deadline) {
-		names, _ := proc.Readdirnames(64)
+		names := []string{strconv.Itoa(os.Getpid())}
+		if !first {
+			names, _ = proc.Readdirnames(64)
+		}
+		first = false
 		if len(names) == 0 {
 			break
 		}

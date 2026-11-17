@@ -12,9 +12,8 @@ import (
 
 func TestScopeLoggingPreservesDecision(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	log := callerlog.New(t.TempDir())
-	s := NewServer(t.TempDir())
-	s.callerLog = log
+	log := callerlog.New(filepath.Join(t.TempDir(), "audit"))
+	s := NewServer(t.TempDir()).WithCallerLog(log)
 	runs := 0
 	s.RegisterTool(Tool{Name: "probe", RequiredScope: "write", Handler: func(context.Context, map[string]interface{}) (interface{}, error) { runs++; return "ok", nil }})
 	for _, scopes := range [][]string{nil, {"read"}, {"write"}, {"admin"}} {

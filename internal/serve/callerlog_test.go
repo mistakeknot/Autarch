@@ -16,7 +16,7 @@ import (
 
 func TestCallerLog(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "audit")
 	log := callerlog.New(dir)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /gurgeh/{project}/", func(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +104,7 @@ func TestCallerLogUnwritable(t *testing.T) {
 }
 
 func TestCallerLogRedirectDoesNotLeakPath(t *testing.T) {
-	l := callerlog.New(t.TempDir())
+	l := callerlog.New(filepath.Join(t.TempDir(), "audit"))
 	mux := http.NewServeMux()
 	mux.HandleFunc("/gurgeh/{project}/", func(http.ResponseWriter, *http.Request) {})
 	w := httptest.NewRecorder()
@@ -122,7 +122,7 @@ func TestCallerLogScopeTable(t *testing.T) {
 		file, read bool
 	}{{"/api/projects", true, true}, {"/signals/", false, true}, {"/gurgeh/p/", false, true}, {"/bigend/", false, false}, {"/health", false, false}} {
 		t.Run(tc.path, func(t *testing.T) {
-			l := callerlog.New(t.TempDir())
+			l := callerlog.New(filepath.Join(t.TempDir(), "audit"))
 			mux := http.NewServeMux()
 			for _, pattern := range []string{"GET /api/projects", "/signals/", "/gurgeh/{project}/", "/bigend/", "GET /health"} {
 				mux.HandleFunc(pattern, func(http.ResponseWriter, *http.Request) {})
@@ -142,7 +142,7 @@ func TestCallerLogScopeTable(t *testing.T) {
 }
 
 func TestCallerLogPreservesWriterCapabilities(t *testing.T) {
-	l := callerlog.New(t.TempDir())
+	l := callerlog.New(filepath.Join(t.TempDir(), "audit"))
 	defer l.Close()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {

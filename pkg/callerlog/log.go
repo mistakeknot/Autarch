@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"syscall"
+	"testing"
 	"time"
 )
 
@@ -26,6 +28,11 @@ type Log struct {
 }
 
 func New(dir string) *Log {
+	if dir == "" {
+		done := make(chan struct{})
+		close(done)
+		return &Log{closed: true, done: done}
+	}
 	l := &Log{dir: dir, queue: make(chan item, 256), done: make(chan struct{})}
 	go l.run()
 	return l
@@ -76,7 +83,12 @@ func (l *Log) run() {
 			l.dropped.Add(1)
 			continue
 		}
-		f, err := os.OpenFile(filepath.Join(l.dir, "caller-log.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		fi, err := os.Stat(l.dir)
+		if err != nil || !fi.IsDir() || fi.Mode().Perm()&0077 != 0 {
+			l.dropped.Add(1)
+			continue
+		}
+		f, err := os.OpenFile(filepath.Join(l.dir, "caller-log.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0600)
 		if err != nil {
 			l.dropped.Add(1)
 			continue
@@ -96,8 +108,12 @@ var defaults sync.Map
 
 // Default shares one bounded worker per home directory for process lifetime.
 func Default() *Log {
-	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, ".autarch")
+	home, err := os.UserHomeDir()
+	dir := ""
+	// Test binaries must explicitly inject a log; never use the process HOME.
+	if !testing.Testing() && err == nil && home != "" {
+		dir = filepath.Join(home, ".autarch")
+	}
 	if v, ok := defaults.Load(dir); ok {
 		return v.(*Log)
 	}

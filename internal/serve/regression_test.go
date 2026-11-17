@@ -33,7 +33,7 @@ func TestThreadHeaderInvalidOrEmpty(t *testing.T) {
 	}
 }
 func TestRejectedScopesAndThreadCap(t *testing.T) {
-	l := callerlog.New(t.TempDir())
+	l := callerlog.New(filepath.Join(t.TempDir(), "audit"))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/projects", func(http.ResponseWriter, *http.Request) {})
 	r := httptest.NewRequest("GET", "http://localhost/api/projects", nil)
@@ -59,7 +59,7 @@ func TestRejectedScopesAndThreadCap(t *testing.T) {
 }
 func TestServeShutdownDrainsAudit(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New(Config{Addr: "127.0.0.1:0", TokenPath: filepath.Join(dir, "token"), CallerLogDir: dir})
+	s, err := New(Config{Addr: "127.0.0.1:0", TokenPath: filepath.Join(dir, "token"), CallerLogDir: filepath.Join(dir, "audit")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,13 +85,13 @@ func TestServeShutdownDrainsAudit(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "caller-log.jsonl"))
+	data, err := os.ReadFile(filepath.Join(dir, "audit", "caller-log.jsonl"))
 	if err != nil || !strings.Contains(string(data), "GET /health") {
 		t.Fatalf("not drained: %s %v", data, err)
 	}
 }
 func TestHijackedUpgradeStatus(t *testing.T) {
-	l := callerlog.New(t.TempDir())
+	l := callerlog.New(filepath.Join(t.TempDir(), "audit"))
 	mux := http.NewServeMux()
 	finished := make(chan struct{})
 	mux.HandleFunc("/signals/", func(w http.ResponseWriter, r *http.Request) {

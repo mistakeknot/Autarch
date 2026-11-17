@@ -42,6 +42,13 @@ func NewServer(projectPath string) *Server {
 	return s
 }
 
+// WithCallerLog injects an audit writer and its directory. The caller owns Close.
+// Configure before serving requests.
+func (s *Server) WithCallerLog(log *callerlog.Log) *Server {
+	s.callerLog = log
+	return s
+}
+
 // WithFiler sets how autarch_file_decision reaches Home (for testing).
 func (s *Server) WithFiler(f homeask.Filer) *Server {
 	s.filer = f
