@@ -38,3 +38,12 @@ func DefaultDispatchConfig() DispatchConfig {
 		Print:            true,
 	}
 }
+
+// WithExplicitAgent gives a nonempty user selection precedence over loaded preferences.
+func WithExplicitAgent(cfg DispatchConfig, name string) DispatchConfig {
+	if name != "" {
+		cfg.PreferredAgent = name
+		cfg.PreferredAgentSource = "explicit agent selection"
+	}
+	return cfg
+}

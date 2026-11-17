@@ -14,6 +14,7 @@ import (
 // PATH contains only our fixtures, so a regression cannot launch a real agent.
 func fakeDecomposeCLIs(t *testing.T, payload string) string {
 	t.Helper()
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	t.Setenv("PATH", dir)
 	t.Setenv("AUTARCH_DISPATCH_AGENT", "")

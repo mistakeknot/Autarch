@@ -35,8 +35,7 @@ func Decompose(ctx context.Context, spec *specs.Spec, workingDir string, agent .
 	cfg.PreferredAgent = "claude"
 	cfg = agenttargets.LoadDispatchConfigWithDefaults(workingDir, cfg)
 	if len(agent) > 0 && agent[0] != "" {
-		cfg.PreferredAgent = agent[0]
-		cfg.PreferredAgentSource = "explicit agent selection"
+		cfg = agenttargets.WithExplicitAgent(cfg, agent[0])
 	}
 	handle, err := agenttargets.Dispatch(ctx, cfg, workingDir, buildPrompt(spec))
 	if err != nil {

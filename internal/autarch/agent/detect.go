@@ -165,8 +165,7 @@ func (a *Agent) String() string {
 func (a *Agent) dispatchConfig(projectRoot string) agenttargets.DispatchConfig {
 	cfg := agenttargets.LoadDispatchConfig(projectRoot)
 	if a.explicitSelection && a.Type != "" {
-		cfg.PreferredAgent = string(a.Type)
-		cfg.PreferredAgentSource = "explicit agent selection"
+		cfg = agenttargets.WithExplicitAgent(cfg, string(a.Type))
 	}
 	if cfg.PreferredAgent == "" && a.Type != "" {
 		cfg.PreferredAgent = string(a.Type)

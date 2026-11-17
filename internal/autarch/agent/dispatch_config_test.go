@@ -17,6 +17,8 @@ func TestGenerateWithOutputRejectsConfiguredBackend(t *testing.T) {
 }
 
 func TestExplicitAgentBeatsProjectAndEnv(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
 	t.Setenv("AUTARCH_DISPATCH_AGENT", "codex")
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, ".gurgeh"), 0700); err != nil {
