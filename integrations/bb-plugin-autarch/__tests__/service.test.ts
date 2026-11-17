@@ -63,6 +63,18 @@ describe("file", () => {
     expect(svc.store.events().filter((e) => e.type === "filed")).toHaveLength(1);
   });
 
+  it("replays a group-only re-file without adding a decision or event", async () => {
+    const a = await fileOk({ request_id: "group-replay", group: { key: "pair", order: 1 } });
+    expect(a.status).toBe(201);
+    const before = svc.store.db.prepare("SELECT * FROM decisions").all();
+    const events = svc.store.events();
+    const b = await svc.file(ask(env, { request_id: "group-replay", group: { key: "other-pair", order: 2 } }), {});
+    expect(b).toMatchObject({ ok: true, status: 200, decision_id: a.decision_id });
+    expect(svc.store.db.prepare("SELECT * FROM decisions").all()).toEqual(before);
+    expect(before).toHaveLength(1);
+    expect(svc.store.events()).toEqual(events);
+  });
+
   it("refuses a reused request_id with a different thread or project (409)", async () => {
     await fileOk({ request_id: "req-1" });
     const t = await svc.file(ask(env, { request_id: "req-1", thread: "thr-b" }), {});
