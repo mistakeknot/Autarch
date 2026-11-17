@@ -254,9 +254,12 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 			if readback.ReadbackTimeout <= 0 {
 				readback.ReadbackTimeout = f.timeout()
 			}
-			res, e = readback.withCardKey(ctx, res)
+			res.CardKey, e = readback.awaitCardKey(ctx, res.ID, res.Project)
 			if e != nil {
-				return res, e
+				return res, fmt.Errorf("%w: card %s updated but Home could not confirm its ruling state: %v", ErrOutcomeUnknown, res.ID, e)
+			}
+			if res.CardKey == "" {
+				return res, fmt.Errorf("%w: card %s updated but Home could not confirm its card or ruling state within %s", ErrOutcomeUnknown, res.ID, readback.ReadbackTimeout)
 			}
 		}
 		after, readErr := f.cardInProject(ctx, s.Task.ID, project)
