@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -33,7 +35,14 @@ Every route except /health needs the bearer token stored in --token-file
 project roots. The service holds no decisions and only binds loopback addresses.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dirs := projectDirs
+			dirs := make([]string, 0, len(projectDirs))
+			for i, dir := range projectDirs {
+				if strings.TrimSpace(dir) == "" {
+					slog.Warn("empty --project-dir ignored", "index", i)
+					continue
+				}
+				dirs = append(dirs, dir)
+			}
 			if len(dirs) == 0 {
 				cfg, err := config.Load("")
 				if err != nil {

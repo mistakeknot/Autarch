@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -138,5 +139,56 @@ func TestServe_ProjectDirParentResolvesChildNotParent(t *testing.T) {
 		if p.Root == parentRoot {
 			t.Fatalf("parent resolved as a project: %+v", p)
 		}
+	}
+}
+
+func TestServe_BlankProjectDirs(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		dirs     []string
+		warnings int
+		fallback bool
+	}{
+		{"empty", []string{""}, 1, true},
+		{"whitespace", []string{" \t\n"}, 1, true},
+		{"all blank", []string{"", " "}, 2, true},
+		{"mixed", []string{"", "valid", " "}, 2, false},
+		{"comma is literal", []string{","}, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Chdir(t.TempDir())
+			dir := filepath.Join(home, ".config", "bigend")
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			// Malformed hermetic config proves whether fallback was attempted.
+			if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[invalid"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var logs bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+			defer slog.SetDefault(previous)
+			cmd := serveCmd()
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			args := []string{"--addr", "0.0.0.0:0", "--token-file", filepath.Join(home, "token")}
+			for _, dir := range tc.dirs {
+				args = append(args, "--project-dir", dir)
+			}
+			cmd.SetArgs(args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if got := strings.Contains(err.Error(), "load bigend discovery defaults"); got != tc.fallback {
+				t.Errorf("fallback = %v, want %v (error: %v)", got, tc.fallback, err)
+			}
+			if got := strings.Count(logs.String(), "WARN msg=\"empty --project-dir ignored\""); got != tc.warnings {
+				t.Errorf("blank warnings = %d, want %d: %s", got, tc.warnings, logs.String())
+			}
+		})
 	}
 }
