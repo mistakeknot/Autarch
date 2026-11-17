@@ -13,7 +13,7 @@ import (
 
 func TestDispatchRejectsUnsupportedBackend(t *testing.T) {
 	for _, backend := range []BackendType{BackendAPI, "unknown"} {
-		_, err := Dispatch(context.Background(), DispatchConfig{PreferredBackend: backend, PreferredAgent: "codex"}, "", "")
+		_, err := Dispatch(context.Background(), DispatchConfig{PreferredBackend: backend, PreferredAgent: "test-no-launch"}, "", "")
 		if err == nil || !strings.Contains(err.Error(), "unsupported dispatch backend") {
 			t.Fatalf("backend %q: %v", backend, err)
 		}

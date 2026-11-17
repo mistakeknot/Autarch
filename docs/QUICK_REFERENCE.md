@@ -295,6 +295,8 @@ timeout = "5m"
 | `AUTARCH_DISPATCH_BACKEND` | Overrides the project's backend; only `subscription-cli` is supported |
 
 Precedence is explicit agent selection > environment > project > caller default.
+An explicit selection is a named user choice through the TUI selector or
+`DetectAgentByName`; an automatically detected agent is only a caller default.
 Without an agent preference, exploration detects an available agent, preferring
 Claude. An unknown agent fails with its value and configuration source. The
 backend defaults to `subscription-cli`; `api` and unknown backend values are

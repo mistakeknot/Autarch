@@ -15,7 +15,6 @@ const (
 // DispatchConfig controls how an agent dispatch is executed.
 type DispatchConfig struct {
 	PreferredBackend     BackendType       // Default: subscription-cli
-	PreferredAgentSource string            // Origin of an agent preference, for diagnostics.
 	PreferredAgent       string            // "claude", "codex", "" (auto-detect)
 	Timeout              time.Duration     // Max wall-clock time (0 = no limit)
 	Sandbox              string            // Sandbox mode: "workspace-write", "read-only", "danger-full-access"
@@ -27,6 +26,7 @@ type DispatchConfig struct {
 	Verbose              bool              // Enable verbose output
 	Print                bool              // Print-only mode (no interactive)
 	Env                  map[string]string // Extra environment variables for the agent process
+	PreferredAgentSource string            // Origin of an agent preference, for diagnostics.
 }
 
 // DefaultDispatchConfig returns subscription-first defaults: claude preferred, 30m timeout.
