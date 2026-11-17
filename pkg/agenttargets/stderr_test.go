@@ -304,3 +304,58 @@ func TestNoBoundaryPartialToken(t *testing.T) {
 		t.Fatalf("partial credential survived: %.100s", got)
 	}
 }
+
+func TestReviewCredentialCuts(t *testing.T) {
+	for _, pair := range []string{
+		"Bearer xxxxxxxxxxxx", "token: xxxxxxxxxxxx", "x-api-key: xxxxxxxxxxxx",
+		`"token": "xxxxxxxxxxxx"`, "api_key = xxxxxxxxxxxx",
+		"Authorization: Basic xxxxxxxxxxxx", `secret = "xxxx xxxxxxxxxxxx"`,
+		"https://xxx:xxxxxxxxxxxx@example.test/",
+	} {
+		t.Run(pair, func(t *testing.T) {
+			for offset := 0; offset < len(pair); offset++ {
+				// Place the 512-byte suffix boundary at every byte in the pair.
+				rest := pair + strings.Repeat(" ", 512-len(pair)+offset-4) + " end"
+				var tail stderrTail
+				tail.Write([]byte(strings.Repeat("x", 5000) + " " + rest))
+				if got := sanitizedStderr(tail.data); strings.Contains(got, "xxxx") || !strings.Contains(got, "end") {
+					t.Fatalf("cut %d: %q", offset, got)
+				}
+			}
+		})
+	}
+}
+
+func TestReviewOrdinaryErrors(t *testing.T) {
+	for _, input := range []string{
+		"open /etc/ssl/server.key: no such file or directory",
+		"/example/.config/api_key:42: syntax error",
+		"error parsing config.yaml: key: unknown field",
+		"secret: not found in vault", "Error: token: expired",
+		"monkey: banana / hotkey=ctrl+c", "max_tokens: 4096",
+		`{"message":"invalid x-api-key"}`,
+	} {
+		if got := sanitizedStderr([]byte(input)); got != input {
+			t.Errorf("ordinary error %q became %q", input, got)
+		}
+	}
+}
+
+func TestReviewQuotingAndFrames(t *testing.T) {
+	for _, input := range []string{
+		`{\"access_token\":\"xxxxxxxxxxxx\"}`, `{\"token\": \"xxxxxxxxxxxx\"}`,
+		"--api-key xxxxxxxxxxxx", "--token xxxxxxxxxxxx",
+		"Cookie: session=xxxxxxxxxxxx", "passwd=xxxxxxxxxxxx",
+		"https://xxxxxxxxxxxx@example.test/",
+	} {
+		if got := sanitizedStderr([]byte(input)); strings.Contains(got, "xxxx") {
+			t.Errorf("credential survived: %q", got)
+		}
+	}
+	for _, input := range []string{"token=xxx\rdone", "Working...\rWorking...\rError: quota exceeded"} {
+		want := input[strings.LastIndexByte(input, '\r')+1:]
+		if got := sanitizedStderr([]byte(input)); got != want {
+			t.Errorf("spinner: got %q want %q", got, want)
+		}
+	}
+}

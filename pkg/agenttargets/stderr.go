@@ -29,41 +29,79 @@ func (t *stderrTail) Write(p []byte) (int, error) {
 }
 
 var stderrANSI = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))`)
-var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|(?:ghp_|gho_|ghs_|ghu_|ghr_|github_pat_)[a-z0-9_]+|Bearer[ \t]+[^\s]+|(?:Authorization|x-api-key)[ \t]*:[^\r\n]*|"(?:access_token|api_key|token|refresh_token|id_token|client_secret|apiKey)"\s*:\s*"(?:[^"\\]|\\.)*(?:"|$)|access_token=[^&\s]*`)
 
-// Go's regexp engine guarantees linear-time matching. Assignment keys must end
-// in a credential name; quoted values may contain escaped characters.
-var stderrAssignment = regexp.MustCompile(`(?i)\b[a-z0-9_-]*(?:token|key|secret|password|authorization)["']?[ \t]*[=:][ \t]*(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s&,;}]+)`)
-var stderrURLCredential = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s:@]+:[^/\s@]*@`)
+var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|(?:ghp_|gho_|ghs_|ghu_|ghr_|github_pat_)[a-z0-9_]+|Bearer[ \t]+[^\s]+`)
+
+// Match complete credential names at field boundaries, rather than arbitrary
+// words ending in "key". Go's regexp engine guarantees linear-time matching.
+var stderrAssignment = regexp.MustCompile(`(?i)(^|[ \t{,?&"'\x5c])(?:token|key|secret|password|passwd|authorization|cookie|(?:access|refresh|id)[_-]?token|client[_-]?secret|(?:[a-z0-9]+[_-])*api[_-]?key|x-api-key)\\?["']?[ \t]*[=:][ \t]*(?:\\".*?(?:\\"|$)|"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|unknown field|not found in vault|expired|[^\s&,;}]+)`)
+var stderrFlags = regexp.MustCompile(`(?i)(^|[ \t])--(?:api-key|token)[ \t]+[^\s]+`)
+var stderrHeader = regexp.MustCompile(`(?i)(^|[ \t])(?:Authorization[ \t]*:[ \t]*(?:(?:Basic|Bearer)[ \t]+)?[^\s]+|Cookie[ \t]*:[^\r\n]*)`)
+var stderrURLCredential = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s@]+@`)
+
+func redactStderrFrame(text string) string {
+	text = stderrToken.ReplaceAllString(text, "[REDACTED]")
+	text = stderrHeader.ReplaceAllString(text, "[REDACTED]")
+	text = stderrFlags.ReplaceAllString(text, "[REDACTED]")
+	text = stderrAssignment.ReplaceAllStringFunc(text, func(field string) string {
+		// These diagnostic phrases describe a credential lookup failure rather
+		// than a credential value. Quoted values are always redacted.
+		if i := strings.IndexByte(field, ':'); i >= 0 {
+			value := strings.TrimSpace(field[i+1:])
+			if value == "unknown field" || value == "not found in vault" || value == "expired" {
+				return field
+			}
+		}
+		prefix := ""
+		if strings.ContainsRune(" \t{,&\"'\\", rune(field[0])) {
+			prefix = field[:1]
+		}
+		return prefix + "[REDACTED]"
+	})
+	return stderrURLCredential.ReplaceAllString(text, "[REDACTED]")
+}
 
 func sanitizedStderr(data []byte) string {
+	fallback := false
 	// A full tail may start inside a credential keyword or its value. Drop
-	// the entire first line: retaining only its suffix loses redaction context.
+	// the entire first frame when its boundary is available.
 	if len(data) >= stderrTailBytes {
 		if end := strings.IndexAny(string(data), "\r\n"); end >= 0 {
 			data = data[end+1:]
 		} else {
-			// Keep at most 512 bytes, dropping the leading fragment so a
-			// token cut at the boundary is omitted even without its keyword.
-			data = data[len(data)-512:]
-			if end := strings.IndexAny(string(data), " \t"); end >= 0 {
-				data = append([]byte("[REDACTED] "), data[end+1:]...)
-			} else {
-				data = []byte("[REDACTED]")
-			}
+			fallback = true
 		}
 	}
 
 	text := stderrANSI.ReplaceAllString(string(data), "")
-	text = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) && r != '\n' && r != '\t' {
-			return -1
+	// A carriage return overwrites the current line. Select the final frame
+	// on each line before redaction so a value cannot consume the next frame.
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if end := strings.LastIndexByte(line, '\r'); end >= 0 {
+			line = line[end+1:]
 		}
-		return r
-	}, text)
-	text = stderrToken.ReplaceAllString(text, "[REDACTED]")
-	text = stderrAssignment.ReplaceAllString(text, "[REDACTED]")
-	text = stderrURLCredential.ReplaceAllString(text, "[REDACTED]")
+		line = strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) && r != '\t' {
+				return -1
+			}
+			return r
+		}, line)
+		lines[i] = redactStderrFrame(line)
+	}
+	text = strings.Join(lines, "\n")
+	if fallback {
+		// Redact with all available context BEFORE the display cut, which may
+		// land between a credential's key and value.
+		if len(text) > 512 {
+			text = text[len(text)-512:]
+		}
+		if end := strings.IndexAny(text, " \t"); end >= 0 {
+			text = "[REDACTED] " + text[end+1:]
+		} else {
+			text = "[REDACTED]"
+		}
+	}
 	if len(text) > stderrTailBytes {
 		start := len(text) - stderrTailBytes
 		for start < len(text) && !utf8.RuneStart(text[start]) {
