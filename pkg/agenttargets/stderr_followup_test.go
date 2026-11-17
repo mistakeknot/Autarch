@@ -25,10 +25,13 @@ func TestStderrCleanedRemainderNotice(t *testing.T) {
 }
 
 func TestStderrStopCursorOutOfOrder(t *testing.T) {
-	raw := []byte("ok 1111 end")
+	raw := []byte("ok 1111 end tail")
 	region := normalizeStderr(raw, 0)
 	cursor := stderrStopCursor{}
 	cursor.end(region.text, 8, stderrSpace)
+	if cursor.pos >= len(region.text) {
+		t.Fatal("fixture must stop the cursor before the region end")
+	}
 	violations := 0
 	end := cursor.endChecked(region.text, 3, stderrSpace, func(start, last int) {
 		violations++
