@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -190,5 +191,13 @@ func TestServe_BlankProjectDirs(t *testing.T) {
 				t.Errorf("blank warnings = %d, want %d: %s", got, tc.warnings, logs.String())
 			}
 		})
+	}
+}
+
+func TestFilterProjectDirsPreservesOnlyNonblankValuesInOrder(t *testing.T) {
+	dirs := []string{"", "first", " ", " second ", "\t\n", "third,fourth"}
+	want := []string{"first", " second ", "third,fourth"}
+	if got := filterProjectDirs(dirs); !slices.Equal(got, want) {
+		t.Fatalf("filtered directories = %q, want %q", got, want)
 	}
 }
