@@ -96,7 +96,7 @@ func (d *Detector) detectByName(name string) *AgentInfo {
 	return nil
 }
 
-// matchProject finds if a path is within a known project
+// matchProject finds the most specific known project containing path.
 func (d *Detector) matchProject(path string) string {
 	if path == "" {
 		return ""
@@ -105,14 +105,16 @@ func (d *Detector) matchProject(path string) string {
 	// Normalize path
 	path = filepath.Clean(path)
 
+	var best string
 	for _, projectPath := range d.projectPaths {
 		projectPath = filepath.Clean(projectPath)
-		if path == projectPath || strings.HasPrefix(path, projectPath+string(filepath.Separator)) {
-			return projectPath
+		rel, err := filepath.Rel(projectPath, path)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && len(projectPath) > len(best) {
+			best = projectPath
 		}
 	}
 
-	return ""
+	return best
 }
 
 // formatAgentName creates a display name for the agent
