@@ -641,10 +641,6 @@ func TestScanReloadPreservesAgentPickAcrossTabs(t *testing.T) {
 			app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
 			app.initAgentSelectorWithOptions(".", []pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
 			views := []*reloadPickView{{}, {}, {}, {}}
-			for _, view := range views {
-				app.dashViews = append(app.dashViews, view)
-			}
-			app.currentView = views[0]
 			app.tabs = NewTabBar([]string{"Bigend", "Gurgeh", "Coldwine", "Pollard"})
 			for _, view := range views {
 				app.dashViews = append(app.dashViews, view)
