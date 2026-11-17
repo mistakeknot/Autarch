@@ -141,8 +141,10 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 		if !agent && supersedes == "" && s.Task.Status != "done" && s.Task.Status != "canceled" {
 			matches := c.Request.Key == req.Key && c.Request.Identity == ident
 			matches = matches || c.Request.Key == DerivedKey(req.Thread, c.Request.Identity)
+			matches = matches || matchesRefileRequestKey(c.Request.Key, req.Thread, c.Request.Identity)
 			for _, previous := range candidates {
-				matches = matches || c.Request.Key == refileRequestKey(req.Thread, c.Request.Identity, previous.Task.ID)
+				// Legacy keys need the predecessor; new keys retain its digest.
+				matches = matches || c.Request.Key == DerivedKey(req.Thread, c.Request.Identity+"\x00closed:"+previous.Task.ID)
 			}
 			if !matches {
 				return CardResult{}, errors.Join(errNoCardWritten, fmt.Errorf("%w: card %s has an unrouted Request from another filing; re-run its original command", ErrInvalid, s.Task.ID))
@@ -279,5 +281,18 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 // predecessor. Unlike a random key it proves who may repair missing routing,
 // even when that caller's next attempt changes the content.
 func refileRequestKey(thread, ident, predecessor string) string {
-	return DerivedKey(thread, ident+"\x00closed:"+predecessor)
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(predecessor)))
+	return refileKeyWithDigest(thread, ident, digest)
+}
+
+// Keep the predecessor digest in the key so deleting the closed task cannot
+// erase the repair proof. The derived part still binds the thread and immutable
+// request identity; the digest alone never authorizes repair.
+func refileKeyWithDigest(thread, ident, digest string) string {
+	return DerivedKey(thread, ident+"\x00closed:"+digest) + ":closed:" + digest
+}
+
+func matchesRefileRequestKey(key, thread, ident string) bool {
+	_, digest, ok := strings.Cut(key, ":closed:")
+	return ok && len(digest) == 64 && key == refileKeyWithDigest(thread, ident, digest)
 }
