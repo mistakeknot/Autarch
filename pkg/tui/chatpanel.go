@@ -151,7 +151,11 @@ func (p *ChatPanel) View() string {
 
 	// Render composer first so history can use its actual height.
 	if p.selector != nil {
-		p.composer.SetTitle(ansi.Truncate("Chat: Claude | Dispatch: "+p.selector.currentLabel(), max(0, p.width-4), "…"))
+		title := "Dispatch: " + p.selector.currentLabel()
+		if p.handler != nil {
+			title = "Chat: Claude | " + title
+		}
+		p.composer.SetTitle(ansi.Truncate(title, max(0, p.width-4), "…"))
 	} else {
 		p.composer.SetTitle("")
 	}

@@ -45,11 +45,11 @@ func TestAgentSelectorIgnoresNumericPick(t *testing.T) {
 	}
 }
 
-func TestAgentSelectorRendersAsModelControl(t *testing.T) {
+func TestAgentSelectorRendersAsDispatchControl(t *testing.T) {
 	sel := NewAgentSelector([]AgentOption{{Name: "codex"}})
 	view := sel.View()
-	if !strings.Contains(view, "Choice") {
-		t.Fatalf("expected model label")
+	if !strings.Contains(view, "Dispatch: codex (ctrl+g)") {
+		t.Fatalf("expected Dispatch label")
 	}
 }
 
@@ -66,7 +66,7 @@ func TestAgentSelectorClosedLabelFitsWidth(t *testing.T) {
 		t.Fatalf("narrow label lost dispatch meaning: %s", narrow)
 	}
 	picked.Update(tea.KeyMsg{Type: tea.KeyF2})
-	if !strings.Contains(picked.View(), "Choice: ") {
+	if !strings.Contains(picked.View(), "Dispatch: ") {
 		t.Fatal("open label uses a different term")
 	}
 
@@ -123,5 +123,15 @@ func TestAgentSelectorEnterWaitsForConfirmation(t *testing.T) {
 	}
 	if s.Open || s.View() != before {
 		t.Fatal("unconfirmed pick changed closed label:", s.View())
+	}
+}
+
+func TestAgentSelectorOpenLabelFitsWidth(t *testing.T) {
+	s := NewAgentSelector([]AgentOption{{Name: "claude"}, {Name: "codex"}})
+	s.Open = true
+	for _, width := range []int{0, 1, 12, 20} {
+		if got := lipgloss.Width(s.View(width)); got > width {
+			t.Errorf("open selector width %d exceeds allocation %d", got, width)
+		}
 	}
 }

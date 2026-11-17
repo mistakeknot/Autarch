@@ -126,7 +126,7 @@ func (v *KickoffView) seedChat() {
 	}
 	v.chatPanel.AddMessage("system", "What do you want to build?")
 	v.chatPanel.AddMessage("system", "Tips:\n• Be specific about what you're building\n• Include key features or requirements\n• Mention any constraints or preferences")
-	v.chatPanel.AddMessage("system", "Shortcuts:\n• Enter → Create project\n• Ctrl+S → Scan current directory\n• Tab → Toggle input/recents\n• Ctrl+G → Model selector")
+	v.chatPanel.AddMessage("system", "Shortcuts:\n• Enter → Create project\n• Ctrl+S → Scan current directory\n• Tab → Toggle input/recents\n• Ctrl+G → Dispatch agent")
 }
 
 // ChatMessagesForTest exposes chat history for tests.

@@ -25,7 +25,7 @@ type TaskReviewView struct {
 
 	// Shell layout for unified 3-pane layout (chat only, no sidebar)
 	shell *pkgtui.ShellLayout
-	// Model selector shown under chat pane
+	// Dispatch selector shown under chat pane
 	agentSelector *pkgtui.AgentSelector
 
 	// Callbacks

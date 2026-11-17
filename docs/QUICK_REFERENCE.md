@@ -174,7 +174,7 @@ todo → in_progress → review → done
 | `Ctrl+F` | Search |
 | `Ctrl+R` | Refresh |
 | `Ctrl+P` | Command palette |
-| `Ctrl+G` | Model selector |
+| `Ctrl+G` | Dispatch agent |
 | `Ctrl+A` | Accept (context-dependent) |
 | `Ctrl+X` | Delete (context-dependent) |
 | `Ctrl+S` | Scan (in kickoff) |
@@ -190,7 +190,7 @@ Type `/` in the chat composer to open a fuzzy finder for commands. Use `↑`/`�
 | `/help` | `/h` | Show help overlay |
 | `/quit` | `/q`, `/exit` | Quit the application |
 | `/settings` | `/config` | Open chat settings |
-| `/model` | `/m` | Toggle model selector |
+| `/model` | `/m` | Choose Dispatch agent |
 | `/palette` | `/p` | Open command palette (dashboard) |
 | `/refresh` | `/r` | Refresh current view |
 | `/back` | `/b` | Go back / cancel |

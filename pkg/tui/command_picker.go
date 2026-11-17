@@ -312,7 +312,7 @@ func GlobalCommands() []SlashCommandDef {
 		{Command: "help", Aliases: []string{"h"}, Description: "Show help overlay", Category: "global"},
 		{Command: "quit", Aliases: []string{"q", "exit"}, Description: "Quit application", Category: "global"},
 		{Command: "settings", Aliases: []string{"config"}, Description: "Open chat settings", Category: "global"},
-		{Command: "model", Aliases: []string{"m"}, Description: "Toggle model selector", Category: "global"},
+		{Command: "model", Aliases: []string{"m"}, Description: "Choose Dispatch agent", Category: "global"},
 		{Command: "palette", Aliases: []string{"p"}, Description: "Command palette", Category: "global"},
 		{Command: "refresh", Aliases: []string{"r"}, Description: "Refresh current view", Category: "global"},
 		{Command: "back", Aliases: []string{"b"}, Description: "Go back / cancel", Category: "global"},

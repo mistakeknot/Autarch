@@ -35,7 +35,7 @@ type SprintView struct {
 	responseCh <-chan string
 	cancelChat context.CancelFunc
 
-	// Agent selector
+	// Dispatch selector
 	agentSelector *pkgtui.AgentSelector
 
 	// Callbacks
@@ -255,7 +255,7 @@ func (v *SprintView) Update(msg tea.Msg) (pkgtui.View, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		// Agent selector first
+		// Dispatch selector first
 		if v.agentSelector != nil {
 			selectorMsg, selectorCmd := v.agentSelector.Update(msg)
 			if selectorMsg != nil {

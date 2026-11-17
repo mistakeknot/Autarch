@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestChatPanelHidesSystemRoleLabel(t *testing.T) {
@@ -412,5 +413,38 @@ func TestChatPanelCancelStreamFinalizesBuffer(t *testing.T) {
 	}
 	if panel.history[0].Content != "partial content" {
 		t.Fatalf("cancelled content = %q, want %q", panel.history[0].Content, "partial content")
+	}
+}
+
+func TestChatPanelWithoutHandlerShowsDispatchOnly(t *testing.T) {
+	panel := NewChatPanel()
+	panel.SetAgentSelector(NewAgentSelector([]AgentOption{{Name: "codex"}}))
+	for _, width := range []int{4, 12, 32, 60} {
+		panel.SetSize(width, 20)
+		view := ansi.Strip(panel.View())
+		if strings.Contains(view, "Chat:") {
+			t.Errorf("width %d: unexpected chat label: %s", width, view)
+		}
+		if width >= 32 && !strings.Contains(view, "Dispatch: codex") {
+			t.Errorf("width %d: missing Dispatch title", width)
+		}
+		if got := ansi.StringWidth(panel.composer.title); got > width-4 {
+			t.Errorf("title width %d exceeds %d", got, width-4)
+		}
+	}
+}
+
+func TestGlobalModelCommandUsesDispatchLabel(t *testing.T) {
+	found := false
+	for _, cmd := range GlobalCommands() {
+		if cmd.Command == "model" {
+			found = true
+			if cmd.Description != "Choose Dispatch agent" {
+				t.Errorf("unexpected description: %s", cmd.Description)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing /model command")
 	}
 }

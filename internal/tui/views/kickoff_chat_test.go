@@ -157,3 +157,13 @@ func TestKickoffScanFoundFilesMessageSuppressed(t *testing.T) {
 		}
 	}
 }
+
+func TestKickoffDispatchTip(t *testing.T) {
+	v := NewKickoffView()
+	for _, msg := range v.ChatMessagesForTest() {
+		if strings.Contains(msg.Content, "Ctrl+G → Dispatch agent") {
+			return
+		}
+	}
+	t.Fatal("missing Dispatch agent shortcut tip")
+}
