@@ -30,7 +30,6 @@ go build ./cmd/bigend  # Build binary
 | `cmd/bigend/` | Entry point with CLI flags |
 | `internal/bigend/aggregator/` | Core data aggregation + WebSocket events |
 | `internal/bigend/agentcmd/` | Agent command resolver |
-| `internal/bigend/claude/` | Claude session detection |
 | `internal/bigend/coldwine/` | Coldwine (task) reader |
 | `internal/bigend/config/` | TOML configuration |
 | `internal/bigend/discovery/` | Project scanner |
@@ -85,6 +84,10 @@ go build ./cmd/bigend  # Build binary
 | **Intermute** | HTTP API | Registered agents, messages, reservations |
 | **tmux** | `tmux list-sessions` | Active sessions, pane content |
 | **MCP** | `mcp-server/`, `mcp-client/` | Component run status |
+
+Session discovery uses `internal/bigend/tmux/`: the aggregator lists tmux sessions,
+detects agent types from session names, and enriches them with
+agent state. It does not read Claude's configuration for session IDs.
 
 ### Aggregator
 
@@ -161,7 +164,7 @@ When connected to Intermute WebSocket, events trigger targeted refreshes:
 ```toml
 [server]
 port = 8099
-host = "0.0.0.0"
+host = "127.0.0.1"
 
 [discovery]
 scan_roots = ["~/projects", "/root/projects"]

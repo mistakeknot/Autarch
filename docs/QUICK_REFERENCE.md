@@ -315,7 +315,18 @@ Claude-specific flags and session IDs.
 
 ### Bigend
 
-Bigend has no tool-specific environment variables. Configure it with flags (`--port`, default 8099; `--host`; `--config`; `--scan-root`; `--tui`; `--daemon`) and `~/.config/bigend/config.toml`. The shared `INTERMUTE_*` variables below also apply.
+Bigend has no tool-specific environment variables. Configure it with flags (`--port`, default 8099; `--host`; `--config`; `--scan-root`; `--tui`; `--daemon`) and `~/.config/bigend/config.toml`. For shared settings, see [Autarch-wide](#autarch-wide) and [Intermute (Cross-Tool)](#intermute-cross-tool) below; these tables are not an exhaustive list of environment variables read by dependencies.
+
+### Autarch-wide
+
+Shared packages read these variables when their theme or signals functionality is used.
+
+| Variable | Default | Accepted values / effect |
+|----------|---------|--------------------------|
+| `AUTARCH_THEME` | `auto` | Case-insensitive, whitespace-trimmed: `auto`, `tokyo`/`tokyo-night`, `mocha`, `macchiato`, `latte`/`light`, `nord`, `plain`/`none`/`no-color`/`nocolor`. Empty or unknown values use automatic detection: Tokyo Night for dark backgrounds, Catppuccin Latte for light backgrounds. Auto-detection assumes a dark background over SSH (`SSH_CONNECTION` or `SSH_TTY` nonempty). Color disabling takes precedence. |
+| `AUTARCH_NO_COLOR` | Unset (defer to `NO_COLOR`) | Case-insensitive, whitespace-trimmed: `1`/`true`/`yes`/`on` disable colors; `0`/`false`/`no`/`off` force colors on even with `NO_COLOR` set. Other values defer to `NO_COLOR`. |
+| `NO_COLOR` | Unset (colors enabled) | Any set value, including empty, disables colors unless overridden by a recognized `AUTARCH_NO_COLOR` value. |
+| `AUTARCH_SIGNALS_URL` | `http://127.0.0.1:8092` | Whitespace-trimmed signals server address; empty uses the default. The client accepts HTTP/HTTPS URLs and prepends `http://` when neither scheme is present. |
 
 ### Intermute (Cross-Tool)
 
@@ -324,6 +335,8 @@ Bigend has no tool-specific environment variables. Configure it with flags (`--p
 | `INTERMUTE_URL` | Server URL |
 | `INTERMUTE_API_KEY` | Auth token |
 | `INTERMUTE_PROJECT` | Project scope |
+| `INTERMUTE_AGENT_NAME` | Registration name override (only when `INTERMUTE_URL` is set; whitespace-trimmed); defaults to the caller's agent name, or the tool name with `RegisterTool`. |
+| `INTERMUTE_HEARTBEAT_INTERVAL` | Registration heartbeat interval (only when `INTERMUTE_URL` is set); default `30s`. Accepts Go duration strings such as `10s` or `1m`; empty or invalid strings retain the default. Use a positive duration (zero or negative durations panic when the ticker starts). |
 
 ### Pollard
 
