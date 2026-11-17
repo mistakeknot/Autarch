@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/charmbracelet/x/ansi"
 	"strings"
 	"testing"
 
@@ -132,6 +133,31 @@ func TestAgentSelectorOpenLabelFitsWidth(t *testing.T) {
 	for _, width := range []int{0, 1, 12, 20} {
 		if got := lipgloss.Width(s.View(width)); got > width {
 			t.Errorf("open selector width %d exceeds allocation %d", got, width)
+		}
+	}
+}
+
+func TestAgentSelectorHighlightedOptionVisible(t *testing.T) {
+	s := NewAgentSelector([]AgentOption{{Name: "claude"}, {Name: "codex"}, {Name: "\x1b[31m模型agent\x1b[0m"}})
+	s.Open = true
+	for index := range s.Options {
+		s.Index = index
+		for width := 0; width <= 80; width++ {
+			got := s.View(width)
+			plain := ansi.Strip(got)
+			if lipgloss.Width(got) > width {
+				t.Fatalf("width %d: %q overflows", width, got)
+			}
+			if width > 0 && !strings.Contains(plain, ">") {
+				t.Fatalf("index %d width %d hides highlight: %q", index, width, got)
+			}
+			want := "> " + ansi.Strip(s.Options[index].Name)
+			if width >= lipgloss.Width(want) && !strings.Contains(plain, want) {
+				t.Fatalf("index %d width %d hides option: %q", index, width, got)
+			}
+			if strings.Contains(plain, "\x1b") {
+				t.Fatalf("broken ANSI: %q", got)
+			}
 		}
 	}
 }
