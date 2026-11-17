@@ -15,12 +15,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/mistakeknot/autarch/internal/bigend/daemon"
 	gserver "github.com/mistakeknot/autarch/internal/gurgeh/server"
+	"github.com/mistakeknot/autarch/pkg/callerlog"
 	"github.com/mistakeknot/autarch/pkg/netguard"
 	"github.com/mistakeknot/autarch/pkg/signals"
 )
@@ -34,6 +36,7 @@ type Config struct {
 	ProjectDirs  []string
 	TokenPath    string
 	AllowOrigins []string
+	CallerLogDir string // defaults to the token directory; override for isolated callers
 }
 
 // Server is the consolidated service.
@@ -71,7 +74,11 @@ func New(cfg Config) (*Server, error) {
 	mux.Handle("/bigend/", http.StripPrefix("/bigend", bigend.Handler()))
 	mux.Handle("/signals/", http.StripPrefix("/signals", sig.Handler()))
 	mux.Handle("/gurgeh/{project}/", s.gurgeh)
-	s.handler = guard(token, cfg.AllowOrigins, cfg.Addr, mux)
+	dir := cfg.CallerLogDir
+	if dir == "" {
+		dir = filepath.Dir(cfg.TokenPath)
+	}
+	s.handler = callerLogging(callerlog.New(dir), mux, guard(token, cfg.AllowOrigins, cfg.Addr, mux))
 	return s, nil
 }
 

@@ -37,6 +37,7 @@ func FetchProjects(baseURL, tokenPath string, timeout time.Duration) ([]ProjectI
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("X-Autarch-Thread", os.Getenv("BB_THREAD_ID"))
 	// A redirect would leave the loopback-checked destination, so none is followed.
 	hc := &http.Client{Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := hc.Do(req)

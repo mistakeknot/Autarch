@@ -23,7 +23,12 @@ func tokenFile(t *testing.T, tok string) string {
 }
 
 func TestFetchProjectsReadsTheListWithTheToken(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("BB_THREAD_ID", "thr-client")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Autarch-Thread") != "thr-client" {
+			t.Error("missing claimed thread")
+		}
 		if r.Header.Get("Authorization") != "Bearer "+testTok {
 			http.Error(w, "no", http.StatusUnauthorized)
 			return
