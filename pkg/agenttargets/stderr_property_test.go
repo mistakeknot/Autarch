@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math/rand"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -21,8 +22,8 @@ func referenceRegion(t testing.TB, raw []byte, base int) (string, []int, []bool)
 			erased[i] = true
 		}
 	}
-	var joined []byte
-	var tags []int
+	joined := make([]byte, 0, len(raw))
+	tags := make([]int, 0, len(raw))
 	for i, b := range raw {
 		if !erased[i] {
 			joined = append(joined, b)
@@ -30,7 +31,8 @@ func referenceRegion(t testing.TB, raw []byte, base int) (string, []int, []bool)
 		}
 	}
 	var text strings.Builder
-	var sources []int
+	text.Grow(min(3*len(raw), 256))
+	sources := make([]int, 0, min(3*len(raw), 256))
 	for i := 0; i < len(joined); {
 		r, n := utf8.DecodeRune(joined[i:])
 		if !unicode.IsControl(r) || r == '\n' || r == '\t' {
@@ -86,14 +88,19 @@ func checkMainSuperset(t testing.TB, raw []byte) {
 }
 func checkMainSupersetOutput(t testing.TB, raw []byte, got string) {
 	t.Helper()
-	start, notice := referenceStart(raw)
+	checkMainSupersetObserved(t, observeStderr(t, raw, got))
+}
+func checkMainSupersetObserved(t testing.TB, observation *stderrObservation) {
+	t.Helper()
+	raw, got, start, notice := observation.raw, observation.got, observation.start, observation.notice
 	if notice {
 		if got != fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(raw)) {
 			t.Fatalf("notice: %q", got)
 		}
 		return
 	}
-	text, src, mask := referenceRegion(t, raw[start:], start)
+	text, src, mask := observation.text, observation.source, observation.mask
+
 	actualRegion, actualMask := stderrSourceMask(raw, start)
 	if string(actualRegion.text) != text || len(actualRegion.source) != len(src) {
 		t.Fatalf("production normalization for %q", raw)
@@ -154,51 +161,278 @@ func checkMainSupersetOutput(t testing.TB, raw []byte, got string) {
 // Sentinels occur only in one instance's value, never filler or generated text.
 const stderrSentinels = "123578JMQ"
 
+// An observation belongs to one input. Checks share its frozen-main
+// normalization and provenance; no process-wide cache retains test inputs.
+type stderrObservation struct {
+	raw       []byte
+	got, text string
+	start     int
+	notice    bool
+	source    []int
+	mask      []bool
+	whole     *stderrObservation
+}
+
+func observeStderr(t testing.TB, raw []byte, got string) *stderrObservation {
+	t.Helper()
+	start, notice := referenceStart(raw)
+	o := &stderrObservation{raw: raw, got: got, start: start, notice: notice}
+	if !notice {
+		o.text, o.source, o.mask = referenceRegion(t, raw[start:], start)
+	}
+	return o
+}
+func (o *stderrObservation) region(t testing.TB, base int) (string, []int, []bool) {
+	t.Helper()
+	if base == o.start {
+		return o.text, o.source, o.mask
+	}
+	if o.whole == nil {
+		text, src, mask := referenceRegion(t, o.raw, 0)
+		o.whole = &stderrObservation{text: text, source: src, mask: mask}
+	}
+	return o.whole.text, o.whole.source, o.whole.mask
+}
+func (o *stderrObservation) frozenOutput() string {
+	if o.notice {
+		return fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(o.raw))
+	}
+	text := frozenToken.ReplaceAllString(o.text, "[REDACTED]")
+	if len(text) > 4096 {
+		start := len(text) - 4096
+		for start < len(text) && !utf8.RuneStart(text[start]) {
+			start++
+		}
+		text = text[start:]
+	}
+	return text
+}
 func checkConstructed(t testing.TB, input string) string {
+	t.Helper()
+	return checkConstructedObserved(t, input).got
+}
+func checkConstructedObserved(t testing.TB, input string) *stderrObservation {
 	t.Helper()
 	var tail stderrTail
 	tail.Write([]byte(input))
 	raw := tail.data
-	got := sanitizedStderr(raw)
-	_, notice := referenceStart(raw)
-	want := fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(raw))
-	if (got == want) != notice {
-		t.Fatalf("notice iff for %q: %q", raw, got)
+	// Verify the streaming path's bytes independently. The pure sanitizer then
+	// needs one call for these identical direct and streamed retained bytes.
+	expected := []byte(input)
+	if len(expected) > 4096 {
+		expected = expected[len(expected)-4096:]
 	}
-	// Sweeps use the per-instance oracle: source provenance determines main's
-	// visible byte counts. Positional production-mask checks are separate in
-	// TestMainRedactionSuperset and the generator, avoiding duplicate sanitizing.
-	start, condition := referenceStart(raw)
-	if !condition {
-		text, src, mask := referenceRegion(t, raw[start:], start)
+	if !bytes.Equal(raw, expected) {
+		t.Fatal("streaming window differs from direct retained bytes")
+	}
+	o := observeStderr(t, raw, sanitizedStderr(raw))
+	want := fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(raw))
+	if (o.got == want) != o.notice {
+		t.Fatalf("notice iff for %q: %q", raw, o.got)
+	}
+	if !o.notice {
 		var visible, shown [256]int
-		for i, b := range []byte(text) {
-			if !mask[src[i]] {
+		for i, b := range []byte(o.text) {
+			if !o.mask[o.source[i]] {
 				visible[b]++
 			}
 		}
-		for _, b := range []byte(got) {
+		for _, b := range []byte(o.got) {
 			shown[b]++
 		}
 		for b := range visible {
 			if strings.IndexByte("[REDACTED]", byte(b)) < 0 && shown[b] > visible[b] {
-				t.Fatalf("legacy visibility byte %d raw %q output %q", b, raw, got)
+				t.Fatalf("legacy visibility byte %d raw %q output %q", b, raw, o.got)
 			}
 		}
 	}
-	if !utf8.ValidString(got) || len(got) > 4096 {
+	if !utf8.ValidString(o.got) || len(o.got) > 4096 {
 		t.Fatal("bounded UTF-8")
 	}
-	for _, r := range got {
+	for _, r := range o.got {
 		if unicode.IsControl(r) && r != '\n' && r != '\t' {
 			t.Fatal("output control")
 		}
 	}
+	return o
+}
 
-	if len(input) < 4096 && sanitizedStderr([]byte(input)) != got {
-		t.Fatal("direct/streamed drift")
+const stderrDefaultGeneratedCases = 256
+
+func stderrExhaustive() bool { return os.Getenv("STDERR_SWEEP_FULL") == "1" }
+
+// Default sampling preserves both ends and the interior of every lexical run,
+// every byte around quote/backslash/control runs, and a stride through longer
+// interiors. Exhaustive mode retains every original byte offset.
+func stderrSweepOffsets(input string) []int {
+	selected := make([]bool, len(input)+1)
+	add := func(i int) {
+		if i >= 0 && i < len(selected) {
+			selected[i] = true
+		}
 	}
-	return got
+	add(0)
+	add(len(input))
+	if stderrExhaustive() {
+		for i := range selected {
+			selected[i] = true
+		}
+	} else {
+		class := func(b byte) byte {
+			switch {
+			case b == '"' || b == '\'':
+				return 'q'
+			case b == '\\':
+				return 'b'
+			case b < 32 || b == 127 || b >= 128:
+				return 'c'
+			case b == ' ' || b == '\t':
+				return 'w'
+			case b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_' || b == '-':
+				return 'n'
+			default:
+				return b
+			}
+		}
+		for i := 0; i < len(input); {
+			j := i + 1
+			c := class(input[i])
+			for j < len(input) && class(input[j]) == c {
+				j++
+			}
+			if c == 'q' || c == 'b' || c == 'c' {
+				for p := i - 1; p <= j+1; p++ {
+					add(p)
+				}
+			} else {
+				add(i)
+				add(i + 1)
+				add(j - 1)
+				add(j)
+				for p := i + 16; p < j; p += 16 {
+					add(p)
+				}
+			}
+			// A retained suffix can still be a credential name after its vendor
+			// prefix is evicted. Keep both sides of every such opener explicitly.
+			if c == 'n' {
+				name := strings.ToLower(input[i:j])
+				for _, suffix := range []string{"password", "passwd", "secret", "credential", "credentials", "authorization", "cookie", "privatekey", "private_key", "private-key", "token", "apikey", "api_key", "api-key", "accesskey", "access_key", "secretkey", "secret_key"} {
+					if strings.HasSuffix(name, suffix) {
+						opener := j - len(suffix)
+						add(opener - 1)
+						add(opener)
+						add(opener + 1)
+					}
+				}
+				if len(name) > 4 && (strings.HasSuffix(name, "_key") || strings.HasSuffix(name, "-key")) {
+					add(j - 6)
+					add(j - 5)
+					add(j - 4)
+				}
+			}
+			i = j
+		}
+	}
+	offsets := make([]int, 0, len(selected))
+	for i, yes := range selected {
+		if yes {
+			offsets = append(offsets, i)
+		}
+	}
+	return offsets
+}
+
+// NUL padding keeps a full raw window without repeatedly feeding thousands of
+// irrelevant printable filler bytes to every regex. Exact printable-padding
+// boundary cases remain in SW5/SW6, and exhaustive mode uses the original pads.
+func stderrSweepPadding() string {
+	if stderrExhaustive() {
+		return "x"
+	}
+	return "\x00"
+}
+
+func stderrFullWindow(input string) string {
+	return strings.Repeat(stderrSweepPadding(), 5000) + "\n" + input
+}
+
+// Every sampled offset runs directly. Full-window cases additionally retain
+// every key/value byte-adjacency class and every sensitive suffix opener,
+// instead of repeating that context for equivalent interiors of the same run.
+type stderrOffsetClass struct {
+	value       bool
+	left, right byte
+}
+
+func stderrOffsetKind(b byte) byte {
+	switch {
+	case b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_' || b == '-':
+		return 'n'
+	case b == ' ' || b == '\t' || b == '\n':
+		return 'w'
+	default:
+		return b
+	}
+}
+func stderrOffsetClassAt(input string, offset int) stderrOffsetClass {
+	separator := strings.IndexAny(input, ":= ")
+	kind := stderrOffsetClass{value: separator >= 0 && offset > separator}
+	if offset == 0 {
+		kind.left = 255
+	} else {
+		kind.left = stderrOffsetKind(input[offset-1])
+	}
+	if offset == len(input) {
+		kind.right = 255
+	} else {
+		kind.right = stderrOffsetKind(input[offset])
+	}
+	return kind
+}
+func stderrFullSampleOffsets(input string) map[int]bool {
+	selected := map[int]bool{}
+	seen := map[stderrOffsetClass]bool{}
+	for _, offset := range stderrSweepOffsets(input) {
+		class := stderrOffsetClassAt(input, offset)
+		if stderrExhaustive() || !seen[class] {
+			selected[offset] = true
+			seen[class] = true
+		}
+	}
+	// Keep shortest class-matching suffixes even inside a vendor-prefixed run.
+	for _, run := range referenceNames.FindAllStringIndex(input, -1) {
+		name := strings.ToLower(input[run[0]:run[1]])
+		for _, suffix := range []string{"password", "passwd", "secret", "credential", "credentials", "authorization", "cookie", "privatekey", "private_key", "private-key", "token", "apikey", "api_key", "api-key", "accesskey", "access_key", "secretkey", "secret_key"} {
+			if strings.HasSuffix(name, suffix) {
+				opener := run[1] - len(suffix)
+				for _, i := range []int{opener - 1, opener, opener + 1} {
+					if i >= 0 && i <= len(input) {
+						selected[i] = true
+					}
+				}
+			}
+		}
+		if len(name) > 4 && (strings.HasSuffix(name, "_key") || strings.HasSuffix(name, "-key")) {
+			for _, i := range []int{run[1] - 6, run[1] - 5, run[1] - 4} {
+				if i >= 0 && i <= len(input) {
+					selected[i] = true
+				}
+			}
+		}
+	}
+	return selected
+}
+
+func stderrNewlineOffsets() []int {
+	if stderrExhaustive() {
+		out := make([]int, 129)
+		for i := range out {
+			out[i] = i - 64
+		}
+		return out
+	}
+	return []int{-64, -48, -32, -16, -2, -1, 0, 1, 2, 16, 32, 48, 64}
 }
 
 // expectedHidden aligns the exact reviewed output with its raw fixture. It
@@ -292,15 +526,15 @@ func stderrSweepFixtures(t testing.TB) []stderrSweepFixture {
 
 // requiredDiagnosticHidden checks legacy masks separately from new quoted-key
 // forms. In particular token":"1111 survives eviction of the opening quote.
-func requiredDiagnosticHidden(t testing.TB, raw []byte) bool {
-	start, notice := referenceStart(raw)
+func requiredDiagnosticHidden(t testing.TB, observation *stderrObservation) bool {
+	raw, start, notice := observation.raw, observation.start, observation.notice
 	if notice {
 		return true
 	}
 	diagnostic := strings.LastIndex(string(raw), "useful")
 	legacyHidden := false
 	for _, base := range []int{start, 0} {
-		text, src, mask := referenceRegion(t, raw[base:], base)
+		text, src, mask := observation.region(t, base)
 		if diagnostic < len(mask) && mask[diagnostic] {
 			legacyHidden = true
 		}
@@ -369,20 +603,25 @@ func TestStderrSweeps(t *testing.T) {
 		windowFixtures := append([]stderrSweepFixture{}, fixtures...)
 		windowFixtures = append(windowFixtures, stderrSweepFixture{input: `{"token":"1111`}, stderrSweepFixture{input: `{"password": "1111`})
 		for _, f := range windowFixtures {
-			for offset := 0; offset <= len(f.input); offset++ {
+			for _, offset := range stderrSweepOffsets(f.input) {
 				suffix := f.input[offset:] + "\nuseful"
-				raw := []byte(suffix + strings.Repeat(" ", 4096-len(suffix)))
+				pad := "\x00"
+				if stderrExhaustive() {
+					pad = " "
+				}
+				raw := []byte(suffix + strings.Repeat(pad, 4096-len(suffix)))
+				observation := checkConstructedObserved(t, strings.Repeat(stderrSweepPadding(), 5000)+string(raw))
 				// Keep the legacy-only applicability cross-check distinct from the new
 				// quoted-key forms, whose name can survive its opening quote's eviction.
 				if f.input == `{"token":"1111` {
-					_, _, mask := referenceRegion(t, raw, 0)
+					_, _, mask := observation.region(t, 0)
 					legacyFlag := offset <= strings.IndexByte(f.input, '"')
 					if mask[strings.Index(string(raw), "useful")] != legacyFlag {
 						t.Fatal("legacy flag/reference drift")
 					}
 				}
-				hide := requiredDiagnosticHidden(t, raw)
-				got := checkConstructed(t, strings.Repeat("x", 5000)+string(raw))
+				hide := requiredDiagnosticHidden(t, observation)
+				got := observation.got
 				if strings.Contains(got, "useful") == hide {
 					t.Fatalf("diagnostic coverage offset %d fixture %q hidden %v got %q", offset, f.input, hide, got)
 				}
@@ -395,11 +634,14 @@ func TestStderrSweeps(t *testing.T) {
 	}{{"SW2", []string{"\r"}}, {"SW3", []string{"\x1b[0m", "\x1b]0;t\x07"}}, {"SW4", []string{"\x00", "\x07", "\x7f", "\xc2\x85"}}} {
 		t.Run(group.name, func(t *testing.T) {
 			for _, f := range fixtures {
+				fullOffsets := stderrFullSampleOffsets(f.input)
 				for _, insert := range group.inserts {
-					for offset := 0; offset <= len(f.input); offset++ {
+					for _, offset := range stderrSweepOffsets(f.input) {
 						input := f.input[:offset] + insert + f.input[offset:]
 						checkConstructed(t, input)
-						checkConstructed(t, strings.Repeat("x", 5000)+"\n"+input)
+						if fullOffsets[offset] {
+							checkConstructed(t, stderrFullWindow(input))
+						}
 					}
 				}
 			}
@@ -407,8 +649,12 @@ func TestStderrSweeps(t *testing.T) {
 	}
 	t.Run("SW5", func(t *testing.T) {
 		for _, f := range fixtures {
-			for offset := -64; offset <= 64; offset++ {
-				input := strings.Repeat("x", 4096+offset) + "\n" + f.input + strings.Repeat(" ", 8192-(4096+offset+1+len(f.input)))
+			for _, offset := range stderrNewlineOffsets() {
+				pad := "\x00"
+				if stderrExhaustive() || offset == 0 {
+					pad = " "
+				}
+				input := strings.Repeat(stderrSweepPadding(), 4096+offset) + "\n" + f.input + strings.Repeat(pad, 8192-(4096+offset+1+len(f.input)))
 				checkConstructed(t, input)
 			}
 		}
@@ -445,22 +691,29 @@ func TestStderrSweeps(t *testing.T) {
 			if f.symbol == 0 {
 				continue
 			}
-			for _, space := range []string{"", " "} {
-				for offset := 0; offset <= len(f.input); offset++ {
+			for spaceIndex, space := range []string{"", " "} {
+				for offsetIndex, offset := range stderrSweepOffsets(f.input) {
+					if !stderrExhaustive() && offsetIndex%2 != spaceIndex {
+						continue
+					}
+					// Default mode pairs the spacing and cut dimensions rather than
+					// repeating their full Cartesian product; every fixture retains both
+					// spacing classes and all sampled cut classes. Exhaustive runs both.
 					// The cut of unredacted normalized text lands at offset in F.
 					base := len(f.input) + len(space)
 					p := (4096 - base + offset) / 3
 					r := 4096 + offset - base - 3*p
 					input := f.input + space + strings.Repeat("\xff", p) + strings.Repeat("x", r)
-					normalized, _, _ := referenceRegion(t, []byte(input), 0)
+					observation := checkConstructedObserved(t, input)
+					normalized := observation.text
 					if len(input) >= 4096 || len(normalized)-4096 != offset {
 						t.Fatal("SW8 construction")
 					}
-					got := checkConstructed(t, input)
+					got := observation.got
 					if strings.ContainsRune(got, rune(f.symbol)) {
 						t.Fatalf("SW8 symbol %q input %q", f.symbol, input)
 					}
-					if f.legacy && got != frozenStderr([]byte(input)) {
+					if f.legacy && got != observation.frozenOutput() {
 						t.Fatalf("SW8 legacy output %q", got)
 					}
 				}
@@ -492,15 +745,20 @@ func TestStderrSweeps(t *testing.T) {
 			if got := checkConstructed(t, f.input); got != f.want {
 				t.Fatalf("SW9 baseline %q: %q want %q", f.input, got, f.want)
 			}
+			fullOffsets := stderrFullSampleOffsets(f.input)
 			for _, insert := range []string{"\x1b[0m", "\x1b]0;t\x07", "\x00", "\x7f", "\xc2\x85", "\r"} {
-				for offset := 0; offset <= len(f.input); offset++ {
+				for _, offset := range stderrSweepOffsets(f.input) {
 					input := f.input[:offset] + insert + f.input[offset:]
-					norm, _, _ := referenceRegion(t, []byte(input), 0)
-					if norm != f.input {
-						t.Fatal("SW9 transform precondition")
+					variants := []string{input}
+					if fullOffsets[offset] {
+						variants = append(variants, stderrFullWindow(input))
 					}
-					for _, prefix := range []string{"", strings.Repeat("x", 5000) + "\n"} {
-						got := checkConstructed(t, prefix+input)
+					for _, variant := range variants {
+						observation := checkConstructedObserved(t, variant)
+						if observation.text != f.input {
+							t.Fatal("SW9 transform precondition")
+						}
+						got := observation.got
 						if f.symbol != 0 && strings.ContainsRune(got, rune(f.symbol)) {
 							t.Fatalf("SW9 symbol %q for %q", f.symbol, input)
 						}
@@ -531,18 +789,31 @@ func TestStderrGeneratedSuperset(t *testing.T) {
 	shapes := []string{"sk-%s", "ghp_%s", "Bearer %s", "access_token=%s&ok=yes", `{"token":"%s"}`, "api_key=%s", "password: %s", "--token %s", "https://u:%s@example.test/"}
 	noises := []string{"", "\x1b[0m", "\x1b]0;t\x07", "\r", "\r\n", "\x00", "\x7f", "\xff", " useful ", "\x1b]0;"}
 	classes := map[string]int{}
-	for iteration := 0; iteration < 20000; iteration++ {
+	shapeSeen := make([]bool, len(shapes))
+	noiseSeen := make([]bool, len(noises))
+	sizeSeen := make([]bool, 6)
+	cases := stderrDefaultGeneratedCases
+	if stderrExhaustive() {
+		cases = 20000
+	}
+	for iteration := 0; iteration < cases; iteration++ {
 		var input strings.Builder
 		instances := 1 + rng.Intn(9)
 		symbols := stderrSentinels[:instances]
 		for j := 0; j < instances; j++ {
 			symbol := symbols[j]
 			value := strings.Repeat(string(symbol), 1+rng.Intn(8))
-			shape := fmt.Sprintf(shapes[rng.Intn(len(shapes))], value)
+			shapeIndex := rng.Intn(len(shapes))
+			shapeSeen[shapeIndex] = true
+			shape := fmt.Sprintf(shapes[shapeIndex], value)
 			at := rng.Intn(len(shape) + 1)
-			input.WriteString(noises[rng.Intn(len(noises))])
+			noiseIndex := rng.Intn(len(noises))
+			noiseSeen[noiseIndex] = true
+			input.WriteString(noises[noiseIndex])
 			input.WriteString(shape[:at])
-			input.WriteString(noises[rng.Intn(len(noises))])
+			noiseIndex = rng.Intn(len(noises))
+			noiseSeen[noiseIndex] = true
+			input.WriteString(noises[noiseIndex])
 			input.WriteString(shape[at:])
 			input.WriteString("\n")
 		}
@@ -555,7 +826,14 @@ func TestStderrGeneratedSuperset(t *testing.T) {
 
 		// Prefix and suffix sizes cover empty, short, exact-window and evicted data.
 		if iteration%20 == 0 {
-			size := []int{0, 4095, 4096, 4097, 8192, 20000}[rng.Intn(6)]
+			sizeIndex := rng.Intn(6)
+			// Stratify default size classes so a bounded sample cannot omit one.
+			// Exhaustive mode preserves the original fixed-seed random sequence.
+			if !stderrExhaustive() {
+				sizeIndex = iteration / 20 % 6
+			}
+			sizeSeen[sizeIndex] = true
+			size := []int{0, 4095, 4096, 4097, 8192, 20000}[sizeIndex]
 			if size < len(stream) {
 				stream = stream[:size]
 			} else {
@@ -587,16 +865,17 @@ func TestStderrGeneratedSuperset(t *testing.T) {
 			pos += n
 		}
 		raw := tail.data
-		got := checkConstructed(t, stream)
-		checkMainSupersetOutput(t, raw, got)
-		if got != sanitizedStderr(raw) {
+		observation := checkConstructedObserved(t, stream)
+		got := observation.got
+		checkMainSupersetObserved(t, observation)
+		if !bytes.Equal(raw, observation.raw) {
 			t.Fatal("chunk-dependent tail")
 		}
-		start, notice := referenceStart(raw)
+		start, notice := observation.start, observation.notice
 		if notice {
 			continue
 		}
-		text, src, mask := referenceRegion(t, raw[start:], start)
+		text, src, mask := observation.text, observation.source, observation.mask
 		for j := 0; j < instances; j++ {
 			symbol := symbols[j]
 			rawCount := bytes.Count(raw[start:], []byte{symbol})
@@ -626,12 +905,19 @@ func TestStderrGeneratedSuperset(t *testing.T) {
 			}
 		}
 	}
+	for class, seen := range map[string][]bool{"shape": shapeSeen, "noise": noiseSeen, "size": sizeSeen} {
+		for i, yes := range seen {
+			if !yes {
+				t.Fatalf("generator missed %s class %d", class, i)
+			}
+		}
+	}
 	for _, class := range []string{"DROPPED", "ERASED", "HIDDEN", "MIXED"} {
 		if classes[class] == 0 {
 			t.Fatalf("generator missed %s", class)
 		}
 	}
-	t.Logf("instance classes: %v", classes)
+	t.Logf("cases: %d; instance classes: %v", cases, classes)
 }
 
 func FuzzSanitizedStderrSuperset(f *testing.F) {
@@ -762,5 +1048,103 @@ func BenchmarkTailWrite(b *testing.B) {
 				tail.Write(raw)
 			}
 		})
+	}
+}
+
+func TestStderrSweepOffsetCoverage(t *testing.T) {
+	input := "token=\"" + strings.Repeat("1", 80) + "\\\"11\"\x1b[0m\r\nuseful"
+	offsets := stderrSweepOffsets(input)
+	selected := make(map[int]bool, len(offsets))
+	for _, offset := range offsets {
+		selected[offset] = true
+	}
+	// These positions exercise opener, delimiter, quote/escape, CSI and CR/LF
+	// boundaries independently of the selector's lexical-run implementation.
+	required := []int{0, 1, 4, 5, 6, 7, len(input) - 1, len(input)}
+	for i, b := range []byte(input) {
+		if b == '"' || b == '\\' || b == '\x1b' || b == '\r' || b == '\n' {
+			for _, offset := range []int{i - 1, i, i + 1} {
+				if offset >= 0 && offset <= len(input) {
+					required = append(required, offset)
+				}
+			}
+		}
+	}
+	for _, offset := range required {
+		if !selected[offset] {
+			t.Fatalf("boundary %d omitted", offset)
+		}
+	}
+	for i := 1; i < len(offsets); i++ {
+		if offsets[i]-offsets[i-1] > 16 {
+			t.Fatal("stride exceeded")
+		}
+	}
+	if stderrExhaustive() && len(offsets) != len(input)+1 {
+		t.Fatal("exhaustive offsets omitted")
+	}
+	for _, fixture := range []struct{ input, suffix string }{{`"AUTH_TOKEN":"1111`, "TOKEN"}, {`DB_PASSWORD=1111`, "PASSWORD"}, {`ANTHROPIC_API_KEY=1111`, "API_KEY"}, {`CACHE_KEY=1111`, "E_KEY"}} {
+		points := map[int]bool{}
+		for _, offset := range stderrSweepOffsets(fixture.input) {
+			points[offset] = true
+		}
+		opener := strings.Index(fixture.input, fixture.suffix)
+		for _, offset := range []int{opener - 1, opener, opener + 1} {
+			if !points[offset] {
+				t.Fatalf("credential suffix opener %q offset %d omitted", fixture.input, offset)
+			}
+		}
+	}
+	for _, want := range []int{-64, -2, -1, 0, 1, 2, 64} {
+		found := false
+		for _, got := range stderrNewlineOffsets() {
+			found = found || got == want
+		}
+		if !found {
+			t.Fatalf("newline boundary %d omitted", want)
+		}
+	}
+}
+
+func TestStderrObservationMatchesFrozen(t *testing.T) {
+	inputs := legacyGuardInputs()
+	for _, c := range newShapeCases {
+		inputs = append(inputs, c.input)
+	}
+	inputs = append(inputs, "Bearer \xff11 ok", "\xc3\x1b[0m\xa9", strings.Repeat("\xff", 4095))
+	for _, input := range inputs {
+		var tail stderrTail
+		tail.Write([]byte(input))
+		observation := observeStderr(t, tail.data, "")
+		if got, want := observation.frozenOutput(), frozenStderr(tail.data); got != want {
+			t.Fatalf("shared frozen output %q != %q for %q", got, want, tail.data)
+		}
+	}
+}
+
+func TestStderrFullOffsetCoverage(t *testing.T) {
+	for _, fixture := range stderrSweepFixtures(t) {
+		full := stderrFullSampleOffsets(fixture.input)
+		classes := map[stderrOffsetClass]bool{}
+		for offset := range full {
+			classes[stderrOffsetClassAt(fixture.input, offset)] = true
+		}
+		for _, offset := range stderrSweepOffsets(fixture.input) {
+			if !classes[stderrOffsetClassAt(fixture.input, offset)] {
+				t.Fatalf("full-window offset class lost for %q at %d", fixture.input, offset)
+			}
+		}
+		if stderrExhaustive() && len(full) != len(fixture.input)+1 {
+			t.Fatal("exhaustive full context offset lost")
+		}
+	}
+	for _, fixture := range []struct{ input, suffix string }{{`"AUTH_TOKEN":"1111`, "TOKEN"}, {`DB_PASSWORD=1111`, "PASSWORD"}, {`ANTHROPIC_API_KEY=1111`, "API_KEY"}, {`CACHE_KEY=1111`, "E_KEY"}} {
+		full := stderrFullSampleOffsets(fixture.input)
+		opener := strings.Index(fixture.input, fixture.suffix)
+		for _, offset := range []int{opener - 1, opener, opener + 1} {
+			if !full[offset] {
+				t.Fatalf("full-window suffix boundary lost at %d", offset)
+			}
+		}
 	}
 }
