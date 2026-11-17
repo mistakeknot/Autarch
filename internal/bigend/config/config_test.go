@@ -46,3 +46,19 @@ func TestLoadDropsBlankScanRoots(t *testing.T) {
 		t.Fatalf("got %d blank-root warnings, want 2", warnings)
 	}
 }
+
+// An explicit list overrides the initialized default, even if filtering empties it.
+func TestLoadAllBlankScanRoots(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[discovery]\nscan_roots = [\"\", \" \\t\\n\"]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Discovery.ScanRoots) != 0 {
+		t.Fatalf("scan roots = %q, want empty explicit override", cfg.Discovery.ScanRoots)
+	}
+}
