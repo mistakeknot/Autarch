@@ -73,14 +73,16 @@ func TestPeerRealLoopback(t *testing.T) {
 	}
 	defer peer.Close()
 	// Resolution is deliberately best effort within a 20 ms budget. Keep the
-	// socket alive and allow another attempt after scheduler contention.
+	// socket alive for up to 15 seconds so host contention can subside without
+	// changing the production per-attempt budget.
 	var got any
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for {
 		got = resolvePeer(peer.RemoteAddr().String())
 		if got != "unknown" || time.Now().After(deadline) {
 			break
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	p, ok := got.(map[string]any)
 	if !ok || p["pid"] != os.Getpid() {

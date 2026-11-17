@@ -53,7 +53,7 @@ func TestPickClickPlantedFaults(t *testing.T) {
 			work := ownedTestDir(t)
 			mirror := filepath.Join(work, "objects.git")
 			product := filepath.Join(work, "product")
-			out := t.TempDir()
+			out := oracleEvidenceDir(t)
 			if _, e = git(root, "clone", "--bare", "--no-local", root, mirror); e != nil {
 				t.Fatal(e)
 			}
@@ -155,7 +155,7 @@ func requireOracleControl(t *testing.T, root string, fixtures oracleFixtures) st
 	controlWork := ownedTestDir(t)
 	controlMirror := filepath.Join(controlWork, "objects.git")
 	controlProduct := filepath.Join(controlWork, "product")
-	controlOut := t.TempDir()
+	controlOut := oracleEvidenceDir(t)
 	var e error
 	if _, e = git(root, "clone", "--bare", "--no-local", root, controlMirror); e != nil {
 		t.Fatal(e)
@@ -173,4 +173,34 @@ func requireOracleControl(t *testing.T, root string, fixtures oracleFixtures) st
 		t.Fatal(err)
 	}
 	return hash(scenario)
+}
+
+// Log diagnostics before TempDir cleanup so failed CI runs keep useful evidence
+// without requiring an opt-in or leaving scratch directories behind.
+func oracleEvidenceDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		t.Logf("oracle evidence before cleanup: %s", dir)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Logf("read evidence directory: %v", err)
+			return
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || (filepath.Ext(entry.Name()) != ".log" && entry.Name() != "home-pick.jsonl") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+			if err != nil {
+				t.Logf("read %s: %v", entry.Name(), err)
+				continue
+			}
+			t.Logf("%s:\n%s", entry.Name(), data)
+		}
+	})
+	return dir
 }
