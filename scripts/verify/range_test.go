@@ -172,6 +172,18 @@ func TestExecuteMergeBaseRanges(t *testing.T) {
 				t.Fatal(err)
 			}
 			if tc.mergeBase == "" {
+				if len(report.Journeys) != 0 {
+					t.Fatalf("unrelated histories ran journeys: %+v", report.Journeys)
+				}
+				entries, err := os.ReadDir(outDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, entry := range entries {
+					if entry.Name() != "report.json" && entry.Name() != "report.md" {
+						t.Errorf("unrelated histories created journey output: %s", entry.Name())
+					}
+				}
 				if runErr == nil || report.Verdict != "INCOMPLETE" {
 					t.Fatalf("unrelated histories did not fail closed: %v %+v", runErr, report)
 				}
