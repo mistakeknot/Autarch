@@ -85,9 +85,10 @@ go build ./cmd/bigend  # Build binary
 | **tmux** | `tmux list-sessions` | Active sessions, pane content |
 | **MCP** | `mcp-server/`, `mcp-client/` | Component run status |
 
-Session discovery uses `internal/bigend/tmux/`: the aggregator lists tmux sessions,
-detects agent types from session names, and enriches them with
-agent state. It does not read Claude's configuration for session IDs.
+Session discovery uses `internal/bigend/tmux/`: the aggregator lists tmux sessions
+and detects agent types from session names. The aggregator calls
+`internal/bigend/statedetect/` to enrich sessions with agent state.
+It does not read Claude's configuration for session IDs.
 
 ### Aggregator
 
@@ -378,7 +379,7 @@ type Detector struct {
 func (d *Detector) EnrichSessions(sessions []Session) []EnrichedSession {
     // Match session CWD to project paths
     // Detect agent type from session name patterns
-    // Extract Claude session ID if present
+    // Attach DetectAgent output to each session
 }
 ```
 
