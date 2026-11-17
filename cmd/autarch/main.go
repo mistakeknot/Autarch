@@ -388,7 +388,9 @@ func bigendCmd() *cobra.Command {
 				return err
 			}
 
-			applyBigendFlagOverrides(cmd, cfg)
+			if err := applyBigendFlagOverrides(cmd, cfg); err != nil {
+				return err
+			}
 
 			scanner := discovery.NewScanner(cfg.Discovery)
 
@@ -677,7 +679,7 @@ func printSetupStatus(s setup.Status) {
 }
 
 // applyBigendFlagOverrides preserves file configuration unless a flag was supplied.
-func applyBigendFlagOverrides(cmd *cobra.Command, cfg *config.Config) {
+func applyBigendFlagOverrides(cmd *cobra.Command, cfg *config.Config) error {
 	if cmd.Flags().Changed("port") {
 		cfg.Server.Port, _ = cmd.Flags().GetInt("port")
 	}
@@ -686,6 +688,10 @@ func applyBigendFlagOverrides(cmd *cobra.Command, cfg *config.Config) {
 	}
 	if cmd.Flags().Changed("scan-root") {
 		root, _ := cmd.Flags().GetString("scan-root")
+		if strings.TrimSpace(root) == "" {
+			return fmt.Errorf("--scan-root must not be empty or whitespace-only")
+		}
 		cfg.Discovery.ScanRoots = []string{root}
 	}
+	return nil
 }

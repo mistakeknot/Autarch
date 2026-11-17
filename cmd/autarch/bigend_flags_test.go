@@ -20,7 +20,7 @@ func TestBigendFlagOverrides(t *testing.T) {
 	}{
 		{"absent", nil, "127.0.0.2", 9000, "configured"},
 		{"explicit", []string{"--host=127.0.0.3", "--port=8101", "--scan-root=chosen"}, "127.0.0.3", 8101, "chosen"},
-		{"explicit defaults", []string{"--host=127.0.0.1", "--port=8099", "--scan-root="}, "127.0.0.1", 8099, ""},
+		{"explicit defaults", []string{"--host=127.0.0.1", "--port=8099"}, "127.0.0.1", 8099, "configured"},
 		{"config nonloopback", nil, "0.0.0.0", 9000, "configured"},
 		{"flag nonloopback", []string{"--host=0.0.0.0"}, "0.0.0.0", 9000, "configured"},
 	} {
@@ -41,7 +41,9 @@ func TestBigendFlagOverrides(t *testing.T) {
 			if err := cmd.ParseFlags(tc.args); err != nil {
 				t.Fatal(err)
 			}
-			applyBigendFlagOverrides(cmd, cfg)
+			if err := applyBigendFlagOverrides(cmd, cfg); err != nil {
+				t.Fatal(err)
+			}
 			if cfg.Server.Host != tc.host || cfg.Server.Port != tc.port || len(cfg.Discovery.ScanRoots) != 1 || cfg.Discovery.ScanRoots[0] != tc.root {
 				t.Fatalf("got host=%q port=%d roots=%q", cfg.Server.Host, cfg.Server.Port, cfg.Discovery.ScanRoots)
 			}
@@ -51,6 +53,25 @@ func TestBigendFlagOverrides(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), "refusing to bind non-loopback") {
 					t.Fatalf("expected bind refusal, got %v", err)
 				}
+			}
+		})
+	}
+}
+
+func TestBigendEmptyScanRoot(t *testing.T) {
+	for _, root := range []string{"", " ", "\t\n"} {
+		t.Run(fmt.Sprintf("%q", root), func(t *testing.T) {
+			cfg, err := config.Load(filepath.Join(t.TempDir(), "absent.toml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := bigendCmd()
+			if err := cmd.ParseFlags([]string{"--scan-root=" + root}); err != nil {
+				t.Fatal(err)
+			}
+			err = applyBigendFlagOverrides(cmd, cfg)
+			if err == nil || !strings.Contains(err.Error(), "--scan-root") {
+				t.Fatalf("expected --scan-root error, got %v", err)
 			}
 		})
 	}

@@ -58,7 +58,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	applyFlagOverrides(flag.CommandLine, cfg)
+	if err := applyFlagOverrides(flag.CommandLine, cfg); err != nil {
+		slog.Error("invalid flags", "error", err)
+		os.Exit(1)
+	}
 
 	// Create scanner
 	scanner := discovery.NewScanner(cfg.Discovery)
@@ -230,7 +233,8 @@ func runWeb(cfg *config.Config, agg *aggregator.Aggregator) {
 }
 
 // applyFlagOverrides preserves file configuration unless a flag was supplied.
-func applyFlagOverrides(fs *flag.FlagSet, cfg *config.Config) {
+func applyFlagOverrides(fs *flag.FlagSet, cfg *config.Config) error {
+	var overrideErr error
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "port":
@@ -238,9 +242,15 @@ func applyFlagOverrides(fs *flag.FlagSet, cfg *config.Config) {
 		case "host":
 			cfg.Server.Host = f.Value.String()
 		case "scan-root":
-			cfg.Discovery.ScanRoots = []string{f.Value.String()}
+			root := f.Value.String()
+			if strings.TrimSpace(root) == "" {
+				overrideErr = fmt.Errorf("--scan-root must not be empty or whitespace-only")
+				return
+			}
+			cfg.Discovery.ScanRoots = []string{root}
 		}
 	})
+	return overrideErr
 }
 
 // commandFlags holds the values registered for the standalone command.
