@@ -85,7 +85,17 @@ func referenceStart(raw []byte) (int, bool) {
 			break
 		}
 	}
-	return start, strings.TrimSpace(referenceCleanedRemainder(raw[start:])) == ""
+	return start, strings.TrimSpace(referenceCleanedRemainder(raw[start:])) == "" || referenceEmptyFrame(raw[start:])
+}
+
+// Independently select the final CR frame on each line before control cleanup.
+// A notice is content-free, so no redaction grammar is needed for this check.
+func referenceEmptyFrame(raw []byte) bool {
+	lines := strings.Split(frozenANSI.ReplaceAllString(string(raw), ""), "\n")
+	for i, line := range lines {
+		lines[i] = line[strings.LastIndexByte(line, '\r')+1:]
+	}
+	return referenceCleanedRemainder([]byte(strings.Join(lines, "\n"))) == ""
 }
 
 // Verify each output byte can be attributed to a source main exposes, in order.
@@ -679,8 +689,8 @@ func TestStderrSweeps(t *testing.T) {
 					var tail stderrTail
 					tail.Write([]byte(input))
 					want := frozenStderr(tail.data)
-					// The sole intended exception to frozen notice behavior:
-					// a full tail with a content-free cleaned remainder.
+					// Full tails also get a notice when cleanup or final-frame
+					// selection leaves no content.
 					if _, notice := referenceStart(tail.data); notice {
 						want = fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(tail.data))
 					}
@@ -935,6 +945,9 @@ func TestStderrGeneratedSuperset(t *testing.T) {
 }
 
 func FuzzSanitizedStderrSuperset(f *testing.F) {
+	for _, ending := range []string{"progress 50%\r", "progress 50%\r\x1b[0m", "password: 1111\r"} {
+		f.Add([]byte(strings.Repeat("x", 5000) + "\n" + ending))
+	}
 	for _, cases := range portedDirectCases {
 		for _, c := range cases {
 			f.Add([]byte(c.input))
@@ -957,7 +970,8 @@ func FuzzSanitizedStderrSuperset(f *testing.F) {
 		var tail stderrTail
 		tail.Write(input)
 		raw := tail.data
-		// Cleaned condition selects the branch, even on a literal notice collision.
+		// Cleaned content and frame selection choose the notice branch,
+		// even on a literal notice collision.
 		start, notice := referenceStart(raw)
 		got := sanitizedStderr(raw)
 		if notice {

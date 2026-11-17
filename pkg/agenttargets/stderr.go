@@ -55,7 +55,13 @@ func sanitizedStderr(data []byte) string {
 		}
 	}
 
-	return renderStderr(raw, len(raw)-len(data))
+	rendered := renderStderr(raw, len(raw)-len(data))
+	// A nonblank cleaned remainder can still select an empty final CR frame.
+	// The notice contains no stderr content; redaction and rendering stay intact.
+	if len(raw) >= stderrTailBytes && rendered == "" {
+		return fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(raw))
+	}
+	return rendered
 }
 
 func processError(err error, timedOut bool, tail *stderrTail) error {
