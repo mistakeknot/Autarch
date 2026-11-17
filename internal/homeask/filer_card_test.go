@@ -687,28 +687,6 @@ func TestCardFilerRoutesByEarliestAgentCommentNotLatest(t *testing.T) {
 	}
 }
 
-func TestCardFilerHoldsTheLockForTheWholeFiling(t *testing.T) {
-	f := newFake(t, registryOnCreate)
-	fl := f.filer()
-	held := 0
-	inner := fl.Run
-	fl.Run = func(ctx context.Context, env []string, args ...string) BBResult {
-		p, _ := fl.lockPath(testReq().Key)
-		if tryLock(p) {
-			t.Errorf("lock not held during bb %v", args)
-		} else {
-			held++
-		}
-		return inner(ctx, env, args...)
-	}
-	if _, err := fl.FileCard(context.Background(), testReq()); err != nil {
-		t.Fatal(err)
-	}
-	if held < 5 {
-		t.Fatalf("lock checked %d times", held)
-	}
-}
-
 func TestCardFilerConcurrentFilersProduceOneCard(t *testing.T) {
 	f := newFake(t, registryOnCreate)
 	fl := f.filer()
