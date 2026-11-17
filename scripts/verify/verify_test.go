@@ -447,18 +447,6 @@ func TestRepoLockDescriptorIsNotInherited(t *testing.T) {
 	}
 }
 
-func TestNoLiveLaunchCommands(t *testing.T) {
-	src, err := os.ReadFile("main.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, forbidden := range []string{"home-ui.sh", `exec.Command("bb"`, `exec.LookPath("bb"`} {
-		if contains(string(src), forbidden) {
-			t.Fatal("live launch in driver", forbidden)
-		}
-	}
-}
-
 func TestFakeListenerRefusesWildcard(t *testing.T) {
 	for _, host := range []string{"0.0.0.0", "::", "localhost", "example.invalid"} {
 		listener, err := startFakeListener(host)
@@ -601,7 +589,12 @@ func TestTimeoutKillsGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	pidFile := filepath.Join(product, "child.pid")
-	result := runGroup([]string{"/bin/sh", "-c", "sleep 30 & child=$!; echo \"$child\" > \"$1\"; wait", "fixture", pidFile}, product, childEnv(dir, "/usr/bin:/bin"), 200*time.Millisecond, log)
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("INCOMPLETE: node missing")
+	}
+	script := `const child=require('node:child_process').spawn(process.execPath,['-e','setTimeout(()=>{},30000)'],{stdio:'ignore'});require('node:fs').writeFileSync(process.argv[1],String(child.pid));setTimeout(()=>{},30000);`
+	result := runGroup([]string{node, "-e", script, pidFile}, product, childEnv(dir, "/usr/bin:/bin"), 300*time.Millisecond, log)
 	if result.Verdict != "INCOMPLETE" || !result.TimedOut {
 		t.Fatal(result)
 	}

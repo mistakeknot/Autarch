@@ -247,7 +247,57 @@ func runGroup(argv []string, dir string, env []string, deadline time.Duration, l
 }
 
 // Metadata helpers and journeys share the same process lifetime contract.
+func checkLaunch(argv []string) error {
+	refuse := func() error { return fmt.Errorf("launch policy: refusing live or opaque shell command") }
+	if len(argv) == 0 {
+		return refuse()
+	}
+	for _, arg := range argv {
+		if filepath.Base(arg) == "home-ui.sh" {
+			return refuse()
+		}
+	}
+	switch filepath.Base(argv[0]) {
+	case "bb", "sh", "bash", "dash", "zsh", "ksh", "fish", "busybox":
+		return refuse()
+	case "nice":
+		if len(argv) < 4 || argv[1] != "-n" || argv[2] != "19" {
+			return refuse()
+		}
+		return checkLaunch(argv[3:])
+	case "ionice":
+		if len(argv) < 3 || argv[1] != "-c3" {
+			return refuse()
+		}
+		return checkLaunch(argv[2:])
+	case "bwrap":
+		for i, arg := range argv[1:] {
+			if arg == "--" {
+				return checkLaunch(argv[i+2:])
+			}
+		}
+		return refuse()
+	case "env":
+		for i := 1; i < len(argv); i++ {
+			if argv[i] == "-i" || argv[i] == "--ignore-environment" || strings.Contains(argv[i], "=") {
+				continue
+			}
+			if strings.HasPrefix(argv[i], "-") {
+				return refuse()
+			}
+			return checkLaunch(argv[i:])
+		}
+	}
+	return nil
+}
+
 func waitGroup(cmd *exec.Cmd, deadline time.Duration) (error, bool) {
+	if len(cmd.Args) == 0 || filepath.Base(cmd.Path) != filepath.Base(cmd.Args[0]) {
+		return fmt.Errorf("launch policy: executable differs from argv"), false
+	}
+	if err := checkLaunch(cmd.Args); err != nil {
+		return err, false
+	}
 	select {
 	case <-stopRequested:
 		return fmt.Errorf("interrupted"), false
