@@ -174,3 +174,9 @@ func (a *Agent) dispatchConfig(projectRoot string) agenttargets.DispatchConfig {
 	}
 	return cfg
 }
+
+// DispatchPreference returns the effective agent and source used by generation.
+func (a *Agent) DispatchPreference(projectRoot string) (string, string) {
+	cfg := a.dispatchConfig(projectRoot)
+	return cfg.PreferredAgent, cfg.PreferredAgentSource
+}

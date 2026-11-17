@@ -211,25 +211,27 @@ func (a *UnifiedApp) initAgentSelector() {
 	}
 
 	options = filterSupportedAgentOptions(options)
-	if len(options) == 0 {
+	selection := a.codingAgent
+	if selection == nil {
+		selection = &agent.Agent{}
+	}
+	var source string
+	a.selectedAgent, source = selection.DispatchPreference(projectRoot)
+	if a.selectedAgent == "" {
 		return
 	}
-
+	found := false
+	for i := range options {
+		if options[i].Name == a.selectedAgent {
+			options[i].Source = source
+			found = true
+		}
+	}
+	if !found {
+		options = append(options, pkgtui.AgentOption{Name: a.selectedAgent, Source: source})
+	}
 	a.agentSelector = pkgtui.NewAgentSelector(options)
-	if a.selectedAgent != "" {
-		a.setSelectorIndex(a.selectedAgent)
-		return
-	}
-	if a.codingAgent != nil {
-		a.selectedAgent = string(a.codingAgent.Type)
-		a.setSelectorIndex(a.selectedAgent)
-		return
-	}
-
-	a.selectedAgent = options[0].Name
-	if resolved, err := agent.DetectAgentByName(a.selectedAgent, exec.LookPath); err == nil {
-		a.codingAgent = resolved
-	}
+	a.setSelectorIndex(a.selectedAgent)
 }
 
 func (a *UnifiedApp) setSelectorIndex(name string) {
@@ -300,7 +302,6 @@ func (a *UnifiedApp) Init() tea.Cmd {
 	detectedAgent, err := agent.DetectAgent()
 	if err == nil {
 		a.codingAgent = detectedAgent
-		a.selectedAgent = string(detectedAgent.Type)
 	}
 	// Note: We don't error here - we'll handle missing agent when we need it
 	a.initAgentSelector()
@@ -529,6 +530,9 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pkgtui.AgentSelectedMsg:
 		a.selectedAgent = msg.Name
 		a.setSelectorIndex(msg.Name)
+		if a.agentSelector != nil && len(a.agentSelector.Options) > 0 {
+			a.agentSelector.Options[a.agentSelector.Index].Source = "explicit agent selection"
+		}
 		if resolved, err := agent.DetectAgentByName(msg.Name, exec.LookPath); err == nil {
 			a.codingAgent = resolved
 		}

@@ -76,7 +76,11 @@ func (s *AgentSelector) View() string {
 		return ""
 	}
 	if !s.Open {
-		label := fmt.Sprintf("Model: %s (ctrl+g)", s.currentName())
+		name := s.currentName()
+		if s.Index >= 0 && s.Index < len(s.Options) && s.Options[s.Index].Source != "" {
+			name += " · " + s.Options[s.Index].Source
+		}
+		label := fmt.Sprintf("Model: %s (ctrl+g)", name)
 		return lipgloss.NewStyle().Foreground(ColorMuted).Render(label)
 	}
 

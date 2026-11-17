@@ -1,7 +1,11 @@
 package tui
 
 import (
+	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	"github.com/mistakeknot/autarch/internal/testutil"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -374,5 +378,38 @@ func TestSignalsOverlayBlocksKeysToView(t *testing.T) {
 	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 	if view.seen {
 		t.Fatal("expected overlay to consume key, but view saw it")
+	}
+}
+
+func TestAgentSelectorUsesDispatchPreference(t *testing.T) {
+	for _, tc := range []struct{ name, env, config, want string }{
+		{"environment", "codex", "", "codex"},
+		{"project", "", "[dispatch]\npreferred_agent = \"codex\"\n", "codex"},
+		{"automatic", "", "", "claude"},
+		{"unknown", "unavailable-agent", "", "unavailable-agent"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			t.Chdir(root)
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("PATH", t.TempDir())
+			t.Setenv("AUTARCH_DISPATCH_AGENT", tc.env)
+			if err := os.MkdirAll(filepath.Join(root, ".gurgeh"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, ".gurgeh", "agents.toml"), []byte(tc.config), 0600); err != nil {
+				t.Fatal(err)
+			}
+			app := NewUnifiedApp(nil)
+			app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
+			app.initAgentSelector()
+			if app.selectedAgent != tc.want {
+				t.Fatalf("selected = %q, want %q", app.selectedAgent, tc.want)
+			}
+			_, source := app.codingAgent.DispatchPreference(root)
+			if app.agentSelector == nil || !strings.Contains(app.agentSelector.View(), tc.want) || !strings.Contains(app.agentSelector.View(), source) {
+				t.Fatal("selector does not display dispatch preference")
+			}
+		})
 	}
 }
