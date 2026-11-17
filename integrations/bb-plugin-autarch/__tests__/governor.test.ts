@@ -71,7 +71,7 @@ describe("governor service", () => {
       db.prepare("INSERT INTO quota_governor_samples VALUES (?,?,?,?)").run(id, ...point);
     }
     // Both original decision functions exclude the apparently future reading.
-    expect(measurePace(recorded.accounts, recorded.now, DEFAULTS, recorded.samples as Record<string, [number, number, number][]>)).toEqual(recorded.result);
+    expect(measurePace(recorded.accounts, recorded.now, DEFAULTS, recorded.samples as unknown as Record<string, [number, number, number][]>)).toEqual(recorded.result);
     await g.tick();
     expect(g.view().decision?.pace).toBeCloseTo(recorded.completedResult[0] as number, 12);
     expect(g.view().decision?.note).toBe(recorded.completedResult[1]);
@@ -96,6 +96,19 @@ describe("governor service", () => {
     io.mode = async () => "off"; await g.tick();
     expect(db.prepare("SELECT count(*) AS n FROM quota_governor_history").get()).toEqual({ n: 2 });
     expect(store.get("shadow")).not.toBeNull(); db.close();
+  });
+  it.each(["record", "history"] as const)("history %s failure cannot suppress a committed live transition's export or notices", async method => {
+    const { g, io, store, db } = rig(); io.mode = async () => "live";
+    const send = vi.fn(async () => []);
+    io.prepareNotify = async () => ({ skipped: [], send });
+    vi.spyOn(store, method).mockImplementation(() => { throw Error("history unavailable"); });
+    await g.tick();
+    expect(store.get<{ level: number }>("live")?.level).toBe(1);
+    expect(io.apply).toHaveBeenCalledWith(expect.anything(), 1, false);
+    expect(io.writeThrottle).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(g.view().warnings?.join(" ")).toContain("history unavailable");
+    db.close();
   });
   it("records live unknown pace and an unreadable script level as null", async () => {
     const { g, io, db } = rig(); io.mode = async () => "live";

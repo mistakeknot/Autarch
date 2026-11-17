@@ -152,8 +152,11 @@ export class Governor {
       try { scriptThrottle = await io.readJson(join(cfg.state_dir, "throttle.json")); }
       catch (e) { errors.push(`throttle.json read failed: ${String(e)}`); }
       const scriptLevel = scriptThrottle && typeof scriptThrottle === "object" && "level" in scriptThrottle ? scriptThrottle.level : null;
-      this.store.record({ time: now, mode, level: cur, new_level: dec.new_level, pace, note, script_level: typeof scriptLevel === "number" && Number.isInteger(scriptLevel) && !!levels[scriptLevel] ? scriptLevel : null });
-      this.current = { mode, state: ns, decision: dec, script: { state: script, throttle: scriptThrottle }, last_run: now, parts, warnings, history: this.store.history(now) };
+      try { this.store.record({ time: now, mode, level: cur, new_level: dec.new_level, pace, note, script_level: typeof scriptLevel === "number" && Number.isInteger(scriptLevel) && !!levels[scriptLevel] ? scriptLevel : null }); }
+      catch (e) { warnings.push(`History write failed: ${String(e)}`); }
+      this.current = { mode, state: ns, decision: dec, script: { state: script, throttle: scriptThrottle }, last_run: now, parts, warnings };
+      try { this.current.history = this.store.history(now); }
+      catch (e) { warnings.push(`History read failed: ${String(e)}`); }
       const failure = dec.applied.find(s => /FAILED/.test(s)) ?? (dec.held?.includes("card not filed") ? dec.held : undefined);
       if (failure) errors.push(failure);
       if (mode === "live") {
