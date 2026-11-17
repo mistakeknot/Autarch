@@ -50,6 +50,19 @@ func TestVerifierChangeSurvivesIncompletePrecedence(t *testing.T) {
 	}
 }
 
+func TestMarkdownIncludesSameHeadAcceptanceGaps(t *testing.T) {
+	dir := t.TempDir()
+	cause := "INCOMPLETE: owned-server fixture configuration not supplied; Chromium revision 1208 unavailable"
+	r := Report{Verdict: "INCOMPLETE", Suites: map[string]string{"owned-real acceptance": cause}}
+	if err := writeReport(dir, filepath.Join(dir, "ledger.jsonl"), r); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "report.md"))
+	if err != nil || !strings.Contains(string(b), cause) {
+		t.Fatalf("same-head acceptance gap missing: %s (%v)", b, err)
+	}
+}
+
 func TestNamespaceSetupFailureReportsIncomplete(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "out")

@@ -313,6 +313,14 @@ func writeReport(out, ledger string, r Report) error {
 			fmt.Fprintf(&md, "\n- Uncovered: `%s` (selected: %s)\n", p.Path, strings.Join(p.Flows, ", "))
 		}
 	}
+	suites := make([]string, 0, len(r.Suites))
+	for name := range r.Suites {
+		suites = append(suites, name)
+	}
+	sort.Strings(suites)
+	for _, name := range suites {
+		fmt.Fprintf(&md, "\n- %s: %s\n", name, r.Suites[name])
+	}
 	if e = writeFresh(filepath.Join(out, "report.md"), []byte(md.String())); e != nil {
 		return e
 	}
