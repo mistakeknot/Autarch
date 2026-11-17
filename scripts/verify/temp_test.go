@@ -23,9 +23,8 @@ func TestProductionScratchDefaults(t *testing.T) {
 // subject to checkout and symlink checks. No tests mutate it after init.
 func init() {
 	checkoutWalkStop = filepath.Clean(os.TempDir())
-	// A symlinked TMPDIR remains unsupported: bwrap cannot bind onto the
-	// symlink, and the path guard also refuses symlink ancestors. Use a real
-	// directory for TMPDIR when running these tests.
+	// A symlinked TMPDIR remains unsupported: bwrap cannot bind onto a symlink.
+	// Use a real directory for TMPDIR when running these tests.
 	gitScratchRoot = checkoutWalkStop
 }
 
