@@ -3,6 +3,7 @@ package callerlog
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,8 +112,22 @@ func TestStorageDropWarnsOnce(t *testing.T) {
 	}
 }
 func TestDefaultProductionAuditPath(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	// Resolve caches before giving the child an isolated HOME. Reuse the
+	// dependencies already needed to build this test, including when offline.
+	out, err := exec.CommandContext(ctx, "go", "env", "-json", "GOMODCACHE", "GOCACHE").CombinedOutput()
+	if err != nil {
+		t.Fatalf("go env: %v %s", err, out)
+	}
+	var caches struct{ GOMODCACHE, GOCACHE string }
+	if err := json.Unmarshal(out, &caches); err != nil {
+		t.Fatal(err)
+	}
+	if caches.GOMODCACHE == "" || caches.GOCACHE == "" {
+		t.Fatal("go env returned an empty cache path")
+	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
 	parent := filepath.Join(home, ".autarch")
 	if err := os.Mkdir(parent, 0755); err != nil {
 		t.Fatal(err)
@@ -127,9 +142,9 @@ func main(){l:=callerlog.Default();l.Record(map[string]any{"probe":"production-d
 `), 0600); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	if out, err := exec.CommandContext(ctx, "go", "run", "-mod=readonly", src).CombinedOutput(); err != nil {
+	cmd := exec.CommandContext(ctx, "go", "run", "-mod=readonly", src)
+	cmd.Env = append(os.Environ(), "HOME="+home, "GOMODCACHE="+caches.GOMODCACHE, "GOCACHE="+caches.GOCACHE)
+	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("probe: %v %s", err, out)
 	}
 	data, err := os.ReadFile(filepath.Join(parent, "audit", "caller-log.jsonl"))
