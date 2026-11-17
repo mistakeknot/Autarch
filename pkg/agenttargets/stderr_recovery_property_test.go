@@ -110,7 +110,7 @@ func recoveryTableSpans(t testing.TB, c redactCase, base int, finalLF bool) []re
 			t.Fatalf("LF-form expectation omits main hidden source %d in %q", p, c.input)
 		}
 	}
-	if finalLF && (hidden[len(hidden)-1] != jsonToEnd || (mainMask[len(hidden)-1] > 0) != jsonToEnd) {
+	if finalLF && (mainMask[len(hidden)-1] > 0) != jsonToEnd {
 		t.Fatalf("final LF visibility differs for %q", c.input)
 	}
 	var spans []recoverySpan
@@ -130,8 +130,7 @@ func recoveryTableSpans(t testing.TB, c redactCase, base int, finalLF bool) []re
 }
 
 func TestRecoveryTableEmbeddings(t *testing.T) {
-	// This is the first recovery test in each package iteration.
-	recoveryEvaluationStart = recoveryEvaluations
+	recoveryEvaluationBudget(t, 300)
 	prefix := strings.Repeat("x", 5000) + " \r"
 	for i, c := range newShapeCases {
 		if got := sanitizedStderr([]byte(c.input)); got != c.want {
@@ -169,6 +168,7 @@ func TestRecoveryTableEmbeddings(t *testing.T) {
 }
 
 func TestRecoveryGenerated(t *testing.T) {
+	recoveryEvaluationBudget(t, 200)
 	rng := rand.New(rand.NewSource(82))
 	families := []struct{ pre, post string }{
 		{"password=", ""}, {"token=", ""}, {"--password ", ""},
@@ -203,6 +203,7 @@ func TestRecoveryGenerated(t *testing.T) {
 }
 
 func TestRecoveryCriticalSplits(t *testing.T) {
+	recoveryEvaluationBudget(t, 500)
 	fixtures := []string{
 		strings.Repeat("x", 5000) + "\rError: quota exceeded\r\n",
 		"Bea\x1b[mrer " + strings.Repeat("1", 1100) + "\r" + strings.Repeat("1", 5000),

@@ -12,7 +12,21 @@ import (
 const recoveryStage = 2
 const recoveryNotice = "[stderr withheld: 4096 bytes with no complete line]"
 
-var recoveryEvaluations, recoveryEvaluationStart int
+var recoveryEvaluations int
+
+// Per-test limits total 1400, preserving the default suite budget regardless
+// of test order or -count. Fuzz and extended evaluations remain separate.
+func recoveryEvaluationBudget(t *testing.T, budget int) {
+	t.Helper()
+	start := recoveryEvaluations
+	t.Cleanup(func() {
+		evaluations := recoveryEvaluations - start
+		t.Logf("recovery evaluations: %d (cap %d; fuzz/extended separate)", evaluations, budget)
+		if evaluations > budget {
+			t.Fatal("default evaluation budget")
+		}
+	})
+}
 
 type recoveryCase struct {
 	name, input, baselineWant, finalWant string
@@ -197,6 +211,7 @@ func recoveryWrite(input string, chunk int) *stderrTail {
 }
 
 func TestRecoveryExact(t *testing.T) {
+	recoveryEvaluationBudget(t, 300)
 	for _, c := range recoveryCases() {
 		for _, chunk := range []int{1, 7, 1024, 4095, 4096, len(c.input)} {
 			t.Run(fmt.Sprintf("%s/%d", c.name, chunk), func(t *testing.T) {
@@ -232,6 +247,7 @@ func TestRecoveryExact(t *testing.T) {
 }
 
 func TestRecoveryInconsistentWindow(t *testing.T) {
+	recoveryEvaluationBudget(t, 10)
 	tail := &stderrTail{started: true, seen: 5000, history: []byte(strings.Repeat("x", 5000)), data: []byte(strings.Repeat("y", 4096))}
 	if _, ok := tail.completeHistory(); ok {
 		t.Fatal("inconsistent history certified")
@@ -242,6 +258,7 @@ func TestRecoveryInconsistentWindow(t *testing.T) {
 }
 
 func TestRecoveryPrepopulatedWrite(t *testing.T) {
+	recoveryEvaluationBudget(t, 50)
 	for _, n := range []int{4096, 5000} {
 		for _, chunk := range []int{n, 7} {
 			t.Run(fmt.Sprintf("%d/%d", n, chunk), func(t *testing.T) {
@@ -306,16 +323,10 @@ func TestRecoveryLazyCapture(t *testing.T) {
 }
 
 func TestRecoveryCallerOwnership(t *testing.T) {
-	defer func() {
-		evaluations := recoveryEvaluations - recoveryEvaluationStart
-		t.Logf("recovery evaluations: %d (cap 1400; fuzz/extended separate)", evaluations)
-		if evaluations > 1400 {
-			t.Fatal("default evaluation budget")
-		}
-		if recoveryStage != 2 {
-			t.Fatal("final stage must enable every recovery row")
-		}
-	}()
+	recoveryEvaluationBudget(t, 40)
+	if recoveryStage != 2 {
+		t.Fatal("final stage must enable every recovery row")
+	}
 	input := strings.Repeat("x", 5000) + "\rError: quota exceeded\r\n"
 	for _, chunk := range []int{1, 7, 1024, 4095, 4096, len(input)} {
 		tail := new(stderrTail)
