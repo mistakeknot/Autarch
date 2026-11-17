@@ -30,7 +30,7 @@ func (t *stderrTail) Write(p []byte) (int, error) {
 
 var stderrANSI = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))`)
 
-var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|(?:ghp_|gho_|ghs_|ghu_|ghr_|github_pat_)[a-z0-9_]+|Bearer[ \t]+[^\s]+`)
+var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|(?:ghp_|gho_|ghs_|ghu_|ghr_|github_pat_)[a-z0-9_]+|Bearer[ \t]+[^\s]+|(?:Authorization|x-api-key)[ \t]*:[^\r\n]*|"(?:access_token|api_key|token|refresh_token|id_token|client_secret|apiKey)"\s*:\s*"(?:[^"\\]|\\.)*(?:"|$)|access_token=[^&\s]*`)
 
 // Match complete credential names at field boundaries, rather than arbitrary
 // words ending in "key". Go's regexp engine guarantees linear-time matching.
@@ -74,11 +74,13 @@ func sanitizedStderr(data []byte) string {
 	// A full tail may start inside a credential keyword or its value. Drop
 	// the entire first frame when its boundary is available.
 	if len(data) >= stderrTailBytes {
-		// A final line terminator does not establish a complete next frame.
-		// Search only within the content so a single long line uses fallback.
-		data = []byte(strings.TrimRight(string(data), "\r\n"))
 		if end := strings.IndexAny(string(data), "\r\n"); end >= 0 {
 			data = data[end+1:]
+			// A terminator alone cannot recover context for the truncated
+			// credential frame. Keep fallback exclusive to unterminated tails.
+			if strings.Trim(string(data), "\r\n") == "" {
+				return ""
+			}
 		} else {
 			// Without a frame boundary, terminal escapes and controls can hide
 			// most of a credential after the raw cut. Context cannot be recovered
@@ -93,6 +95,21 @@ func sanitizedStderr(data []byte) string {
 	}
 
 	text := stderrANSI.ReplaceAllString(string(data), "")
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\r' && r != '\n' && r != '\t' {
+			return -1
+		}
+		return r
+	}, text)
+	// Keep main's unconditional patterns as a whole-text coverage floor.
+	// In particular, JSON whitespace may put the value on the next line.
+	text = stderrToken.ReplaceAllString(text, "[REDACTED]")
+	// Main also removed carriage returns inside credential names. If joining
+	// frames would reveal another legacy match, suppress the ambiguous text
+	// rather than let frame selection expose that match's value.
+	if strings.ContainsRune(text, '\r') && stderrToken.MatchString(strings.ReplaceAll(text, "\r", "")) {
+		return "[REDACTED]"
+	}
 	// A carriage return overwrites the current line. Select the final frame
 	// on each line before redaction so a value cannot consume the next frame.
 	lines := strings.Split(text, "\n")

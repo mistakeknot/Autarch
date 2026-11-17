@@ -4,9 +4,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -445,12 +447,12 @@ func TestRoundThreeAssignmentSeparator(t *testing.T) {
 	}
 }
 
-func TestRoundThreeTerminatedLongLine(t *testing.T) {
+func TestTerminatedLongLineFailsClosed(t *testing.T) {
 	for _, ending := range []string{"\n", "\r\n"} {
 		var tail stderrTail
 		tail.Write([]byte(strings.Repeat("x", 6000) + " Error: quota exceeded" + ending))
-		if got := sanitizedStderr(tail.data); !strings.Contains(got, "quota exceeded") {
-			t.Errorf("lost terminated long line: %q", got)
+		if got := sanitizedStderr(tail.data); got != "" && got != "[REDACTED]" {
+			t.Errorf("ambiguous terminated long line survived: %q", got)
 		}
 	}
 }
@@ -464,6 +466,83 @@ func TestRoundThreeURLPassword(t *testing.T) {
 		if got := sanitizedStderr([]byte(input)); strings.Contains(got, "xxxxxxxxxxxx") ||
 			got != "https://xxx:[REDACTED]@example.test/" {
 			t.Errorf("URL credential survived or URL changed: %q", got)
+		}
+	}
+}
+
+// Frozen main behavior provides an independent baseline for redaction coverage.
+func mainStderrForRegression(data []byte) string {
+	if len(data) >= stderrTailBytes {
+		if end := strings.IndexByte(string(data), '\n'); end >= 0 {
+			data = data[end+1:]
+		} else {
+			data = nil
+		}
+	}
+	ansi := regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))`)
+	token := regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|(?:ghp_|gho_|ghs_|ghu_|ghr_|github_pat_)[a-z0-9_]+|Bearer[ \t]+[^\s]+|(?:Authorization|x-api-key)[ \t]*:[^\r\n]*|"(?:access_token|api_key|token|refresh_token|id_token|client_secret|apiKey)"\s*:\s*"(?:[^"\\]|\\.)*(?:"|$)|access_token=[^&\s]*`)
+	text := ansi.ReplaceAllString(string(data), "")
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+		return r
+	}, text)
+	text = token.ReplaceAllString(text, "[REDACTED]")
+	if len(text) > stderrTailBytes {
+		start := len(text) - stderrTailBytes
+		for start < len(text) && !utf8.RuneStart(text[start]) {
+			start++
+		}
+		text = text[start:]
+	}
+	return text
+}
+
+func TestMainRedactionSuperset(t *testing.T) {
+	inputs := []string{
+		"sk-xxxxxxxxxxxx", "ghp_xxxxxxxxxxxx", "gho_xxxxxxxxxxxx",
+		"ghs_xxxxxxxxxxxx", "ghu_xxxxxxxxxxxx", "ghr_xxxxxxxxxxxx",
+		"github_pat_xxxxxxxxxxxx", "Bearer xxxxxxxxxxxx",
+		"Authorization: xxx xxxxxxxxxxxx", "x-api-key: xxxxxxxxxxxx",
+		"https://example.test/cb#access_token=xxxxxxxxxxxx&state=1",
+		"token: expired;access_token=xxxxxxxxxxxx",
+	}
+	for c := byte(32); c <= 126; c++ {
+		inputs = append(inputs, string(c)+"access_token=xxxxxxxxxxxx")
+	}
+	for _, prefix := range []string{"a;", "x:"} {
+		inputs = append(inputs, prefix+"access_token=xxxxxxxxxxxx")
+	}
+	for _, key := range []string{"access_token", "api_key", "token", "refresh_token", "id_token", "client_secret", "apiKey"} {
+		// Main removed carriage returns even inside a name before matching.
+		inputs = append(inputs, "{\""+key[:1]+"\r"+key[1:]+"\":\n\"xxxxxxxxxxxx\"}")
+		for _, space := range []string{"", "\n", "\r\n", "\x00\n"} {
+			inputs = append(inputs, "{\""+key+"\":"+space+"\"xxxxxxxxxxxx\"}")
+		}
+	}
+	for _, input := range inputs {
+		t.Run(input, func(t *testing.T) {
+			if got := mainStderrForRegression([]byte(input)); strings.Contains(got, "xxxxxxxxxxxx") {
+				t.Fatalf("baseline did not redact fixture: %q", got)
+			}
+			if got := sanitizedStderr([]byte(input)); strings.Contains(got, "xxxxxxxxxxxx") {
+				t.Errorf("head lost baseline coverage: %q", got)
+			}
+		})
+	}
+}
+
+func TestTerminatedCredentialTailFailsClosed(t *testing.T) {
+	for _, input := range []string{
+		"Cookie: " + strings.Repeat("a=xxxxxxxxxxxx; ", 400) + "end\n",
+		strings.Repeat("x", 2000) + `"secret": "` + strings.Repeat("xxxx ", 900) + "\" end\n",
+		strings.Repeat("x", 9000) + "okie: " + strings.Repeat("a=xxxxxxxxxxxx; ", 300) + "end\n",
+	} {
+		var tail stderrTail
+		tail.Write([]byte(input))
+		if got := sanitizedStderr(tail.data); got != "" && got != "[REDACTED]" {
+			t.Errorf("ambiguous terminated tail survived: %.100q", got)
 		}
 	}
 }
