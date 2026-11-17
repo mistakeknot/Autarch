@@ -277,7 +277,22 @@ Type `/` in the chat composer to open a fuzzy finder for commands. Use `â†‘`/`â†
 
 ### Bigend
 
-Bigend has no tool-specific environment variables. Configure it with flags (`--port`, default 8099; `--host`; `--config`; `--scan-root`; `--tui`; `--daemon`) and `~/.config/bigend/config.toml`. The shared `INTERMUTE_*` variables below also apply.
+Bigend has no tool-specific environment variables. Configure it with flags (`--port`, default 8099; `--host`; `--config`; `--scan-root`; `--tui`; `--daemon`) and `~/.config/bigend/config.toml`. For shared settings, see [Autarch-wide](#autarch-wide) and [Intermute (Cross-Tool)](#intermute-cross-tool) below; these tables are not an exhaustive list of environment variables read by dependencies.
+
+### Autarch-wide
+
+Shared packages read these variables when their theme, signals or dispatch functionality is used.
+
+| Variable | Default | Accepted values / effect |
+|----------|---------|--------------------------|
+| `AUTARCH_THEME` | `auto` | Case-insensitive, whitespace-trimmed: `auto`, `tokyo`/`tokyo-night`, `mocha`, `macchiato`, `latte`/`light`, `nord`, `plain`/`none`/`no-color`/`nocolor`. Empty or unknown values use automatic detection: Tokyo Night for dark backgrounds, Catppuccin Latte for light backgrounds. Color disabling takes precedence. |
+| `AUTARCH_NO_COLOR` | Unset (defer to `NO_COLOR`) | Case-insensitive, whitespace-trimmed: `1`/`true`/`yes`/`on` disable colors; `0`/`false`/`no`/`off` force colors on even with `NO_COLOR` set. Other values defer to `NO_COLOR`. |
+| `NO_COLOR` | Unset (colors enabled) | Any set value, including empty, disables colors unless overridden by a recognized `AUTARCH_NO_COLOR` value. |
+| `AUTARCH_SIGNALS_URL` | `http://127.0.0.1:8092` | Whitespace-trimmed signals server address; empty uses the default. The client accepts HTTP/HTTPS URLs and prepends `http://` when neither scheme is present. |
+| `AUTARCH_DISPATCH_BACKEND` | `subscription-cli` | Backend preference; defined values are `subscription-cli` and `api`. Any nonempty string overrides project configuration without validation or trimming. |
+| `AUTARCH_DISPATCH_AGENT` | Empty (auto-detect) | `claude` or `codex`; empty leaves project configuration or auto-detection in effect. Any nonempty string overrides project configuration without validation or trimming; unsupported names fail at dispatch. |
+
+Dispatch defaults above apply when project `agents.toml` supplies no preference; nonempty environment overrides take precedence.
 
 ### Intermute (Cross-Tool)
 
@@ -286,6 +301,8 @@ Bigend has no tool-specific environment variables. Configure it with flags (`--p
 | `INTERMUTE_URL` | Server URL |
 | `INTERMUTE_API_KEY` | Auth token |
 | `INTERMUTE_PROJECT` | Project scope |
+| `INTERMUTE_AGENT_NAME` | Registration name override (whitespace-trimmed); defaults to the caller's agent name, or the tool name with `RegisterTool`. |
+| `INTERMUTE_HEARTBEAT_INTERVAL` | Registration heartbeat interval; default `30s`. Accepts Go duration strings such as `10s` or `1m`; empty or invalid strings retain the default. Use a positive duration (zero or negative durations panic when the ticker starts). |
 
 ### Pollard
 
