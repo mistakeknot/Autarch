@@ -155,3 +155,25 @@ func TestClaimedThreadUTF8ByteCap(t *testing.T) {
 		t.Fatalf("decoded thread has %d bytes", len(got))
 	}
 }
+
+func TestServeDefaultAuditUnderSharedParent(t *testing.T) {
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0755); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(Config{Addr: "127.0.0.1:0", TokenPath: filepath.Join(parent, "token")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	s.Handler().ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "http://localhost/health", nil))
+	s.Close()
+	data, err := os.ReadFile(filepath.Join(parent, "audit", "caller-log.jsonl"))
+	if err != nil || !strings.Contains(string(data), "GET /health") {
+		t.Fatalf("log %s %v", data, err)
+	}
+	fi, _ := os.Stat(parent)
+	if fi.Mode().Perm() != 0755 {
+		t.Fatal("changed token parent")
+	}
+}

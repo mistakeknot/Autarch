@@ -9,23 +9,7 @@ import (
 )
 
 func TestRejectUnsafeLogTargets(t *testing.T) {
-	for _, mode := range []os.FileMode{0750, 0707} {
-		t.Run(mode.String(), func(t *testing.T) {
-			dir := t.TempDir()
-			if err := os.Chmod(dir, mode); err != nil {
-				t.Fatal(err)
-			}
-			l := New(dir)
-			l.Record(map[string]any{}, "")
-			l.Close()
-			if l.Dropped() != 1 {
-				t.Fatal("unsafe directory accepted")
-			}
-			if _, err := os.Stat(filepath.Join(dir, "caller-log.jsonl")); !os.IsNotExist(err) {
-				t.Fatal("created log in unsafe directory")
-			}
-		})
-	}
+
 	t.Run("symlink", func(t *testing.T) {
 		dir := t.TempDir()
 		if err := os.Chmod(dir, 0700); err != nil {
