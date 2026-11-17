@@ -2,6 +2,7 @@ package agenttargets
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"math/rand"
 	"os"
@@ -18,6 +19,13 @@ type recoverySpan struct{ start, end int }
 func checkRecoverySources(t testing.TB, input string, chunk int, required []recoverySpan) string {
 	t.Helper()
 	tail := recoveryWrite(input, chunk)
+	if input == "" {
+		recoveryEvaluations++
+		if err := processError(context.Canceled, false, tail); err != context.Canceled {
+			t.Fatalf("empty stderr changed process error: %v", err)
+		}
+		return ""
+	}
 	raw := []byte(input)
 	first := strings.IndexByte(input, '\n')
 	eligible := len(raw) >= 4096 && len(raw) <= 8192 && (first < 0 || first == len(raw)-1)
@@ -249,6 +257,7 @@ func TestRecoveryExtended(t *testing.T) {
 }
 
 func FuzzRecoverySuperset(f *testing.F) {
+	f.Add([]byte{}, uint16(1))
 	for _, n := range []int{4095, 4096, 4097, 8191, 8192, 8193, 32768} {
 		f.Add([]byte(strings.Repeat("x", n)), uint16(7))
 	}
