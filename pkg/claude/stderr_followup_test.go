@@ -35,3 +35,20 @@ func TestErrorResultAndStderrTail(t *testing.T) {
 		t.Fatalf("missing stderr tail: %v", err)
 	}
 }
+
+func TestErrorResultPrefix(t *testing.T) {
+	for _, exit := range []string{"0", "7"} {
+		t.Run(exit, func(t *testing.T) {
+			dir := t.TempDir()
+			script := "#!/bin/sh\necho '{\"type\":\"result\",\"is_error\":true,\"result\":\"please authenticate\"}'\nexit " + exit + "\n"
+			if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", dir)
+			_, err := Run(context.Background(), dir, []string{"-p", "hello"})
+			if err == nil || !strings.HasPrefix(err.Error(), "agent returned error: please authenticate") {
+				t.Fatalf("inconsistent error prefix: %v", err)
+			}
+		})
+	}
+}

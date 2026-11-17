@@ -33,12 +33,14 @@ var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|(?:ghp_|gho_|ghs_|ghu
 
 func sanitizedStderr(data []byte) string {
 	// A full tail may start inside a credential keyword or its value. Drop
-	// the entire first line: retaining only its suffix loses redaction context.
+	// the entire first line when a boundary is available. Without one, redact
+	// the retained text before selecting a short display suffix.
+	limit := stderrTailBytes
 	if len(data) >= stderrTailBytes {
-		if end := strings.IndexByte(string(data), '\n'); end >= 0 {
+		if end := strings.IndexAny(string(data), "\r\n"); end >= 0 {
 			data = data[end+1:]
 		} else {
-			data = nil
+			limit = 512
 		}
 	}
 
@@ -50,8 +52,8 @@ func sanitizedStderr(data []byte) string {
 		return r
 	}, text)
 	text = stderrToken.ReplaceAllString(text, "[REDACTED]")
-	if len(text) > stderrTailBytes {
-		start := len(text) - stderrTailBytes
+	if len(text) > limit {
+		start := len(text) - limit
 		for start < len(text) && !utf8.RuneStart(text[start]) {
 			start++
 		}

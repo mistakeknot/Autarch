@@ -260,3 +260,32 @@ func TestTailCutInsideKeywords(t *testing.T) {
 		}
 	}
 }
+
+func TestStderrNoNewlineTail(t *testing.T) {
+	for _, tc := range []struct{ name, input, want string }{
+		{"long-line", strings.Repeat("x", 5000) + " quota exceeded", "quota exceeded"},
+		{"spinner", strings.Repeat("working\r", 800) + "quota exceeded", "quota exceeded"},
+		{"redacted-suffix", strings.Repeat(".", 5000) + " Bearer xxxxxxxxxxxx", "[REDACTED]"},
+		{"redact-before-suffix", strings.Repeat("x", 5000) + ` {"token":"` + strings.Repeat("y", 600) + `"}`, "[REDACTED]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var tail stderrTail
+			tail.Write([]byte(tc.input))
+			got := sanitizedStderr(tail.data)
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("lost diagnostic: %q", got)
+			}
+			if strings.Contains(got, "xxxxxxxxxxxx") && tc.name == "redacted-suffix" || strings.Contains(got, "yyyy") {
+				t.Fatalf("unredacted suffix: %q", got)
+			}
+		})
+	}
+}
+
+func TestStderrCarriageReturnBoundary(t *testing.T) {
+	var tail stderrTail
+	tail.Write([]byte(strings.Repeat("x", 5000) + "\rquota exceeded"))
+	if got := sanitizedStderr(tail.data); got != "quota exceeded" {
+		t.Fatalf("partial frame retained: %q", got)
+	}
+}
