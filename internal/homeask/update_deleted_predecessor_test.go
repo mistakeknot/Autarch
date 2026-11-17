@@ -3,6 +3,7 @@ package homeask
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -38,7 +39,7 @@ func TestUnroutedRefileRepairsAfterPredecessorDeleted(t *testing.T) {
 	foreign := r
 	foreign.Thread = "thr_b"
 	deriveRoutingTestKey(t, &foreign)
-	if _, err := fl.FileOrUpdateCard(ctx, foreign, ""); !errors.Is(err, ErrInvalid) || len(pending.Comments) != 0 {
+	if _, err := fl.FileOrUpdateCard(ctx, foreign, ""); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "unrouted Request from another filing") || len(pending.Comments) != 0 {
 		t.Fatalf("foreign repair: err=%v comments=%v", err, pending.Comments)
 	}
 	res, err := fl.FileOrUpdateCard(ctx, r, "")
