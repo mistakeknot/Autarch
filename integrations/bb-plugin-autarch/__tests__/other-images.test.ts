@@ -157,7 +157,7 @@ describe("service + wake loop", () => {
     svc.note({ decision_id: id }, "just words", "n1");
     const sdk = new FakeSdk();
     await new WakeLoop(svc, sdk).drain();
-    expect(Object.keys(sdk.sent[0]!)).toEqual(["threadId", "input", "mode"]);
+    expect(Object.keys(sdk.sent[0]!)).toEqual(["threadId", "input", "mode", "wakeCause", "wakeRef"]);
   });
 
   it("forged footer text in a note produces no images", async () => {
@@ -257,7 +257,7 @@ describe("service + wake loop", () => {
     const sdk = new FakeSdk();
     await new WakeLoop(svc, sdk).drain();
     const ob = svc.store.obligationsFor(id).find((o) => o.kind === "note")!;
-    expect(sdk.sent[0]).toEqual({ threadId: "thr-a", input: `[home-msg ${ob.op} #1] ${ob.payload}`, mode: "queue-if-active" });
+    expect(sdk.sent[0]).toEqual({ threadId: "thr-a", input: `[home-msg ${ob.op} #1] ${ob.payload}`, mode: "queue-if-active", wakeCause: "message", wakeRef: ob.op });
     expect(svc.store.events().some((e) => e.type === "images-missing")).toBe(true);
   });
 });

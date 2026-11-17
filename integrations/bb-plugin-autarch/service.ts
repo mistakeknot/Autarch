@@ -1,4 +1,5 @@
 import { recordPilotPick } from "./pilotmetrics.js";
+import type { WakeAttribution } from "./wake-attribution.js";
 // The Home decision service: file, pick once, reconcile the ruling file, wake and feed.
 // Every state change goes through one Store transaction; this layer maps outcomes to
 // HTTP-shaped results and never holds state of its own.
@@ -256,6 +257,22 @@ function shownParseError(err: string): string {
 }
 
 export class Service {
+  /** Durable kind/op provenance also covers rows created before attribution existed.
+   * Digests use unknown because their sources can differ. Never inspect payloads.
+   */
+  wakeAttribution(row: Pick<ObligationRow, "kind" | "op">): WakeAttribution {
+    let wakeCause: WakeAttribution["wakeCause"] = "unknown";
+    if (["wake", "steps-done", "pick-relay", "pick-receipt", "void-notice"].includes(row.kind)) wakeCause = "card_pick";
+    else if (row.kind === "hold-ended") wakeCause = "timer";
+    else if (row.kind === "note") wakeCause = "message";
+    else if (row.kind === "notice") {
+      if (row.op?.startsWith("notice:")) wakeCause = "card_pick";
+      else if (row.op?.startsWith("unreadable:") || row.op?.startsWith("undelivered:")) wakeCause = "message";
+    }
+    // Keep the operation unchanged across attempts; omit malformed legacy references.
+    const wakeRef = row.op && row.op.length <= 200 && !/[\u0000-\u001f\u007f]/.test(row.op) ? row.op : undefined;
+    return { wakeCause, ...(wakeRef ? { wakeRef } : {}) };
+  }
   private readonly entryGuards = new WeakMap<NonNullable<PickInput["guard"]>, string>();
   readonly store: Store;
   private readonly deps: ServiceDeps;
