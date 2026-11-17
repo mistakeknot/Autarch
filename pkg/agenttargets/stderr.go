@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 const stderrTailBytes = 4096
@@ -40,7 +41,16 @@ func sanitizedStderr(data []byte) string {
 		} else {
 			data = nil
 		}
-		if strings.TrimSpace(string(data)) == "" {
+		// Decide content availability after ANSI and control removal, before
+		// redaction or frame selection. No credential rule changes here.
+		cleaned := stderrANSI.ReplaceAllString(string(data), "")
+		cleaned = strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) && r != '\n' && r != '\t' {
+				return -1
+			}
+			return r
+		}, cleaned)
+		if strings.TrimSpace(cleaned) == "" {
 			return fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", retainedBytes)
 		}
 	}

@@ -79,6 +79,12 @@ func stderrSourceMask(raw []byte, start int) (stderrRegion, []int32) {
 
 func renderStderr(raw []byte, start int) string {
 	region, mask := stderrSourceMask(raw, start)
+	return renderStderrMasked(raw, start, region, mask)
+}
+
+// Rendering hides every byte main's uncut redaction hides. The final 4096-byte
+// cut can keep text that main's cut dropped when additional masking shortens it.
+func renderStderrMasked(raw []byte, start int, region stderrRegion, mask []int32) string {
 	frames := stderrFrameStarts(raw, start, region.ansi)
 	var out strings.Builder
 	out.Grow(len(region.text))
@@ -99,7 +105,7 @@ func renderStderr(raw []byte, start int) string {
 				emitted = false
 			}
 			// Delay a hidden run's marker until its first source in the selected
-			// frame. A run straddling CR stays whole, even across a joined rune.
+			// frame. A hidden run straddling CR still emits just one marker.
 			if anySelected && !emitted {
 				out.WriteString("[REDACTED]")
 				emitted = true
@@ -127,22 +133,40 @@ func stderrNameByte(b byte) bool {
 	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_' || b == '-'
 }
 
-func stderrNameClass(name []byte) int {
+type stderrNameKind uint8
+
+const (
+	stderrNameNone stderrNameKind = iota
+	stderrNameStrong
+	stderrNameWeak
+	stderrNameKeySuffix
+)
+
+type stderrValueKind uint8
+
+const (
+	stderrValueEquals stderrValueKind = iota
+	stderrValueScalar
+	stderrValueWord
+	stderrValueLine
+)
+
+func stderrNameClass(name []byte) stderrNameKind {
 	lower := strings.TrimLeft(strings.ToLower(string(name)), "-")
 	for _, suffix := range []string{"password", "passwd", "secret", "credential", "credentials", "authorization", "cookie", "privatekey", "private_key", "private-key"} {
 		if strings.HasSuffix(lower, suffix) {
-			return 1
+			return stderrNameStrong
 		}
 	}
 	for _, suffix := range []string{"token", "apikey", "api_key", "api-key", "accesskey", "access_key", "secretkey", "secret_key"} {
 		if strings.HasSuffix(lower, suffix) {
-			return 2
+			return stderrNameWeak
 		}
 	}
 	if len(lower) > 4 && (strings.HasSuffix(lower, "_key") || strings.HasSuffix(lower, "-key")) {
-		return 3
+		return stderrNameKeySuffix
 	}
-	return 0
+	return stderrNameNone
 }
 
 type stderrQuoteClass struct {
@@ -200,11 +224,31 @@ func (index stderrQuoteIndex) close(quote byte, slashes, start, end int) int {
 
 // Each stop-class cursor is queried in nondecreasing value-start order. It
 // advances at most once over each byte, including overlapping candidates.
-type stderrStopCursor struct{ pos, last int }
+type stderrStopCursor struct {
+	pos, last   int
+	failed      bool
+	failedStart int
+}
+
+// Tests install a strict assertion during initialization; production leaves it nil.
+var stderrStopOrderCheck func(start, last int)
 
 func (cursor *stderrStopCursor) end(text []byte, start int, stop func(byte) bool) int {
+	return cursor.endChecked(text, start, stop, stderrStopOrderCheck)
+}
+
+func (cursor *stderrStopCursor) endChecked(text []byte, start int, stop func(byte) bool, check func(int, int)) int {
 	if start < cursor.last {
-		panic("stderr value starts out of order")
+		if !cursor.failed || start < cursor.failedStart {
+			cursor.failedStart = start
+		}
+		cursor.failed = true
+		if check != nil {
+			check(start, cursor.last)
+		}
+		// The caller masks [start, end). Never trust a forward cursor for an
+		// earlier start: hiding the entire remainder preserves the safety bound.
+		return len(text)
 	}
 	cursor.last = start
 	if cursor.pos < start {
@@ -214,6 +258,16 @@ func (cursor *stderrStopCursor) end(text []byte, start int, stop func(byte) bool
 		cursor.pos++
 	}
 	return cursor.pos
+}
+
+// Apply the fallback independently of how a caller uses the returned end
+// (for example, a line end also caps quoted values).
+func maskStderrCursorFallback(diff []int32, region stderrRegion, cursors ...*stderrStopCursor) {
+	for _, cursor := range cursors {
+		if cursor.failed {
+			maskStderrSpan(diff, region, cursor.failedStart, len(region.text))
+		}
+	}
 }
 
 func maskStderrNew(diff []int32, region stderrRegion) {
@@ -236,7 +290,7 @@ func maskStderrNew(diff []int32, region stderrRegion) {
 		}
 		return pos
 	}
-	value := func(start, kind int, multiline bool) {
+	value := func(start int, kind stderrValueKind, multiline bool) {
 		if start >= len(text) || text[start] == '\n' {
 			return
 		}
@@ -246,20 +300,18 @@ func maskStderrNew(diff []int32, region stderrRegion) {
 		}
 		after, k, q, quoted := quoteToken(start)
 		end := start
-		if kind == 3 {
+		if kind == stderrValueLine {
 			end = cap
 		} else if quoted {
 			end = quotes.close(q, k, after, cap)
 		} else {
 			switch kind {
-			case 0:
+			case stderrValueEquals:
 				end = eq.end(text, start, func(b byte) bool { return stderrSpace(b) || b == '&' })
-			case 1:
+			case stderrValueScalar:
 				end = scalar.end(text, start, func(b byte) bool { return stderrSpace(b) || b == ',' || b == '}' || b == ']' })
-			case 2:
+			case stderrValueWord:
 				end = word.end(text, start, stderrSpace)
-			case 3:
-				end = cap
 			}
 		}
 		maskStderrSpan(diff, region, start, end)
@@ -274,17 +326,21 @@ func maskStderrNew(diff []int32, region stderrRegion) {
 			i++
 		}
 		class := stderrNameClass(text[begin:i])
-		if class == 0 {
+		if class == stderrNameNone {
 			continue
 		}
 
 		type form struct {
-			start, kind int
-			multiline   bool
+			start     int
+			kind      stderrValueKind
+			multiline bool
 		}
 		var forms [3]form
 		count := 0
-		add := func(start, kind int, multiline bool) { forms[count] = form{start, kind, multiline}; count++ }
+		add := func(start int, kind stderrValueKind, multiline bool) {
+			forms[count] = form{start, kind, multiline}
+			count++
+		}
 		close, _, _, hasQuote := quoteToken(i)
 		// The optional key close quote is part of the separator, never the value.
 		keyEnd := i
@@ -294,27 +350,27 @@ func maskStderrNew(diff []int32, region stderrRegion) {
 		sep := skip(keyEnd, false)
 		if sep < len(text) && text[sep] == '=' {
 			start := skip(sep+1, false)
-			add(start, 0, false)
+			add(start, stderrValueEquals, false)
 		}
 		if hasQuote {
 			sep = skip(close, true)
 			if sep < len(text) && text[sep] == ':' {
 				start := skip(sep+1, true)
-				add(start, 1, true)
+				add(start, stderrValueScalar, true)
 			}
-		} else if class != 3 {
+		} else if class != stderrNameKeySuffix {
 			sep = skip(i, false)
 			if sep < len(text) && text[sep] == ':' {
 				start := skip(sep+1, false)
-				kind := 2
-				if class == 1 {
-					kind = 3
+				kind := stderrValueWord
+				if class == stderrNameStrong {
+					kind = stderrValueLine
 				}
 				add(start, kind, false)
 			}
 		}
-		if class != 3 && i-begin >= 2 && text[begin] == '-' && text[begin+1] == '-' && i < len(text) && stderrBlank(text[i]) {
-			add(skip(i, false), 2, false)
+		if class != stderrNameKeySuffix && i-begin >= 2 && text[begin] == '-' && text[begin+1] == '-' && i < len(text) && stderrBlank(text[i]) {
+			add(skip(i, false), stderrValueWord, false)
 		}
 		for j := 1; j < count; j++ {
 			for k := j; k > 0 && forms[k].start < forms[k-1].start; k-- {
@@ -325,6 +381,7 @@ func maskStderrNew(diff []int32, region stderrRegion) {
 			value(f.start, f.kind, f.multiline)
 		}
 	}
+	maskStderrCursorFallback(diff, region, &eq, &scalar, &word, &line)
 	maskStderrURLs(diff, region)
 }
 
@@ -381,6 +438,7 @@ func maskStderrURLs(diff []int32, region stderrRegion) {
 			}
 		}
 	}
+	maskStderrCursorFallback(diff, region, &run, &colon, &delimiter)
 }
 
 // stderrFrameStarts records the last CR outside ANSI for each raw line. One
