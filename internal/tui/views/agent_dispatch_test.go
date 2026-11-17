@@ -198,13 +198,17 @@ func TestCrossTabAgentSelection(t *testing.T) {
 			if gurgeh.onboarding.selectedAgent != "codex" || kickoff.resolvedScanAgent(".") != "codex" || !strings.Contains(gurgeh.onboarding.agentSelector.View(), "codex") || !strings.Contains(gurgeh.onboarding.agentSelector.View(), "explicit agent selection") {
 				t.Fatal("Gurgeh label did not receive pick from other tab")
 			}
-			if gurgeh.onboarding.agentSelector == nil || gurgeh.onboarding.selectedAgent != "codex" || gurgeh.onboarding.codingAgent == nil {
+			if gurgeh.onboarding.codingAgent == nil {
 				t.Fatal("Gurgeh setters did not reach onboarding")
 			}
-			replacement := pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "codex", Source: "explicit agent selection"}})
+			replacement := pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "codex", Source: "replacement selector"}})
 			gurgeh.SetAgentSelector(replacement)
 			if gurgeh.onboarding.agentSelector != replacement {
 				t.Fatal("Gurgeh did not forward selector identity")
+			}
+			kickoff.chatPanel.SetSize(120, 30)
+			if !strings.Contains(kickoff.chatPanel.View(), "Dispatch: codex · replacement selector") {
+				t.Fatal("kickoff chat panel did not receive replacement selector")
 			}
 			gurgeh.SetAgentName("claude")
 			if gurgeh.onboarding.selectedAgent != "claude" || kickoff.scanAgentName != "claude" {
@@ -251,16 +255,21 @@ func TestRealTabChatPanelsShareAgentSelector(t *testing.T) {
 			selector := pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
 			tc.panel.SetSize(120, 30)
 			tc.set(selector)
-			if !strings.Contains(tc.panel.View(), "Choice: claude") {
+			if !strings.Contains(tc.panel.View(), "Chat: Claude | Dispatch: claude") {
 				t.Fatal("initial selector label missing from chat panel")
 			}
 			selector.Index = 1
-			if !strings.Contains(tc.panel.View(), "Choice: codex") {
+			if !strings.Contains(tc.panel.View(), "Chat: Claude | Dispatch: codex") {
 				t.Fatal("chat panel did not retain shared selector")
 			}
+			tc.panel.SetSize(32, 30)
+			if !strings.Contains(tc.panel.View(), "Chat: Claude | Dispatch: co…") {
+				t.Fatal("narrow chat title missing or incorrectly truncated")
+			}
+			tc.panel.SetSize(120, 30)
 			replacement := pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "replacement-agent"}})
 			tc.set(replacement)
-			if !strings.Contains(tc.panel.View(), "Choice: replacement-agent") {
+			if !strings.Contains(tc.panel.View(), "Chat: Claude | Dispatch: replacement-agent") {
 				t.Fatal("chat panel did not replace selector")
 			}
 			if tc.name == "Gurgeh" && gurgeh.onboarding.agentSelector != replacement {
