@@ -1,12 +1,67 @@
 package discovery
 
 import (
+	"bytes"
+	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mistakeknot/autarch/internal/bigend/config"
 )
+
+func TestScanWarnsForEmptyRoots(t *testing.T) {
+	root := t.TempDir()
+	projectPath := filepath.Join(root, "project")
+	if err := os.MkdirAll(filepath.Join(projectPath, ".gurgeh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(root, "missing")
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	projects, err := NewScanner(config.DiscoveryConfig{
+		ScanRoots: []string{"", " \t\n", root, missing},
+	}).Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Path != projectPath {
+		t.Fatalf("expected temp project %q, got %+v", projectPath, projects)
+	}
+	var emptyWarnings, missingWarnings int
+	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		var record struct {
+			Level string `json:"level"`
+			Msg   string `json:"msg"`
+			Path  string `json:"path"`
+		}
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatal(err)
+		}
+		if record.Level != "WARN" {
+			t.Errorf("expected warning, got %s", line)
+		}
+		switch record.Msg {
+		case "empty scan root in config ignored":
+			emptyWarnings++
+		case "scan root does not exist":
+			missingWarnings++
+			if record.Path != missing {
+				t.Errorf("unexpected missing-root path %q", record.Path)
+			}
+		default:
+			t.Errorf("unexpected log: %s", line)
+		}
+	}
+	if emptyWarnings != 2 || missingWarnings != 1 {
+		t.Errorf("expected 2 empty-root warnings and 1 missing-root warning, got %d and %d", emptyWarnings, missingWarnings)
+	}
+}
 
 func TestScanFindsIntercoreProjects(t *testing.T) {
 	// Create temp directory structure
