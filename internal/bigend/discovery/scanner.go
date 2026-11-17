@@ -93,6 +93,10 @@ func (s *Scanner) Scan() ([]Project, error) {
 	seen := make(map[string]bool)
 
 	for _, root := range s.cfg.ScanRoots {
+		if strings.TrimSpace(root) == "" {
+			slog.Warn("empty scan root in config ignored")
+			continue
+		}
 		root = expandHome(root)
 		if _, err := os.Stat(root); os.IsNotExist(err) {
 			slog.Warn("scan root does not exist", "path", root)
