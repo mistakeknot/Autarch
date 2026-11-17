@@ -23,6 +23,9 @@ type Agent struct {
 	Type    Type
 	Path    string
 	Version string
+
+	// explicitSelection distinguishes a named user choice from automatic detection.
+	explicitSelection bool
 }
 
 // DetectAgent finds available coding agents on the system.
@@ -52,9 +55,10 @@ func DetectAgentByName(name string, lookPath func(string) (string, error)) (*Age
 		return nil, fmt.Errorf("agent %q not found", name)
 	}
 	return &Agent{
-		Type:    Type(tool.Name),
-		Path:    tool.Path,
-		Version: tool.Version,
+		Type:              Type(tool.Name),
+		explicitSelection: true,
+		Path:              tool.Path,
+		Version:           tool.Version,
 	}, nil
 }
 
@@ -103,12 +107,11 @@ func (a *Agent) Generate(ctx context.Context, req GenerateRequest) (*GenerateRes
 // GenerateWithOutput runs a prompt and streams output to a callback.
 // This dispatches via agenttargets.Dispatch() regardless of agent type.
 func (a *Agent) GenerateWithOutput(ctx context.Context, req GenerateRequest, onOutput OutputCallback) (*GenerateResponse, error) {
-	cfg := agenttargets.DefaultDispatchConfig()
-	cfg.PreferredAgent = string(a.Type)
+	cfg := a.dispatchConfig(".")
 
 	handle, err := agenttargets.Dispatch(ctx, cfg, "", req.Prompt)
 	if err != nil {
-		return nil, fmt.Errorf("%s execution failed: %w", a.Type, err)
+		return nil, fmt.Errorf("%s execution failed: %w", cfg.PreferredAgent, err)
 	}
 
 	var finalResult string
@@ -129,12 +132,12 @@ func (a *Agent) GenerateWithOutput(ctx context.Context, req GenerateRequest, onO
 		case agenttargets.StreamResult:
 			sawResult = true
 			if event.IsError {
-				return nil, fmt.Errorf("%s error: %s", a.Type, event.Text)
+				return nil, fmt.Errorf("%s error: %s", cfg.PreferredAgent, event.Text)
 			}
 			finalResult = event.Text
 		case agenttargets.StreamError:
 			if !sawResult {
-				return nil, fmt.Errorf("%s execution failed: %s", a.Type, event.Text)
+				return nil, fmt.Errorf("%s execution failed: %s", cfg.PreferredAgent, event.Text)
 			}
 		}
 	}
@@ -156,4 +159,18 @@ func (a *Agent) String() string {
 		return "none"
 	}
 	return fmt.Sprintf("%s (%s)", a.Type, a.Version)
+}
+
+// dispatchConfig preserves an explicit agent selection over project and environment preferences.
+func (a *Agent) dispatchConfig(projectRoot string) agenttargets.DispatchConfig {
+	cfg := agenttargets.LoadDispatchConfig(projectRoot)
+	if a.explicitSelection && a.Type != "" {
+		cfg.PreferredAgent = string(a.Type)
+		cfg.PreferredAgentSource = "explicit agent selection"
+	}
+	if cfg.PreferredAgent == "" && a.Type != "" {
+		cfg.PreferredAgent = string(a.Type)
+		cfg.PreferredAgentSource = "automatic detection"
+	}
+	return cfg
 }

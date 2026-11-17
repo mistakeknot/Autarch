@@ -22,6 +22,7 @@ func Explore(ctx context.Context, cwd string) (map[string]any, string, error) {
 
 	cfg := agenttargets.DefaultDispatchConfig()
 	cfg.Timeout = 10 * time.Minute
+	cfg = agenttargets.LoadDispatchConfigWithDefaults(cwd, cfg)
 
 	handle, err := agenttargets.Dispatch(ctx, cfg, cwd, prompt)
 	if err != nil {
@@ -125,6 +126,7 @@ Be concise and specific to THIS project. Extract evidence from the codebase.
 
 	cfg := agenttargets.DefaultDispatchConfig()
 	cfg.Timeout = 5 * time.Minute
+	cfg = agenttargets.LoadDispatchConfigWithDefaults(cwd, cfg)
 	if sessionID != "" {
 		cfg.SessionID = sessionID
 	}
@@ -200,6 +202,7 @@ Return ONLY the section content, no headers or markdown fences.`, phase, explora
 
 	cfg := agenttargets.DefaultDispatchConfig()
 	cfg.Timeout = 3 * time.Minute
+	cfg = agenttargets.LoadDispatchConfigWithDefaults(cwd, cfg)
 	if len(model) > 0 && model[0] != "" {
 		cfg.Model = model[0]
 	}
@@ -231,6 +234,7 @@ Return ONLY the revised content, no explanation or markdown fences.`, phase, cur
 
 	cfg := agenttargets.DefaultDispatchConfig()
 	cfg.Timeout = 5 * time.Minute
+	cfg = agenttargets.LoadDispatchConfigWithDefaults(cwd, cfg)
 	if len(model) > 0 && model[0] != "" {
 		cfg.Model = model[0]
 	}
@@ -316,6 +320,7 @@ Guidelines:
 
 	cfg := agenttargets.DefaultDispatchConfig()
 	cfg.Timeout = 8 * time.Minute
+	cfg = agenttargets.LoadDispatchConfigWithDefaults(cwd, cfg)
 
 	finalResult, err := dispatchAndCollect(ctx, cfg, cwd, propagatePrompt)
 	if err != nil {

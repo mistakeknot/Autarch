@@ -108,6 +108,8 @@ func Run(ctx context.Context, cwd string, args []string) (string, error) {
 // configFromArgs extracts a DispatchConfig and prompt from raw CLI args.
 // This handles the common patterns used by callers: -p <prompt>, --resume, --model, etc.
 func configFromArgs(args []string) (agenttargets.DispatchConfig, string) {
+	// Claude chat arguments and session IDs are specific to Claude. Dispatch
+	// preferences must not change the backend, agent, or unlimited chat lifetime.
 	cfg := agenttargets.DispatchConfig{
 		PreferredBackend: agenttargets.BackendSubscriptionCLI,
 		PreferredAgent:   "claude",
