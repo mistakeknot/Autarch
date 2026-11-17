@@ -34,6 +34,11 @@ func TestRejectUnsafeLogTargets(t *testing.T) {
 func TestDefaultNeverWritesInTests(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// Inject the process default for this isolated HOME, just as consumers inject
+	// a drop-only logger. The production default is covered by the child probe.
+	dir := filepath.Join(home, ".autarch", "audit")
+	defaults.Store(dir, New(""))
+	t.Cleanup(func() { defaults.Delete(dir) })
 	l := Default()
 	l.Record(map[string]any{}, "")
 	l.Close()

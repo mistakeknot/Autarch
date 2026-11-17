@@ -10,7 +10,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
-	"testing"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -123,8 +122,7 @@ var defaults sync.Map
 func Default() *Log {
 	home, err := os.UserHomeDir()
 	dir := ""
-	// Test binaries must explicitly inject a log; never use the process HOME.
-	if !testing.Testing() && err == nil && home != "" {
+	if err == nil && home != "" {
 		dir = filepath.Join(home, ".autarch", "audit")
 	}
 	if v, ok := defaults.Load(dir); ok {

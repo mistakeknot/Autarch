@@ -37,7 +37,7 @@ func runServerRequest(t *testing.T, server *Server, input string) JSONRPCRespons
 }
 
 func TestServer_Initialize(t *testing.T) {
-	server := NewServer(t.TempDir())
+	server := newTestServer(t.TempDir())
 	resp := runServerRequest(t, server,
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`+"\n")
 
@@ -65,7 +65,7 @@ func TestServer_Initialize(t *testing.T) {
 }
 
 func TestServer_ToolsList(t *testing.T) {
-	server := NewServer(t.TempDir())
+	server := newTestServer(t.TempDir())
 	resp := runServerRequest(t, server,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`+"\n")
 
@@ -135,7 +135,7 @@ func TestServer_ListPRDs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	server := NewServer(tmpDir)
+	server := newTestServer(tmpDir)
 	resp := runServerRequest(t, server,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"autarch_list_prds","arguments":{}}}`+"\n")
 
@@ -187,7 +187,7 @@ func TestServer_SuggestHunters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.query, func(t *testing.T) {
-			server := NewServer(t.TempDir())
+			server := newTestServer(t.TempDir())
 			params := map[string]interface{}{"name": "autarch_suggest_hunters", "arguments": map[string]interface{}{"query": tt.query}}
 			paramsJSON, _ := json.Marshal(params)
 			input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":` + string(paramsJSON) + `}` + "\n"
@@ -236,7 +236,7 @@ func TestServer_ProjectStatus(t *testing.T) {
 		os.WriteFile(filepath.Join(tasksDir, "TASK-00"+string(rune('1'+i))+".yaml"), data, 0644)
 	}
 
-	server := NewServer(tmpDir)
+	server := newTestServer(tmpDir)
 	resp := runServerRequest(t, server,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"autarch_project_status","arguments":{}}}`+"\n")
 
@@ -276,7 +276,7 @@ func TestMCP_WriteToolRequiresWriteScope(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	server := NewServer(tmpDir)
+	server := newTestServer(tmpDir)
 	ctx := WithCaller(context.Background(), CallerInfo{
 		AgentID: "reader-agent",
 		Scopes:  []string{"read"},
@@ -327,7 +327,7 @@ func TestMCP_ReadToolAllowedWithReadScope(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	server := NewServer(tmpDir)
+	server := newTestServer(tmpDir)
 	ctx := WithCaller(context.Background(), CallerInfo{
 		AgentID: "reader-agent",
 		Scopes:  []string{"read"},
@@ -370,7 +370,7 @@ func TestMCP_NoCallerInfo_WriteToolDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	server := NewServer(tmpDir)
+	server := newTestServer(tmpDir)
 
 	call := map[string]any{
 		"name": "autarch_update_task",
@@ -408,7 +408,7 @@ func TestMCP_NoCallerInfo_WriteToolDenied(t *testing.T) {
 }
 
 func TestMCP_PathTraversal_GetPRDRejected(t *testing.T) {
-	server := NewServer(t.TempDir())
+	server := newTestServer(t.TempDir())
 	_, err := server.handleGetPRD(context.Background(), map[string]interface{}{
 		"id": "../../etc/passwd",
 	})
@@ -418,7 +418,7 @@ func TestMCP_PathTraversal_GetPRDRejected(t *testing.T) {
 }
 
 func TestMCP_PathTraversal_UpdateTaskRejected(t *testing.T) {
-	server := NewServer(t.TempDir())
+	server := newTestServer(t.TempDir())
 	_, err := server.handleUpdateTask(context.Background(), map[string]interface{}{
 		"id":     "../../malicious",
 		"status": "completed",
@@ -430,7 +430,7 @@ func TestMCP_PathTraversal_UpdateTaskRejected(t *testing.T) {
 
 func TestMCP_SendMessageUsesCallerIdentity(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewServer(tmpDir)
+	server := newTestServer(tmpDir)
 
 	ctx := WithCaller(context.Background(), CallerInfo{
 		AgentID: "agent-007",
