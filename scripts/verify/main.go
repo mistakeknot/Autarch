@@ -304,8 +304,9 @@ func productVerifierManifest(product string, r *Report) error {
 	r.ManifestHash = hash(b)
 	return nil
 }
-func changed(root, base, head string) ([]string, error) {
-	text, e := git(root, "diff", "--name-status", "-z", "-M", base, head)
+func changed(root string, report Report) ([]string, error) {
+	// Base remains provenance; only edits since the branch point belong to Head.
+	text, e := git(root, "diff", "--name-status", "-z", "-M", report.MergeBase, report.Head)
 	if e != nil {
 		return nil, e
 	}
@@ -633,7 +634,7 @@ func execute(started time.Time) (resultErr error) {
 	if e != nil {
 		return e
 	}
-	names, e := changed(root, baseSHA, headSHA)
+	names, e := changed(root, r)
 	if e != nil {
 		return e
 	}
