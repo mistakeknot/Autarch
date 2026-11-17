@@ -25,6 +25,7 @@ func TestAlreadyRuledProofStaysInItsJoinedBranch(t *testing.T) {
 	provedRuled := releaseUpdateEntryError(t, "ruled")
 	race := releaseUpdateEntryError(t, "race")
 	resolveFailure := releaseUpdateEntryError(t, "resolve-failure")
+	nilResolveOperational := releaseUpdateEntryError(t, "nil-resolve-operational")
 	for _, tc := range []struct {
 		name string
 		err  error
@@ -34,6 +35,7 @@ func TestAlreadyRuledProofStaysInItsJoinedBranch(t *testing.T) {
 		{"real invalid release", provedInvalid, true},
 		{"real post-write race", race, false},
 		{"real resolve failure", resolveFailure, false},
+		{"operational cause with nil resolver error", nilResolveOperational, false},
 		{"unrelated proof", errors.Join(race, provedInvalid), false},
 		{"wrapped unrelated proof", fmt.Errorf("request: %w", errors.Join(provedInvalid, race)), false},
 		{"proved and unproved ruled outcomes", errors.Join(provedRuled, race), false},
@@ -76,14 +78,21 @@ func releaseUpdateEntryError(t *testing.T, outcome string) error {
 		*cardState = "closed"
 	case "ruled", "resolve-failure":
 		*cardState = "ruled"
-	case "race":
+	case "race", "nil-resolve-operational":
 		// Leave Home open until the fake Tasks update runs below.
 	default:
 		t.Fatalf("unknown release outcome %q", outcome)
 	}
+	if outcome == "nil-resolve-operational" {
+		f.Check = func(string, string) error { return errors.Join(ErrInvalid, ErrHomeDown) }
+	}
 	resolveLookups := 0
 	originalFail := bb.fail
 	bb.fail = func(args []string) *BBResult {
+		if outcome == "nil-resolve-operational" && strings.Join(args[:min(len(args), 3)], " ") == "home binding P1" {
+			result := okRes(map[string]any{"home_project": "autarch", "state": "confirmed"})
+			return &result
+		}
 		if len(args) > 3 && args[0] == "home" && args[1] == "get" && args[2] == "--request" && args[3] == held.Key {
 			resolveLookups++
 			if outcome == "resolve-failure" {
@@ -111,22 +120,37 @@ func releaseUpdateEntryError(t *testing.T, outcome string) error {
 		return entryErr
 	}
 	wantCause := ErrAlreadyRuled
-	if outcome == "closed" {
+	if outcome == "closed" || outcome == "nil-resolve-operational" {
 		wantCause = ErrInvalid
 	}
 	if !errors.Is(entryErr, wantCause) || !errors.Is(entryErr, errNoCardWritten) || bb.count("tasks", "update") != 0 || resolveLookups == 0 {
 		t.Fatalf("fixture did not reach refusal and terminal resolution: %v; resolve lookups=%d", entryErr, resolveLookups)
 	}
-	if outcome == "resolve-failure" {
-		// Joining a nil resolveErr may preserve or add a unary join across Go
-		// versions. For a non-nil resolveErr, check the branches by their causes.
-		joined, ok := errors.Unwrap(entryErr).(interface{ Unwrap() []error })
+	if outcome == "resolve-failure" || outcome == "nil-resolve-operational" {
+		// Normalize unary joins retained by some Go versions when resolveErr is
+		// nil, then check that the operational sibling never gains write proof.
+
+		node := errors.Unwrap(entryErr)
+		for {
+			single, ok := node.(interface{ Unwrap() []error })
+			if !ok || len(single.Unwrap()) != 1 {
+				break
+			}
+			node = single.Unwrap()[0]
+		}
+		joined, ok := node.(interface{ Unwrap() []error })
 		if !ok {
 			t.Fatalf("missing join with terminal lookup failure: %v", entryErr)
 		}
 		refusal, lookupFailure := false, false
+		proofSibling := false
 		for _, cause := range joined.Unwrap() {
-			refusal = refusal || (errors.Is(cause, errNoCardWritten) && errors.Is(cause, wantCause))
+			proofSibling = proofSibling || errors.Is(cause, errNoCardWritten)
+			if outcome == "nil-resolve-operational" {
+				refusal = refusal || errors.Is(cause, wantCause)
+			} else {
+				refusal = refusal || (errors.Is(cause, errNoCardWritten) && errors.Is(cause, wantCause))
+			}
 			if errors.Is(cause, ErrHomeDown) {
 				if errors.Is(cause, errNoCardWritten) {
 					t.Fatalf("operational resolveErr branch contains no-write proof: %v", cause)
@@ -134,7 +158,7 @@ func releaseUpdateEntryError(t *testing.T, outcome string) error {
 				lookupFailure = true
 			}
 		}
-		if !refusal || !lookupFailure {
+		if !refusal || !lookupFailure || !proofSibling {
 			t.Fatalf("missing no-write refusal or operational resolveErr branch: %v", entryErr)
 		}
 	}

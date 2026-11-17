@@ -17,10 +17,6 @@ func HashRootRunScript(path string) (string, error) {
 	if !validRootScript(path) {
 		return "", fmt.Errorf("root-run script must be an absolute path without control characters or parent traversal")
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", fmt.Errorf("root-run script is not readable: %w", err)
-	}
 	check := func(info os.FileInfo) error {
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("root-run script must be a regular file")
@@ -30,15 +26,12 @@ func HashRootRunScript(path string) (string, error) {
 		}
 		return nil
 	}
-	if err := check(info); err != nil {
-		return "", err
-	}
-	file, err := os.Open(path)
+	file, err := openRootRunScript(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("root-run script is not readable: %w", err)
 	}
 	defer file.Close()
-	info, err = file.Stat()
+	info, err := file.Stat()
 	if err != nil {
 		return "", err
 	}

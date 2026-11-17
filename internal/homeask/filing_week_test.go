@@ -72,6 +72,8 @@ func TestPacificHoldBoundariesAndExemptions(t *testing.T) {
 		{"Monday boundary", "2026-11-16 00:00:00", "", true},
 		{"Thursday before noon", "2026-11-19 11:59:59", "", true},
 		{"Thursday noon", "2026-11-19 12:00:00", "", false},
+		{"Thursday afternoon", "2026-11-19 14:00:00", "", false},
+		{"Friday", "2026-11-20 10:00:00", "", false},
 		{"urgent", "2026-11-16 00:00:00", "urgent", false},
 		{"keep-list", "2026-11-16 00:00:00", "spend", false},
 		{"merge", "2026-11-16 00:00:00", "merge", false},

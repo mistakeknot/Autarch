@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -59,10 +60,20 @@ func (s filingState) matchingHeld(r CardRequest) []string {
 	askKey, _ := r.Ask["ask_key"].(string)
 
 	project, _ := r.Ask["project"].(string)
+	// Keep script bytes in the root-run request key, but retire the exact
+	// pending ordinary ask when its root envelope is added (mk-bzi8s.23).
+	baseKey := ""
+	if r.RootRun != nil {
+		base := r
+		base.RootRun = nil
+		if identity, err := RequestIdentity(base); err == nil {
+			baseKey = DerivedKey(r.Thread, identity)
+		}
+	}
 	var keys []string
 	for key, e := range s {
 		priorKey, _ := e.Request.Ask["ask_key"].(string)
-		if e.Held && !e.Attempted && !e.Refunded && ordinary(e.Request) && ((askKey != "" && priorKey == askKey) || key == r.replacesHeld) && e.Project == strings.ToLower(project) && e.Request.Project == r.Project && e.Request.Thread == r.Thread && e.Request.Owner == r.Owner {
+		if e.Held && !e.Attempted && !e.Refunded && ordinary(e.Request) && ((askKey != "" && priorKey == askKey) || key == r.replacesHeld || (baseKey != "" && key == baseKey)) && e.Project == strings.ToLower(project) && e.Request.Project == r.Project && e.Request.Thread == r.Thread && e.Request.Owner == r.Owner {
 			keys = append(keys, key)
 		}
 	}
@@ -161,7 +172,7 @@ func retryHeld(e filingEntry) *heldRequestRetry {
 }
 
 func (e filingEntry) canPromote(r CardRequest, coalesce bool) bool {
-	return e.Held && !e.Attempted && !e.Refunded && ordinary(e.Request) && !r.NonBlocking && !coalesce && (!ordinary(r) || e.HeldReason == "weekday-window")
+	return e.Held && !e.Refunded && ordinary(e.Request) && !r.NonBlocking && !coalesce && (!ordinary(r) || e.HeldReason == "weekday-window")
 }
 
 func (e filingEntry) matchesHeldRequest(r CardRequest, identity string) error {
@@ -263,4 +274,95 @@ func (s filingState) escalationSource(r CardRequest) (*heldRequestRetry, error) 
 		return retryHeld(source), nil
 	}
 	return nil, ErrOutcomeUnknown
+}
+
+// The delivery lock is held here, with neither the fleet gate nor state lock.
+// An uncertain attempt must be proved absent before a new card can be admitted.
+func (f *CardFiler) reconcileAttemptedEscalation(ctx context.Context, e filingEntry, r CardRequest, identity string) (CardResult, error) {
+	next, err := e.promote(r, identity)
+	if err != nil {
+		return CardResult{}, err
+	}
+	var result CardResult
+	if e.DeliveredCard != "" {
+		result, err = f.replayDeliveredEntry(ctx, e)
+	} else {
+		keys := []string{e.Request.Key}
+		if e.CreationKey != "" && e.CreationKey != e.Request.Key {
+			keys = append([]string{e.CreationKey}, keys...)
+		}
+		for _, key := range keys {
+			path, pathErr := f.lockPath(key)
+			if pathErr != nil {
+				err = pathErr
+				break
+			}
+			done, lockErr := lockFile(path)
+			if lockErr != nil {
+				err = lockErr
+				break
+			}
+			candidate, lookupErr := f.locate(ctx, key, e.Identity)
+			if lookupErr != nil {
+				done()
+				err = lookupErr
+				break
+			}
+			if candidate != nil {
+				req := e.Request
+				req.Key = key
+				result, err = f.replay(ctx, req, candidate)
+				done()
+				break
+			}
+			done()
+		}
+	}
+	if err != nil {
+		return result, fmt.Errorf("%w: reconcile attempted card: %v", ErrOutcomeUnknown, err)
+	}
+	state, path, done, err := f.openState()
+	if err != nil {
+		return result, err
+	}
+	current := state[e.Request.Key]
+	if result.ID != "" {
+		current.Held = false
+		current.DeliveredCard = result.ID
+		current.DeliveredKey = result.Key
+		current.DeliveredProject = result.Project
+		if f.anyPilot() && current.DeliveredAt == "" {
+			current.DeliveredAt = current.DeliveryPendingAt
+			if _, err := time.Parse(time.RFC3339Nano, current.DeliveredAt); err != nil {
+				current.DeliveredAt = f.clock().Format(time.RFC3339Nano)
+			}
+		}
+	} else {
+		current.Attempted = false
+		current.CreationKey = ""
+	}
+	current.DeliveryPendingAt = ""
+	state[e.Request.Key] = current
+	err = saveFilingState(path, state)
+	done()
+	if err != nil {
+		return result, fmt.Errorf("%w: save attempted card reconciliation: %v", ErrOutcomeUnknown, err)
+	}
+	if result.ID != "" {
+		if r.RootRun != nil && !rootRunEqual(r.RootRun, e.Request.RootRun) {
+			shown, err := f.show(ctx, result.ID)
+			if err != nil {
+				return result, err
+			}
+			card, err := ParseCard(shown.Task.Description)
+			if err != nil || !rootRunEqual(r.RootRun, card.RootRun) {
+				return result, fmt.Errorf("%w: ask already delivered without this root-run envelope; file it with a new request key", ErrInvalid)
+			}
+		}
+		if f.ReadbackTimeout > 0 {
+			return f.withCardKey(ctx, result)
+		}
+		return result, nil
+	}
+	return CardResult{}, next
 }
