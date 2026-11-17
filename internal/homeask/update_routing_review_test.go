@@ -157,7 +157,7 @@ func TestUnroutedEditWaitsForHomeIndex(t *testing.T) {
 }
 
 func TestRepairedUpdateReadbackFailures(t *testing.T) {
-	for _, mode := range []string{"project-mismatch", "never-indexed", "cancelled", "deadline"} {
+	for _, mode := range []string{"project-mismatch", "never-indexed", "cancelled", "deadline", "early-deadline"} {
 		t.Run(mode, func(t *testing.T) {
 			f, fl, _ := updateRig(t)
 			r := testReq()
@@ -174,7 +174,7 @@ func TestRepairedUpdateReadbackFailures(t *testing.T) {
 				t.Fatal(err)
 			}
 			ctx, cancel := context.WithCancel(context.Background())
-			if mode == "deadline" {
+			if mode == "deadline" || mode == "early-deadline" {
 				cancel()
 				ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
 			}
@@ -199,8 +199,8 @@ func TestRepairedUpdateReadbackFailures(t *testing.T) {
 			}
 			fl.ReadbackTimeout = 40 * time.Millisecond
 			fl.ReadbackInterval = time.Millisecond
-			if mode == "cancelled" || mode == "deadline" {
-				fl.ReadbackInterval = time.Second
+			if mode == "cancelled" || mode == "deadline" || mode == "early-deadline" {
+				fl.ReadbackInterval = 200 * time.Millisecond
 				fl.ReadbackTimeout = 2 * time.Second
 			}
 			r.Ask["question"] = "Changed before readback?"
@@ -226,8 +226,11 @@ func TestRepairedUpdateReadbackFailures(t *testing.T) {
 				if mode == "cancelled" {
 					want = fmt.Sprintf("%v: card %s updated but Home could not confirm its card or ruling state: wait was cancelled", ErrOutcomeUnknown, res.ID)
 				}
-				if mode == "deadline" {
+				if mode == "deadline" || mode == "early-deadline" {
 					want = fmt.Sprintf("%v: card %s updated but Home could not confirm its card or ruling state: caller's deadline passed", ErrOutcomeUnknown, res.ID)
+				}
+				if mode == "early-deadline" && ctx.Err() != nil {
+					t.Fatalf("caller context already expired: %v", ctx.Err())
 				}
 				if err.Error() != want {
 					t.Fatalf("message=%q, want %q", err, want)
@@ -235,7 +238,7 @@ func TestRepairedUpdateReadbackFailures(t *testing.T) {
 				if mode == "never-indexed" && reads < 2 {
 					t.Fatalf("reads=%d", reads)
 				}
-				if (mode == "cancelled" || mode == "deadline") && reads != 1 {
+				if (mode == "cancelled" || mode == "deadline" || mode == "early-deadline") && reads != 1 {
 					t.Fatalf("reads=%d", reads)
 				}
 			}

@@ -903,11 +903,15 @@ func (f *CardFiler) fileCardReadback(ctx context.Context, req CardRequest) (Card
 
 func (f *CardFiler) withCardKey(ctx context.Context, res CardResult) (CardResult, error) {
 	var err error
-	res.CardKey, err = f.awaitCardKey(ctx, res.ID, res.Project)
+	var callerDeadline bool
+	res.CardKey, callerDeadline, err = f.awaitCardKey(ctx, res.ID, res.Project)
 	if err != nil {
 		return res, err
 	}
 	if res.CardKey == "" {
+		if callerDeadline {
+			return res, fmt.Errorf("%w: card %s may have been filed but card_key was not indexed before the caller's deadline; re-run with --request %s and unchanged input to replay without duplicating it", ErrOutcomeUnknown, res.ID, res.Key)
+		}
 		return res, fmt.Errorf("%w: card %s may have been filed but card_key was not indexed within %s; re-run with --request %s and unchanged input to replay without duplicating it", ErrOutcomeUnknown, res.ID, f.ReadbackTimeout, res.Key)
 	}
 	return res, nil
@@ -915,31 +919,37 @@ func (f *CardFiler) withCardKey(ctx context.Context, res CardResult) (CardResult
 
 // awaitCardKey polls `bb home get --card` until Home reports the card's card_key or ReadbackTimeout passes
 // (one read is always made). Home indexes a card shortly after it exists, so a caller that reads the key
-// right after filing would otherwise miss it. It returns "", nil when Home has not indexed the card
-// in time, or a permanent scope error immediately when the card belongs to another project.
-func (f *CardFiler) awaitCardKey(ctx context.Context, id, project string) (string, error) {
+// right after filing would otherwise miss it. It returns an empty key and nil error when Home
+// has not indexed the card in time, or a permanent scope error immediately when the card
+// belongs to another project.
+// The boolean reports whether the caller deadline limited the wait, even when polling stops
+// before that deadline because there is not enough time for another interval.
+func (f *CardFiler) awaitCardKey(ctx context.Context, id, project string) (string, bool, error) {
 	interval := f.ReadbackInterval
 	if interval <= 0 {
 		interval = 200 * time.Millisecond
 	}
 	// The deadline is on the context, so a stalled read is cut off at ReadbackTimeout, not at the per-call timeout.
-	ctx, cancel := context.WithTimeout(ctx, f.ReadbackTimeout)
+	readbackDeadline := time.Now().Add(f.ReadbackTimeout)
+	callerLimit, hasCallerDeadline := ctx.Deadline()
+	callerDeadline := hasCallerDeadline && callerLimit.Before(readbackDeadline)
+	ctx, cancel := context.WithDeadline(ctx, readbackDeadline)
 	defer cancel()
 	deadline, _ := ctx.Deadline()
 	for {
 		v, err := f.cardInProject(ctx, id, project)
 		if errors.Is(err, ErrCardProjectMismatch) {
-			return "", err
+			return "", callerDeadline, err
 		}
 		if err == nil && strings.TrimSpace(v.CardKey) != "" {
-			return strings.TrimSpace(v.CardKey), nil
+			return strings.TrimSpace(v.CardKey), callerDeadline, nil
 		}
 		if !time.Now().Add(interval).Before(deadline) {
-			return "", nil
+			return "", callerDeadline, nil
 		}
 		select {
 		case <-ctx.Done():
-			return "", nil
+			return "", callerDeadline, nil
 		case <-time.After(interval):
 		}
 	}
