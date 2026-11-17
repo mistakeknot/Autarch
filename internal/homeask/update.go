@@ -244,6 +244,19 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 		}
 		// Tasks has no conditional update tied to Home's pick. Detect a pick
 		// observed after the write and report it; never roll back over that pick.
+		if repaired {
+			// The routing comment was just restored, so Home may not have
+			// indexed this card yet. Wait before checking its ruling state.
+			// Even callers that disable ordinary key readback need this wait.
+			readback := *f
+			if readback.ReadbackTimeout <= 0 {
+				readback.ReadbackTimeout = f.timeout()
+			}
+			res, e = readback.withCardKey(ctx, res)
+			if e != nil {
+				return res, e
+			}
+		}
 		after, readErr := f.cardInProject(ctx, s.Task.ID, project)
 		if readErr != nil {
 			return CardResult{}, fmt.Errorf("%w: card %s updated but Home could not confirm its ruling state: %v", ErrOutcomeUnknown, s.Task.ID, readErr)
@@ -251,7 +264,7 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 		if after.State == "ruled" || after.DecisionState == "ruled" || after.DecisionState == "picked" {
 			return CardResult{}, fmt.Errorf("%w: card %s was updated while a pick was recorded; inspect the card before further edits", ErrAlreadyRuled, s.Task.ID)
 		}
-		if f.ReadbackTimeout > 0 {
+		if f.ReadbackTimeout > 0 && res.CardKey == "" {
 			return f.withCardKey(ctx, res)
 		}
 		return res, nil

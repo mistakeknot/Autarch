@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 )
 
 func deriveRoutingTestKey(t *testing.T, req *CardRequest) {
@@ -98,5 +100,58 @@ func TestUnroutedRetryAppliesChangedContentImmediately(t *testing.T) {
 				t.Fatalf("options=%v", opts)
 			}
 		})
+	}
+}
+
+func TestUnroutedEditWaitsForHomeIndex(t *testing.T) {
+	for _, readback := range []bool{false, true} {
+		for _, picked := range []bool{false, true} {
+			t.Run(fmt.Sprintf("readback=%v/picked=%v", readback, picked), func(t *testing.T) {
+				f, fl, state := updateRig(t)
+				r := testReq()
+				r.Ask["ask_key"] = "delayed-repair-index"
+				deriveRoutingTestKey(t, &r)
+				original := f.fail
+				f.fail = func(args []string) *BBResult {
+					if args[0] == "tasks" && args[1] == "comment" {
+						return badRes(1, "comment unavailable")
+					}
+					return original(args)
+				}
+				if _, err := fl.FileOrUpdateCard(context.Background(), r, ""); !errors.Is(err, ErrOutcomeUnknown) {
+					t.Fatal(err)
+				}
+				reads := 0
+				f.fail = func(args []string) *BBResult {
+					if strings.Join(args[:min(3, len(args))], " ") == "home get --card" {
+						reads++
+						if reads == 1 {
+							return badRes(1, "card not found")
+						}
+					}
+					return original(args)
+				}
+				if readback {
+					fl.ReadbackTimeout = time.Second
+				}
+				fl.ReadbackInterval = time.Millisecond
+				if picked {
+					*state = "ruled"
+				}
+				r.Ask["question"] = "Changed while repairing?"
+				deriveRoutingTestKey(t, &r)
+				res, err := fl.FileOrUpdateCard(context.Background(), r, "")
+				if picked {
+					if !errors.Is(err, ErrAlreadyRuled) || f.count("tasks", "update") != 1 || reads < 3 {
+						t.Fatalf("res=%+v err=%v reads=%d", res, err, reads)
+					}
+					return
+				}
+				back, parseErr := ParseCard(f.tasks[0].Desc)
+				if err != nil || parseErr != nil || !res.Updated || res.CardKey != "P1-1" || back.Question != "Changed while repairing?" || reads < 2 || f.count("tasks", "update") != 1 || len(f.tasks[0].Comments) != 1 {
+					t.Fatalf("res=%+v err=%v parse=%v reads=%d card=%+v", res, err, parseErr, reads, back)
+				}
+			})
+		}
 	}
 }
