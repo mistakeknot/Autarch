@@ -1,8 +1,10 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -84,10 +86,16 @@ func Load(path string) (*Config, error) {
 		}
 	}
 
-	// Expand home directories
+	// Drop blank roots before either discovery or the daemon consumes them.
+	roots := make([]string, 0, len(cfg.Discovery.ScanRoots))
 	for i, root := range cfg.Discovery.ScanRoots {
-		cfg.Discovery.ScanRoots[i] = expandHome(root)
+		if strings.TrimSpace(root) == "" {
+			slog.Warn("empty scan root in config ignored", "index", i)
+			continue
+		}
+		roots = append(roots, expandHome(root))
 	}
+	cfg.Discovery.ScanRoots = roots
 
 	return cfg, nil
 }

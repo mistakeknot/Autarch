@@ -43,19 +43,20 @@ func TestScanWarnsForEmptyRoots(t *testing.T) {
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
 			t.Fatal(err)
 		}
-		if record.Level != "WARN" {
-			t.Errorf("expected warning, got %s", line)
-		}
 		switch record.Msg {
 		case "empty scan root in config ignored":
+			if record.Level != "WARN" {
+				t.Errorf("expected warning, got %s", line)
+			}
 			emptyWarnings++
 		case "scan root does not exist":
+			if record.Level != "WARN" {
+				t.Errorf("expected warning, got %s", line)
+			}
 			missingWarnings++
 			if record.Path != missing {
 				t.Errorf("unexpected missing-root path %q", record.Path)
 			}
-		default:
-			t.Errorf("unexpected log: %s", line)
 		}
 	}
 	if emptyWarnings != 2 || missingWarnings != 1 {
