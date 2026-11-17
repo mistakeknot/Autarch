@@ -32,6 +32,7 @@ type UnifiedApp struct {
 
 	// Agent for AI generation
 	codingAgent   *agent.Agent
+	projectRoot   string
 	agentSelector *pkgtui.AgentSelector
 	selectedAgent string
 
@@ -201,9 +202,9 @@ func (a *UnifiedApp) initAgentSelector() {
 		return
 	}
 
-	projectRoot := ""
-	if cwd, err := os.Getwd(); err == nil {
-		projectRoot = cwd
+	projectRoot := a.projectRoot
+	if projectRoot == "" {
+		projectRoot, _ = os.Getwd()
 	}
 
 	options, err := LoadAgentOptions(projectRoot)
@@ -216,6 +217,7 @@ func (a *UnifiedApp) initAgentSelector() {
 
 // initAgentSelectorWithOptions separates preference resolution from tool discovery.
 func (a *UnifiedApp) initAgentSelectorWithOptions(projectRoot string, options []pkgtui.AgentOption) {
+	a.projectRoot = projectRoot
 	options = filterSupportedAgentOptions(options)
 	selection := a.codingAgent
 	if selection == nil {
@@ -231,7 +233,7 @@ func (a *UnifiedApp) initAgentSelectorWithOptions(projectRoot string, options []
 		source = "configured, not detected"
 	}
 	if filepath.IsAbs(source) {
-		source = "project config (current directory)"
+		source = "project config (scan project)"
 	}
 	found := false
 	for i := range options {
@@ -273,8 +275,11 @@ func (a *UnifiedApp) attachAgentSelector(view View) {
 }
 
 func (a *UnifiedApp) attachAgentName(view View) {
-	if view == nil || a.selectedAgent == "" {
+	if view == nil {
 		return
+	}
+	if setter, ok := view.(interface{ SetCodingAgent(*agent.Agent) }); ok {
+		setter.SetCodingAgent(a.codingAgent)
 	}
 	if setter, ok := view.(agentNameSetter); ok {
 		setter.SetAgentName(a.selectedAgent)
@@ -542,17 +547,41 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pkgtui.AgentSelectedMsg:
 		if resolved, err := agent.DetectAgentByName(msg.Name, exec.LookPath); err == nil {
+			baseline := &agent.Agent{}
+			if a.codingAgent != nil {
+				baseline.Type = a.codingAgent.Type
+			}
+			previous, source := baseline.DispatchPreference(a.projectRoot)
+			resolved.ProjectRoot = a.projectRoot
 			a.codingAgent = resolved
 			a.selectedAgent = msg.Name
 			a.setSelectorIndex(msg.Name)
 			if a.agentSelector != nil && len(a.agentSelector.Options) > 0 {
-				a.agentSelector.Options[a.agentSelector.Index].Source = "runs use config; picked"
+				if !strings.EqualFold(previous, msg.Name) {
+					source = "explicit agent selection"
+				}
+				a.agentSelector.Options[a.agentSelector.Index].Source = source
 			}
 			a.attachAgentName(a.currentView)
 		} else {
 			// Navigation moves the cursor before confirmation; restore the
 			// effective preference if the requested agent is unavailable.
 			a.setSelectorIndex(a.selectedAgent)
+		}
+		return a, nil
+
+	case ScanCodebaseMsg:
+		a.projectRoot = msg.Path
+		a.agentSelector = nil
+		a.initAgentSelector()
+		if a.codingAgent != nil {
+			a.codingAgent.ProjectRoot = msg.Path
+		}
+		a.attachAgentSelector(a.currentView)
+		if a.currentView != nil {
+			var cmd tea.Cmd
+			a.currentView, cmd = a.currentView.Update(msg)
+			return a, cmd
 		}
 		return a, nil
 

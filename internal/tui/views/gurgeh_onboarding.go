@@ -16,6 +16,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/exploration"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
 	"github.com/mistakeknot/autarch/internal/tui"
+	"github.com/mistakeknot/autarch/pkg/agenttargets"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -42,6 +43,7 @@ type GurgehOnboardingView struct {
 	// Dependencies (from GurgehConfig)
 	researchCoord *research.Coordinator
 	codingAgent   *agent.Agent
+	explore       func(context.Context, string, agenttargets.DispatchConfig) (map[string]any, string, error)
 	client        *autarch.Client
 	agentSelector *pkgtui.AgentSelector
 	selectedAgent string
@@ -99,6 +101,7 @@ func NewGurgehOnboardingView(cfg tui.GurgehConfig) *GurgehOnboardingView {
 	return &GurgehOnboardingView{
 		researchCoord: cfg.ResearchCoord,
 		codingAgent:   cfg.CodingAgent,
+		explore:       exploration.ExploreWithConfig,
 		client:        cfg.Client,
 		agentSelector: cfg.AgentSelector,
 		selectedAgent: cfg.SelectedAgent,
@@ -342,6 +345,14 @@ func (v *GurgehOnboardingView) State() tui.OnboardingState {
 func (v *GurgehOnboardingView) SetAgentSelector(selector *pkgtui.AgentSelector) {
 	v.agentSelector = selector
 	v.attachAgentSelector(v.currentView)
+}
+
+// SetCodingAgent updates the agent used by scan and generation.
+func (v *GurgehOnboardingView) SetCodingAgent(a *agent.Agent) {
+	v.codingAgent = a
+	if setter, ok := v.currentView.(interface{ SetCodingAgent(*agent.Agent) }); ok {
+		setter.SetCodingAgent(a)
+	}
 }
 
 // SetAgentName sets the selected agent name.
@@ -925,6 +936,7 @@ func (v *GurgehOnboardingView) generateTasksWithAgent() tea.Cmd {
 // --- Scan methods ---
 
 func (v *GurgehOnboardingView) scanCodebase(path string) tea.Cmd {
+	cfg := v.codingAgent.ApplyDispatchConfig(exploration.Config(path))
 	// Create a channel for progress updates
 	progressChan := make(chan agent.ScanProgress, 100)
 
@@ -937,7 +949,7 @@ func (v *GurgehOnboardingView) scanCodebase(path string) tea.Cmd {
 		progressChan <- agent.ScanProgress{Step: "Exploring", Details: "Running Claude Code..."}
 
 		// Run Claude Code exploration (progress logged via slog)
-		exploreResult, sessionID, err := exploration.Explore(v.ctx, path)
+		exploreResult, sessionID, err := v.explore(v.ctx, path, cfg)
 
 		if err != nil {
 			progressChan <- agent.ScanProgress{Step: "_error", Details: err.Error()}
@@ -1125,6 +1137,9 @@ func (v *GurgehOnboardingView) attachAgentSelector(view tui.View) {
 		if setter, ok := view.(onboardingAgentSelectorSetter); ok {
 			setter.SetAgentSelector(v.agentSelector)
 		}
+	}
+	if setter, ok := view.(interface{ SetCodingAgent(*agent.Agent) }); ok {
+		setter.SetCodingAgent(v.codingAgent)
 	}
 	v.attachAgentName(view)
 	v.attachChatSettings(view)

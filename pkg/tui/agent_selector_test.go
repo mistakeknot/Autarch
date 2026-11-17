@@ -60,9 +60,9 @@ func TestAgentSelectorClosedLabelFitsWidth(t *testing.T) {
 			t.Fatalf("width %d exceeds allocation %d", got, width)
 		}
 	}
-	picked := NewAgentSelector([]AgentOption{{Name: "claude", Source: "runs use config; picked"}})
+	picked := NewAgentSelector([]AgentOption{{Name: "claude", Source: "explicit agent selection"}})
 	narrow := picked.View(40)
-	if lipgloss.Width(narrow) > 40 || !strings.Contains(narrow, "runs use config") || !strings.Contains(narrow, "claude") {
+	if lipgloss.Width(narrow) > 40 || !strings.Contains(narrow, "explicit agent") || !strings.Contains(narrow, "claude") {
 		t.Fatalf("narrow label lost dispatch meaning: %s", narrow)
 	}
 	picked.Update(tea.KeyMsg{Type: tea.KeyF2})
@@ -100,7 +100,7 @@ func TestAgentSelectorCancelRestoresEffectiveLabel(t *testing.T) {
 			s.Update(tea.KeyMsg{Type: tea.KeyDown})
 			s.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			s.Index = 1 // app confirms the requested choice
-			s.Options[1].Source = "runs use config; picked"
+			s.Options[1].Source = "explicit agent selection"
 			before = s.View()
 			s.Update(tea.KeyMsg{Type: tea.KeyF2})
 			s.Update(tea.KeyMsg{Type: tea.KeyUp})

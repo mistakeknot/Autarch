@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	"log/slog"
 	"net/http"
 	"os"
@@ -175,7 +176,9 @@ Navigation:
 			// Build GurgehConfig with all onboarding view factories
 			intermuteURL := mgr.URL()
 			researchCoord := research.NewCoordinator(nil)
+			codingAgent, _ := agent.DetectAgent()
 			gurgehCfg := &tui.GurgehConfig{
+				CodingAgent:   codingAgent,
 				ResearchCoord: researchCoord,
 				CreateKickoffView: func() tui.View {
 					v := views.NewKickoffView()
