@@ -45,11 +45,11 @@ func TestAgentSelectorIgnoresNumericPick(t *testing.T) {
 	}
 }
 
-func TestAgentSelectorRendersAsModelControl(t *testing.T) {
+func TestAgentSelectorRendersAsDispatchControl(t *testing.T) {
 	sel := NewAgentSelector([]AgentOption{{Name: "codex"}})
 	view := sel.View()
-	if !strings.Contains(view, "Choice") {
-		t.Fatalf("expected model label")
+	if !strings.Contains(view, "Dispatch: codex (ctrl+g)") {
+		t.Fatalf("expected Dispatch label")
 	}
 }
 
@@ -66,7 +66,7 @@ func TestAgentSelectorClosedLabelFitsWidth(t *testing.T) {
 		t.Fatalf("narrow label lost dispatch meaning: %s", narrow)
 	}
 	picked.Update(tea.KeyMsg{Type: tea.KeyF2})
-	if !strings.Contains(picked.View(), "Choice: ") {
+	if !strings.Contains(picked.View(), "Dispatch: ") {
 		t.Fatal("open label uses a different term")
 	}
 

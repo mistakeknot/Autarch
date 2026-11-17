@@ -11,7 +11,7 @@ behavior consistent across tools.
 ## Safe Defaults (Low Collision Risk)
 - Navigation: arrows, PageUp/PageDown, Home/End
 - Actions: Enter (activate), Esc (cancel/back), Tab/Shift+Tab (focus)
-- Function keys: F1–F12 (e.g., F2 for model selector)
+- Function keys: F1–F12 (e.g., F2 for Dispatch agent)
 
 ## Printable Key Policy (Unified UI)
 - Printable keys (letters, digits, symbols, space) are **not** bound anywhere

@@ -417,7 +417,7 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.openChatSettings()
 			return a, nil
 		case "model", "m":
-			// Toggle model selector
+			// Toggle Dispatch
 			if a.agentSelector != nil {
 				a.agentSelector.Toggle()
 			}
@@ -783,8 +783,8 @@ func (a *UnifiedApp) initPaletteCommands() {
 		})
 	}
 	cmds = append(cmds, Command{
-		Name:        "Switch model",
-		Description: "Toggle model selector",
+		Name:        "Choose Dispatch agent",
+		Description: "Toggle Dispatch",
 		Action: func() tea.Cmd {
 			return func() tea.Msg {
 				return tea.KeyMsg{Type: tea.KeyF2}
@@ -843,8 +843,8 @@ func (a *UnifiedApp) updateCommands() {
 	var cmds []Command
 
 	cmds = append(cmds, Command{
-		Name:        "Switch model",
-		Description: "Toggle model selector",
+		Name:        "Choose Dispatch agent",
+		Description: "Toggle Dispatch",
 		Action: func() tea.Cmd {
 			return func() tea.Msg {
 				return tea.KeyMsg{Type: tea.KeyF2}
@@ -1155,7 +1155,7 @@ func (a *UnifiedApp) renderHelpOverlay() string {
 		{Key: "/big /gur etc.", Description: "Switch tabs (Bigend/Gurgeh/Coldwine/Pollard)"},
 		{Key: "ctrl+left/right", Description: "Cycle tabs"},
 		{Key: "ctrl+p", Description: "Command palette"},
-		{Key: "ctrl+g", Description: "Agent selector"},
+		{Key: "ctrl+g", Description: "Dispatch agent"},
 		{Key: "/bigend, etc.", Description: "Switch to tool by name"},
 		{Key: "ctrl+l", Description: "Toggle log pane"},
 		{Key: "/sig", Description: "Toggle signals overlay"},
