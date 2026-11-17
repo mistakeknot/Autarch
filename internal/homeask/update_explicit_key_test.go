@@ -3,6 +3,7 @@ package homeask
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -38,7 +39,7 @@ func TestExplicitKeyUnroutedForeignChangedContentRejected(t *testing.T) {
 	r.Thread = "thr_b"
 	r.Ask["question"] = "Foreign question?"
 	_, err := fl.FileOrUpdateCard(context.Background(), r, "")
-	if !errors.Is(err, ErrInvalid) || f.tasks[0].Desc != original || len(f.tasks[0].Comments) != 0 || f.count("tasks", "update") != 0 || f.cards() != 1 {
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "unrouted Request from another filing") || f.tasks[0].Desc != original || len(f.tasks[0].Comments) != 0 || f.count("tasks", "update") != 0 || f.cards() != 1 {
 		t.Fatalf("foreign repair: err=%v comments=%v", err, f.tasks[0].Comments)
 	}
 }

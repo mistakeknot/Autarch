@@ -157,7 +157,7 @@ func TestUnroutedEditWaitsForHomeIndex(t *testing.T) {
 }
 
 func TestRepairedUpdateReadbackFailures(t *testing.T) {
-	for _, mode := range []string{"project-mismatch", "never-indexed", "cancelled"} {
+	for _, mode := range []string{"project-mismatch", "never-indexed", "cancelled", "deadline"} {
 		t.Run(mode, func(t *testing.T) {
 			f, fl, _ := updateRig(t)
 			r := testReq()
@@ -174,6 +174,10 @@ func TestRepairedUpdateReadbackFailures(t *testing.T) {
 				t.Fatal(err)
 			}
 			ctx, cancel := context.WithCancel(context.Background())
+			if mode == "deadline" {
+				cancel()
+				ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+			}
 			defer cancel()
 			reads := 0
 			f.fail = func(args []string) *BBResult {
@@ -186,13 +190,16 @@ func TestRepairedUpdateReadbackFailures(t *testing.T) {
 					if mode == "cancelled" {
 						cancel()
 					}
+					if mode == "deadline" {
+						<-ctx.Done()
+					}
 					return badRes(1, "card not found")
 				}
 				return original(args)
 			}
 			fl.ReadbackTimeout = 40 * time.Millisecond
 			fl.ReadbackInterval = time.Millisecond
-			if mode == "cancelled" {
+			if mode == "cancelled" || mode == "deadline" {
 				fl.ReadbackInterval = time.Second
 				fl.ReadbackTimeout = 2 * time.Second
 			}
@@ -219,13 +226,16 @@ func TestRepairedUpdateReadbackFailures(t *testing.T) {
 				if mode == "cancelled" {
 					want = fmt.Sprintf("%v: card %s updated but Home could not confirm its card or ruling state: wait was cancelled", ErrOutcomeUnknown, res.ID)
 				}
+				if mode == "deadline" {
+					want = fmt.Sprintf("%v: card %s updated but Home could not confirm its card or ruling state: caller's deadline passed", ErrOutcomeUnknown, res.ID)
+				}
 				if err.Error() != want {
 					t.Fatalf("message=%q, want %q", err, want)
 				}
 				if mode == "never-indexed" && reads < 2 {
 					t.Fatalf("reads=%d", reads)
 				}
-				if mode == "cancelled" && reads != 1 {
+				if (mode == "cancelled" || mode == "deadline") && reads != 1 {
 					t.Fatalf("reads=%d", reads)
 				}
 			}
