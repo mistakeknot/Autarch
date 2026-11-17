@@ -6,6 +6,7 @@ import { tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
+import { updateInfo } from "../updates";
 
 const HUI = resolve(__dirname, "../../../scripts/home-ui.sh");
 const INST = resolve(__dirname, "../../../scripts/install-home-your-move.sh");
@@ -48,6 +49,7 @@ function rig(opts: { movesFail?: boolean; noState?: boolean } = {}) {
   mkdirSync(backup);
   writeFileSync(join(backup, "data.db"), "x");
   writeFileSync(join(backup, "previous-source.txt"), prev + "\n");
+  writeFileSync(join(backup, "previous-commit.txt"), wsha + "\n");
   const calls = join(root, "calls");
   const bb = join(root, "bb");
   writeFileSync(bb, `#!/bin/sh
@@ -147,7 +149,51 @@ function warningOnBoth(out: { stdout: string; stderr: string }, text: string) {
   expect(out.stderr).toContain(text); expect(out.stdout).toContain(text);
 }
 
+function seedRollbackStatus(r: Rig) {
+  writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+  writeFileSync(join(r.st, "status.json"), JSON.stringify({ installed: SHA40, latest: "b".repeat(40), count: 1, subjects: ["Update"], checked_at: "2026-11-16T00:00:00Z" }));
+  expect(updateInfo(r.st, undefined, { now: "2026-11-16T01:00:00Z", timerFile: join(r.root, "no-timer") }).available).toBe(true);
+}
+
+function expectClearedRollbackStatus(r: Rig, out: { stdout: string; stderr: string }) {
+  expect(r.sha()).toBeNull();
+  expect(existsSync(join(r.st, "installed.sha"))).toBe(false);
+  expect(existsSync(join(r.st, "status.json"))).toBe(false);
+  const info = updateInfo(r.st, JSON.stringify({ sha: "b".repeat(40), clicked_at: "2026-11-16T00:30:00Z" }), { now: "2026-11-16T01:00:00Z", timerFile: join(r.root, "no-timer") });
+  expect(info.status).toBeNull();
+  expect(info.available).toBe(false);
+  expect(info.pending).toBe(false);
+  warningOnBoth(out, "run home-ui.sh deploy to restore the stamp");
+}
+
 describe("home-ui.sh: legacy deploy installed stamp (mk-zq345.8)", () => {
+  it("records the installed checkout commit in the backup before deploying", () => {
+    const r = deployRig();
+    const bb = join(r.root, "bb");
+    writeFileSync(bb, readFileSync(bb, "utf8").replace(`resolved: path:${r.cur}`, `resolved: path:${r.prev}`));
+    const out = r.run();
+    expect(out.status, out.stderr).toBe(0);
+    const backups = readdirSync(join(r.data, "home-backups"));
+    expect(backups).toHaveLength(1);
+    const recorded = join(r.data, "home-backups", backups[0], "previous-commit.txt");
+    expect(existsSync(recorded)).toBe(true);
+    expect(readFileSync(recorded, "utf8").trim()).toBe(r.commit);
+  });
+  it("records an empty commit for a non-checkout build inside another repository", () => {
+    const r = deployRig();
+    writeFileSync(join(r.root, "unrelated.txt"), "unrelated repository\n");
+    expect(git(r.root, "init", "-q").status).toBe(0);
+    expect(git(r.root, "add", "unrelated.txt").status).toBe(0);
+    expect(git(r.root, "commit", "-q", "-m", "unrelated").status).toBe(0);
+    const otherCommit = git(r.root, "rev-parse", "HEAD").stdout.trim();
+    expect(otherCommit).toMatch(/^[0-9a-f]{40}$/);
+    expect(git(r.cur, "rev-parse", "HEAD").stdout.trim()).toBe(otherCommit);
+    const out = r.run();
+    expect(out.status, out.stderr).toBe(0);
+    const backups = readdirSync(join(r.data, "home-backups"));
+    expect(backups).toHaveLength(1);
+    expect(readFileSync(join(r.data, "home-backups", backups[0], "previous-commit.txt"), "utf8")).toBe("\n");
+  });
   it("atomically records the verified deployed checkout in the configured state directory", () => {
     const r = deployRig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
     const out = r.run();
@@ -197,12 +243,49 @@ describe("home-ui.sh: legacy deploy installed stamp (mk-zq345.8)", () => {
 });
 
 describe("home-ui.sh: lock, rollback record", () => {
+  it("clears stale update state when the previous checkout HEAD moved after backup", () => {
+    const r = rig();
+    seedRollbackStatus(r);
+    const repo = resolve(r.prev, "../..");
+    const moved = git(repo, "commit", "--allow-empty", "-q", "-m", "moved");
+    expect(moved.status, moved.stderr).toBe(0);
+    expect(git(repo, "rev-parse", "HEAD").stdout.trim()).not.toBe(r.wsha);
+    const out = hui(r, ["rollback", r.backup]);
+    expect(out.status, out.stderr).toBe(0);
+    expect(r.log()).toContain("plugin install --yes " + r.prev);
+    expectClearedRollbackStatus(r, out);
+    warningOnBoth(out, `expected ${r.wsha}`);
+    expect(readdirSync(r.st).filter(f => f.startsWith("installed.sha.tmp."))).toEqual([]);
+  });
+
+  it.each(["missing", "empty", "invalid"])("clears the stale stamp for a backup with a %s commit record", kind => {
+    const r = rig();
+    seedRollbackStatus(r);
+    const recorded = join(r.backup, "previous-commit.txt");
+    if (kind === "missing") rmSync(recorded);
+    else if (kind === "empty") writeFileSync(recorded, "\n");
+    else writeFileSync(recorded, "not-a-commit\n");
+    const out = hui(r, ["rollback", r.backup]);
+    expect(out.status, out.stderr).toBe(0);
+    expect(r.log()).toContain("plugin install --yes " + r.prev);
+    expectClearedRollbackStatus(r, out);
+    warningOnBoth(out, kind === "missing" ? "old backup has no previous commit record" : kind === "empty" ? "backup recorded a non-checkout build" : "backup has no valid previous commit");
+    warningOnBoth(out, "installed.sha was removed");
+  });
   it("reports a rollback temp-write failure without blaming the checkout", () => {
-    const r = rig(); writeFileSync(join(r.st, "installed.sha"), SHA40 + "\n");
+    const r = rig(); seedRollbackStatus(r);
     const out = hui(r, ["rollback", r.backup], { HUI_FAIL_STAMP_SHA: r.wsha, "BASH_FUNC_printf%%": FAIL_STAMP_WRITE });
-    expect(out.status, out.stderr).toBe(0); expect(r.sha()).toBe(SHA40);
+    expect(out.status, out.stderr).toBe(0); expectClearedRollbackStatus(r, out);
     warningOnBoth(out, "could not write temporary installed.sha");
     expect(out.stderr).not.toContain("not a checkout");
+    expect(readdirSync(r.st).filter(f => f.startsWith("installed.sha.tmp."))).toEqual([]);
+  });
+  it("clears stale update state when the rollback stamp move fails", () => {
+    const r = rig(); seedRollbackStatus(r);
+    const out = hui(r, ["rollback", r.backup], { "BASH_FUNC_mv%%": FAIL_STAMP_MOVE });
+    expect(out.status, out.stderr).toBe(0);
+    expectClearedRollbackStatus(r, out);
+    warningOnBoth(out, "could not replace");
     expect(readdirSync(r.st).filter(f => f.startsWith("installed.sha.tmp."))).toEqual([]);
   });
   it("with no lock held, rollback behaves as before and records the reinstalled build", () => {
@@ -232,7 +315,7 @@ describe("home-ui.sh: lock, rollback record", () => {
     expect(r.sha()).toBe(r.wsha);
   });
 
-  it("leaves installed.sha alone when the reinstall fails, or the previous build is not a plugin checkout", () => {
+  it("keeps the stamp after a failed reinstall and clears it after restoring a non-checkout", () => {
     const r = rig();
     writeFileSync(join(r.st, "installed.sha"), "x".repeat(40) + "\n");
     writeFileSync(join(r.root, "bb"), "#!/bin/sh\ncase \"$1 $2\" in \"plugin install\") exit 1;; esac\nexit 0\n");
@@ -241,12 +324,12 @@ describe("home-ui.sh: lock, rollback record", () => {
     expect(r.sha()).toBe("x".repeat(40));
 
     const r2 = rig();
-    writeFileSync(join(r2.st, "installed.sha"), "y".repeat(40) + "\n");
+    seedRollbackStatus(r2);
     writeFileSync(join(r2.backup, "previous-source.txt"), r2.root + "\n");   // a directory that is not <checkout>/integrations/bb-plugin-autarch
     const out = hui(r2, ["rollback", r2.backup]);
     expect(out.status).toBe(0);
-    expect(out.stderr).toContain("installed.sha was not updated");
-    expect(r2.sha()).toBe("y".repeat(40));
+    warningOnBoth(out, "not a checkout of the plugin");
+    expectClearedRollbackStatus(r2, out);
   });
 
   for (const [name, args] of [
@@ -479,7 +562,7 @@ describe("install-home-your-move.sh: lock", () => {
   });
 });
 
-describe("the legacy scripts differ from the b05ebaf baseline only by the lock wrapper, the installed.sha writes, the --engine tool opt-in, the disabled-plugin export, the install-error recheck, the redundant-enable skip and the find-status walk", () => {
+describe("the legacy scripts differ from the b05ebaf baseline only by the lock wrapper, the installed.sha writes, the --engine tool opt-in, the disabled-plugin export, the install-error recheck, the redundant-enable skip, the find-status walk and the backup commit record", () => {
   const strip = (text: string, tag: string) => {
     const out: string[] = [];
     let inside = false;
@@ -494,7 +577,7 @@ describe("the legacy scripts differ from the b05ebaf baseline only by the lock w
   };
   const count = (text: string, tag: string) => text.split("\n").filter((l) => l.trimStart().startsWith(`# ${tag}: begin`)).length;
 
-  for (const [file, shaWrites, engineBlocks, exportBlocks, recheckBlocks, skipBlocks, findBlocks] of [["home-ui.sh", 2, 6, 0, 5, 2, 1], ["install-home-your-move.sh", 0, 0, 3, 3, 2, 0]] as const) {
+  for (const [file, shaWrites, engineBlocks, exportBlocks, recheckBlocks, skipBlocks, findBlocks, recordBlocks] of [["home-ui.sh", 2, 6, 0, 5, 2, 1, 2], ["install-home-your-move.sh", 0, 0, 3, 3, 2, 0, 0]] as const) {
     it(`${file}: removing the marked blocks gives the baseline byte for byte`, () => {
       const now = readFileSync(resolve(__dirname, "../../../scripts", file), "utf8");
       expect(count(now, "shared destination lock")).toBe(1);
@@ -504,7 +587,9 @@ describe("the legacy scripts differ from the b05ebaf baseline only by the lock w
       expect(count(now, "install-error recheck")).toBe(recheckBlocks);   // additive: the install runs in a marked block, the unchanged line follows
       expect(count(now, "redundant-enable skip")).toBe(skipBlocks);   // additive: a stand-in bb answers the unchanged enable line when the plugin already runs
       expect(count(now, "find status")).toBe(findBlocks);   // additive: a walk of the target before the unchanged scan loop refuses when find fails
-      const rest = strip(strip(strip(strip(strip(strip(strip(now, "shared destination lock"), "installed.sha write"), "--engine tool"), "disabled-plugin export"), "install-error recheck"), "redundant-enable skip"), "find status");
+      expect(count(now, "rollback commit record")).toBe(recordBlocks);
+      if (file === "home-ui.sh") expect(now.match(/^\s*stamp_warning\(\)/gm)).toHaveLength(1);
+      const rest = strip(strip(strip(strip(strip(strip(strip(strip(now, "shared destination lock"), "installed.sha write"), "--engine tool"), "disabled-plugin export"), "install-error recheck"), "redundant-enable skip"), "find status"), "rollback commit record");
       expect(rest).toBe(readFileSync(join(FIXTURES, file), "utf8"));
     });
 
