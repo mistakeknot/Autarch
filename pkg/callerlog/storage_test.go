@@ -152,6 +152,9 @@ func TestDefaultSizeCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := f.Chmod(0644); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.Truncate(8 << 20); err != nil {
 		t.Fatal(err)
 	}
@@ -163,8 +166,8 @@ func TestDefaultSizeCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Size() != 8<<20 || l.Dropped() != 1 {
-		t.Fatalf("size=%d drops=%d", fi.Size(), l.Dropped())
+	if fi.Size() != 8<<20 || l.Dropped() != 1 || fi.Mode().Perm() != 0600 {
+		t.Fatalf("size=%d drops=%d mode=%04o", fi.Size(), l.Dropped(), fi.Mode().Perm())
 	}
 }
 
@@ -248,5 +251,23 @@ func TestInaccessibleAuditDirectoryRefused(t *testing.T) {
 	l.Close()
 	if l.Dropped() != 1 {
 		t.Fatal("accepted inaccessible directory")
+	}
+}
+
+func TestSharedFileSizeCap(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "audit")
+	a, b := New(dir, WithMaxBytes(512)), New(dir, WithMaxBytes(512))
+	for i := 0; i < 100; i++ {
+		a.Record(map[string]any{"writer": "a"}, "")
+		b.Record(map[string]any{"writer": "b"}, "")
+	}
+	a.Close()
+	b.Close()
+	data, err := os.ReadFile(filepath.Join(dir, "caller-log.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) > 512 || uint64(strings.Count(string(data), "\n"))+a.Dropped()+b.Dropped() != 200 {
+		t.Fatalf("bytes=%d drops=%d", len(data), a.Dropped()+b.Dropped())
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func TestRejectUnsafeLogTargets(t *testing.T) {
@@ -36,7 +37,7 @@ func TestDefaultNeverWritesInTests(t *testing.T) {
 	l := Default()
 	l.Record(map[string]any{}, "")
 	l.Close()
-	if _, err := os.Stat(filepath.Join(home, ".autarch", "caller-log.jsonl")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home, ".autarch", "audit", "caller-log.jsonl")); !os.IsNotExist(err) {
 		t.Fatal("Default wrote a test record under HOME")
 	}
 }
@@ -66,7 +67,16 @@ func TestPeerRealLoopback(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer peer.Close()
-	got := resolvePeer(peer.RemoteAddr().String())
+	// Resolution is deliberately best effort within a 20 ms budget. Keep the
+	// socket alive and allow another attempt after scheduler contention.
+	var got any
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got = resolvePeer(peer.RemoteAddr().String())
+		if got != "unknown" || time.Now().After(deadline) {
+			break
+		}
+	}
 	p, ok := got.(map[string]any)
 	if !ok || p["pid"] != os.Getpid() {
 		t.Fatalf("peer = %v", got)

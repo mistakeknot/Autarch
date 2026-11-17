@@ -36,7 +36,7 @@ type Config struct {
 	ProjectDirs  []string
 	TokenPath    string
 	AllowOrigins []string
-	CallerLogDir string // defaults to the token directory; override for isolated callers
+	CallerLogDir string // defaults to audit/ under the token directory; override for isolated callers
 }
 
 // Server is the consolidated service.
@@ -77,7 +77,7 @@ func New(cfg Config) (*Server, error) {
 	mux.Handle("/gurgeh/{project}/", s.gurgeh)
 	dir := cfg.CallerLogDir
 	if dir == "" {
-		dir = filepath.Dir(cfg.TokenPath)
+		dir = filepath.Join(filepath.Dir(cfg.TokenPath), "audit")
 	}
 	s.callerLog = callerlog.New(dir)
 	s.handler = callerLogging(s.callerLog, mux, guard(token, cfg.AllowOrigins, cfg.Addr, mux))
