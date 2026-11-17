@@ -146,7 +146,7 @@ func TestUsageErrors(t *testing.T) {
 		}, "--root-run script must be an absolute path"},
 		{"--root-run script unreadable", "thr_a", func(e *env) []string {
 			return fileArgs(e.writeFile("a.json", askJSON(nil)), "--root-run", "script=/nonexistent/s.sh,timeout=5,set=s")
-		}, "--root-run script is not readable: stat /nonexistent/s.sh"},
+		}, "--root-run script is not readable: open /nonexistent/s.sh"},
 		{"--root-run set with a leading dash", "thr_a", func(e *env) []string {
 			s := e.writeFile("s.sh", "echo hi\n")
 			return fileArgs(e.writeFile("a.json", askJSON(nil)), "--root-run", "script="+s+",timeout=5,set=-x")

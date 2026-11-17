@@ -188,9 +188,17 @@ func checkKeepList(value string) error {
 	}
 	return fmt.Errorf("%w: --keep-list must be spend, credentials, sign-ins/payments, tags/releases/publishes, force-pushes or standing-approvals", ErrInvalid)
 }
+
+var errQueueValidation = errors.New("queue prerequisites need validation")
+
 func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string, update bool) (CardResult, error) {
+	queueChecks := false
 	for attempt := 0; attempt < 8; attempt++ {
-		result, err := f.submitOnce(ctx, r, supersedes, update)
+		result, err := f.submitOnce(ctx, r, supersedes, update, queueChecks)
+		if errors.Is(err, errQueueValidation) {
+			queueChecks = true
+			continue
+		}
 		var redirected *heldRequestRetry
 		if errors.As(err, &redirected) {
 			r, supersedes, update = redirected.request, redirected.supersedes, redirected.update
@@ -206,7 +214,7 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 	return CardResult{}, fmt.Errorf("%w: filing admission changed repeatedly; retry the same request", ErrOutcomeUnknown)
 }
 
-func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes string, update bool) (CardResult, error) {
+func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes string, update, queueChecks bool) (CardResult, error) {
 	if err := checkKeepList(r.KeepList); err != nil {
 		return CardResult{}, err
 	}
@@ -297,6 +305,9 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 			if knownHeld && hadHeld && oldHeld.Held {
 				promotable = oldHeld.canPromote(r, ordinary(r) && (weeklyHold(f.clock(), r) || r.NonBlocking))
 			}
+			if promotable && oldHeld.Attempted {
+				return f.reconcileAttemptedEscalation(ctx, oldHeld, r, identity)
+			}
 			if replay, known, err := f.replayHeldRevision(ctx, oldHeld, r, identity); known && !promotable {
 				return replay, err
 			}
@@ -345,13 +356,13 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		return CardResult{}, err
 	}
 	// Check queue prerequisites before waiting for admission.
-	if updateLane && (r.NonBlocking || windowHeld) {
+	if updateLane && (r.NonBlocking || windowHeld || queueChecks) {
 		uncharged, err = f.hasUpdateTarget(ctx, r, supersedes)
 		if err != nil {
 			return CardResult{}, err
 		}
 	}
-	if !updateLane || r.NonBlocking || windowHeld {
+	if !updateLane || r.NonBlocking || windowHeld || queueChecks {
 		if err := f.CheckUI(r); err != nil {
 			return CardResult{}, err
 		}
@@ -390,6 +401,9 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 	}
 	if exists && old.canPromote(r, coalesce) {
 		if _, known := state.knownHeldRequest(r); known {
+			if old.Attempted {
+				return CardResult{}, errHeldTargetChanged
+			}
 			redirect, err := old.promote(r, identity)
 			if err != nil {
 				return CardResult{}, err
@@ -443,16 +457,8 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		// Gate and state-lock waits can cross a policy boundary. Reserve using the
 		// admission time under both locks, rather than the earlier validation time.
 		nowHeld := weeklyHold(admittedAt, r)
-		if nowHeld && !windowHeld && updateLane && !r.NonBlocking {
-			// A newly queued update needs the read-only checks skipped before the
-			// wait. In particular, a missing target must reserve a creation slot.
-			uncharged, err = f.hasUpdateTarget(ctx, r, supersedes)
-			if err != nil {
-				return CardResult{}, err
-			}
-			if err := f.CheckUI(r); err != nil {
-				return CardResult{}, err
-			}
+		if nowHeld && !windowHeld && updateLane && !r.NonBlocking && !queueChecks {
+			return CardResult{}, errQueueValidation
 		}
 		windowHeld = nowHeld
 		week := pacificBudgetWeek(admittedAt)
