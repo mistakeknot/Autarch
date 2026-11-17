@@ -24,6 +24,20 @@ func TestStderrCleanedRemainderNotice(t *testing.T) {
 	}
 }
 
+func TestStderrEmptyLastFrameNotice(t *testing.T) {
+	for _, ending := range []string{"progress 50%\r", "progress 50%\r\x1b[0m", "password: 1111\r"} {
+		input := strings.Repeat("x", 5000) + "\n" + ending
+		var tail stderrTail
+		tail.Write([]byte(input))
+		for _, raw := range [][]byte{[]byte(input), tail.data} {
+			want := fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(raw))
+			if got := sanitizedStderr(raw); got != want {
+				t.Errorf("empty last frame %q: got %q, want %q", ending, got, want)
+			}
+		}
+	}
+}
+
 func TestStderrStopCursorOutOfOrder(t *testing.T) {
 	raw := []byte("ok 1111 end tail")
 	region := normalizeStderr(raw, 0)
