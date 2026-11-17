@@ -31,6 +31,8 @@ type Log struct {
 	dropped  atomic.Uint64
 	maxBytes int64
 	warned   bool
+	lockNow  func() time.Time
+	lockWait func(time.Duration)
 }
 
 const defaultMaxBytes int64 = 8 << 20
@@ -56,7 +58,7 @@ func New(dir string, opts ...Option) *Log {
 		close(done)
 		return &Log{closed: true, done: done}
 	}
-	l := &Log{dir: dir, queue: make(chan item, 256), done: make(chan struct{}), maxBytes: defaultMaxBytes}
+	l := &Log{dir: dir, queue: make(chan item, 256), done: make(chan struct{}), maxBytes: defaultMaxBytes, lockNow: time.Now, lockWait: time.Sleep}
 	for _, opt := range opts {
 		opt(l)
 	}
@@ -193,8 +195,8 @@ func (l *Log) appendLine(line []byte) (result error) {
 		}
 	}()
 	// Keep stat + append atomic across cooperating serve and MCP processes.
-	// Contention drops a record rather than delaying worker shutdown.
-	if err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB); err != nil {
+	// Only the worker retries; requests never wait for storage.
+	if err := l.lockFile(fd); err != nil {
 		return err
 	}
 	defer unix.Flock(fd, unix.LOCK_UN)
@@ -220,4 +222,24 @@ func (l *Log) appendLine(line []byte) (result error) {
 		return err
 	}
 	return nil
+}
+
+// lockFile bounds contention to four nonblocking attempts within 2 ms.
+// Scheduler delays may extend a sleep, so check the deadline before retrying.
+func (l *Log) lockFile(fd int) error {
+	deadline := l.lockNow().Add(2 * time.Millisecond)
+	for attempt := 0; ; attempt++ {
+		err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
+		if err == nil || (!errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN)) || attempt == 3 {
+			return err
+		}
+		remaining := deadline.Sub(l.lockNow())
+		if remaining <= 0 {
+			return err
+		}
+		l.lockWait(min(250*time.Microsecond, remaining))
+		if !l.lockNow().Before(deadline) {
+			return err
+		}
+	}
 }
