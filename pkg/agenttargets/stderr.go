@@ -29,9 +29,19 @@ func (t *stderrTail) Write(p []byte) (int, error) {
 }
 
 var stderrANSI = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))`)
-var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|Bearer[ \t]+[^\s]+`)
+var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|(?:ghp_|gho_|ghs_|ghu_|ghr_|github_pat_)[a-z0-9_]+|Bearer[ \t]+[^\s]+|(?:Authorization|x-api-key)[ \t]*:[^\r\n]*|"(?:access_token|api_key|token|refresh_token|id_token|client_secret|apiKey)"\s*:\s*"(?:[^"\\]|\\.)*(?:"|$)|access_token=[^&\s]*`)
 
 func sanitizedStderr(data []byte) string {
+	// A full tail may start inside a credential keyword or its value. Drop
+	// the entire first line: retaining only its suffix loses redaction context.
+	if len(data) >= stderrTailBytes {
+		if end := strings.IndexByte(string(data), '\n'); end >= 0 {
+			data = data[end+1:]
+		} else {
+			data = nil
+		}
+	}
+
 	text := stderrANSI.ReplaceAllString(string(data), "")
 	text = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) && r != '\n' && r != '\t' {

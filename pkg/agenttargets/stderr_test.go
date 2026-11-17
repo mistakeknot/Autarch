@@ -17,7 +17,7 @@ func TestStreamingStderr(t *testing.T) {
 				dir := t.TempDir()
 				text := "authentication failed"
 				if large {
-					text = "discard-me" + strings.Repeat("x", 128*1024) + "quota exceeded"
+					text = "discard-me" + strings.Repeat("x", 128*1024) + "\nquota exceeded"
 				}
 				script := "#!/bin/sh\nprintf '%s' '" + text + "' >&2\nexit 1\n"
 				if err := os.WriteFile(filepath.Join(dir, agent), []byte(script), 0700); err != nil {
@@ -36,7 +36,7 @@ func TestStreamingStderr(t *testing.T) {
 				}
 				want := text
 				if large {
-					want = text[len(text)-4096:]
+					want = "quota exceeded"
 				}
 				if !strings.Contains(err.Error(), want) {
 					t.Fatalf("missing stderr tail in error: %.200s", err)
@@ -167,9 +167,9 @@ func TestStreamingErrorResultPrecedence(t *testing.T) {
 
 func TestStderrSanitized(t *testing.T) {
 	var tail stderrTail
-	tail.Write([]byte("\x1b[31merror\x1b[0m\r sk-secret123 Bearer secret456\x00"))
+	tail.Write([]byte("\x1b[31merror\x1b[0m\r sk-xxxxxxxxxxxx Bearer secret456\x00"))
 	err := processError(context.Canceled, false, &tail)
-	for _, bad := range []string{"\x1b", "\r", "\x00", "sk-secret123", "secret456"} {
+	for _, bad := range []string{"\x1b", "\r", "\x00", "sk-xxxxxxxxxxxx", "secret456"} {
 		if strings.Contains(err.Error(), bad) {
 			t.Errorf("unsafe error: %q", err)
 		}
@@ -201,5 +201,62 @@ func TestStreamingNonErrorResultWithFailedExit(t *testing.T) {
 	out, _, err := CollectResult(h)
 	if err == nil || !strings.Contains(err.Error(), "diagnostic") || out != "" {
 		t.Fatalf("failed exit accepted: out=%q err=%v", out, err)
+	}
+}
+
+func TestAdditionalSecretShapes(t *testing.T) {
+	for _, input := range []string{"ghp_xxxxxxxxxxxx", "gho_xxxxxxxxxxxx", "github_pat_xxxxxxxxxxxx", `{"access_token":"xxxxxxxxxxxx"}`, `{"api_key": "xxxxxxxxxxxx"}`, `{"token":"xxxxxxxxxxxx"}`, "Authorization: Basic xxxxxxxxxxxx", "Bearer xxxxxxxxxxxx", "sk-xxxxxxxxxxxx"} {
+		t.Run(input, func(t *testing.T) {
+			if got := sanitizedStderr([]byte(input)); strings.Contains(got, "xxxxxxxxxxxx") {
+				t.Fatalf("secret survived: %s", got)
+			}
+		})
+	}
+	var tail stderrTail
+	tail.Write([]byte("ghp_" + strings.Repeat("a", 5000) + "\nuseful diagnostic"))
+	if got := sanitizedStderr(tail.data); strings.Contains(got, "aaaa") || !strings.Contains(got, "useful diagnostic") {
+		t.Fatalf("partial token survived: %.100s", got)
+	}
+}
+
+func TestCodexTranscriptRedactedInError(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\necho 'transcript context ghp_xxxxxxxxxxxx {\"access_token\":\"xxxxxxxxxxxx\"}' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	h, err := Dispatch(context.Background(), DispatchConfig{PreferredAgent: "codex"}, dir, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range h.Events {
+	}
+	_, err = h.Wait()
+	if err == nil || !strings.Contains(err.Error(), "transcript context") || strings.Contains(err.Error(), "xxxxxxxxxxxx") {
+		t.Fatalf("unexpected transcript error: %v", err)
+	}
+}
+
+func TestMoreSecretShapes(t *testing.T) {
+	for _, input := range []string{"ghs_xxxxxxxxxxxx", "ghu_xxxxxxxxxxxx", "ghr_xxxxxxxxxxxx", "x-api-key: xxxxxxxxxxxx", "https://example.test/?access_token=xxxxxxxxxxxx&ok=yes", `{"refresh_token":"xxxxxxxxxxxx"}`, `{"id_token":"xxxxxxxxxxxx"}`, `{"client_secret":"xxxxxxxxxxxx"}`, `{"apiKey":"xxxxxxxxxxxx"}`, `{"token":"xxxxxxxxxxxx`} {
+		t.Run(input, func(t *testing.T) {
+			if got := sanitizedStderr([]byte(input)); strings.Contains(got, "xxxxxxxxxxxx") {
+				t.Fatalf("unredacted: %s", got)
+			}
+		})
+	}
+}
+func TestTailCutInsideKeywords(t *testing.T) {
+	for _, key := range []string{`"access_token"`, `"api_key"`, `"token"`, "Authorization", "Bearer", `"refresh_token"`, `"id_token"`, `"client_secret"`, `"apiKey"`, "x-api-key", "access_token="} {
+		for offset := 0; offset < len(key); offset++ {
+			suffix := key[offset:] + `: "xxxxxxxxxxxx"` + "\nuseful diagnostic\n"
+			input := strings.Repeat("a", 5000) + suffix + strings.Repeat(" ", stderrTailBytes-len(suffix))
+			var tail stderrTail
+			tail.Write([]byte(input))
+			if got := sanitizedStderr(tail.data); strings.Contains(got, "xxxxxxxxxxxx") || !strings.Contains(got, "useful diagnostic") {
+				t.Fatalf("key %q cut %d leaked: %.100s", key, offset, got)
+			}
+		}
 	}
 }

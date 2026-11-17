@@ -69,7 +69,8 @@ func RunStreaming(ctx context.Context, cwd string, args []string) (<-chan Stream
 //
 // This is now a thin shim over agenttargets.Dispatch().
 func Run(ctx context.Context, cwd string, args []string) (string, error) {
-	events, err := RunStreaming(ctx, cwd, args)
+	cfg, prompt := configFromArgs(args)
+	handle, err := agenttargets.Dispatch(ctx, cfg, cwd, prompt)
 	if err != nil {
 		return "", err
 	}
@@ -79,7 +80,8 @@ func Run(ctx context.Context, cwd string, args []string) (string, error) {
 	var sawResult bool
 	var firstErr string
 
-	for event := range events {
+	for raw := range handle.Events {
+		event := convertEvent(raw)
 		switch event.Type {
 		case EventResult:
 			resultText = event.Text
@@ -92,6 +94,12 @@ func Run(ctx context.Context, cwd string, args []string) (string, error) {
 		}
 	}
 
+	if _, err := handle.Wait(); err != nil {
+		if resultIsError {
+			return "", fmt.Errorf("agent returned error: %s: %w", resultText, err)
+		}
+		return "", err
+	}
 	if resultIsError {
 		return "", fmt.Errorf("claude returned error: %s", resultText)
 	}

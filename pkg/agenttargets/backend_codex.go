@@ -57,7 +57,8 @@ func (b *CodexBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wor
 	cmd.Stderr = stderrWriter
 	var stderr stderrTail
 	startedAt := time.Now()
-	if err := cmd.Start(); err != nil {
+	waitProcess, err := startProcess(cmd)
+	if err != nil {
 		stderrPipe.Close()
 		stderrWriter.Close()
 		cancel()
@@ -73,7 +74,7 @@ func (b *CodexBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wor
 	waited := make(chan error, 1)
 	stopClose := context.AfterFunc(runCtx, func() { stderrPipe.Close() })
 	go func() {
-		err := cmd.Wait()
+		err := waitProcess()
 		timer := time.AfterFunc(time.Second, func() { stderrPipe.Close() })
 		waited <- err
 		<-doneReading
