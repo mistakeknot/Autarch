@@ -84,3 +84,73 @@ func TestKickoffScanUsesResolvedAgent(t *testing.T) {
 		})
 	}
 }
+
+func TestGurgehForwardsCodingAgent(t *testing.T) {
+	v := NewGurgehView(nil, &tui.GurgehConfig{})
+	defer v.onboarding.cancel()
+	selected := &agent.Agent{Type: agent.TypeCodex, ProjectRoot: t.TempDir()}
+	v.SetCodingAgent(selected)
+	if v.onboarding.codingAgent != selected {
+		t.Fatal("Gurgeh did not forward coding agent")
+	}
+	v.SetCodingAgent(nil)
+	if v.onboarding.codingAgent != nil {
+		t.Fatal("Gurgeh did not clear coding agent")
+	}
+}
+
+func TestGenerationCommandsSnapshotAgent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("AUTARCH_DISPATCH_AGENT", "")
+	t.Setenv("AUTARCH_DISPATCH_BACKEND", "")
+	for _, kind := range []string{"suggestions", "epics", "tasks"} {
+		t.Run(kind, func(t *testing.T) {
+			selected := &agent.Agent{Type: "snapshot-agent", ProjectRoot: t.TempDir()}
+			v := NewGurgehOnboardingView(tui.GurgehConfig{CodingAgent: selected})
+			defer v.cancel()
+			var cmd tea.Cmd
+			switch kind {
+			case "suggestions":
+				cmd = v.generateSuggestions()
+			case "epics":
+				cmd = v.generateEpicsWithAgent(tui.SpecAcceptedMsg{})
+			case "tasks":
+				cmd = v.generateTasksWithAgent()
+			}
+			selected.Type = "changed-agent"
+			selected.ProjectRoot = t.TempDir()
+			v.SetCodingAgent(nil)
+			var err error
+			if kind == "suggestions" {
+				err = cmd().(tui.SuggestionsReadyMsg).Error
+			} else {
+				batch := cmd().(tea.BatchMsg)
+				err = batch[1]().(tui.GenerationErrorMsg).Error
+			}
+			if err == nil || !strings.Contains(err.Error(), "snapshot-agent execution failed") {
+				t.Fatalf("command did not retain agent snapshot: %v", err)
+			}
+		})
+	}
+}
+
+func TestScanProgressWithoutPreferenceNamesCodingAgent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("AUTARCH_DISPATCH_AGENT", "")
+	v := NewGurgehOnboardingView(tui.GurgehConfig{})
+	defer v.cancel()
+	done := make(chan struct{})
+	v.explore = func(context.Context, string, agenttargets.DispatchConfig) (map[string]any, string, error) {
+		defer close(done)
+		return map[string]any{}, "", nil
+	}
+	msg := v.scanCodebase(t.TempDir())().(scanProgressWithContinuation)
+	if msg.Details != "Running coding agent..." {
+		t.Fatalf("empty preference label: %q", msg.Details)
+	}
+	<-done
+}

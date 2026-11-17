@@ -218,6 +218,10 @@ func (a *UnifiedApp) initAgentSelector() {
 // initAgentSelectorWithOptions separates preference resolution from tool discovery.
 func (a *UnifiedApp) initAgentSelectorWithOptions(projectRoot string, options []pkgtui.AgentOption) {
 	a.projectRoot = projectRoot
+	if a.codingAgent != nil {
+		a.codingAgent = a.codingAgent.Clone()
+		a.codingAgent.ProjectRoot = projectRoot
+	}
 	options = filterSupportedAgentOptions(options)
 	selection := a.codingAgent
 	if selection == nil {
@@ -225,6 +229,10 @@ func (a *UnifiedApp) initAgentSelectorWithOptions(projectRoot string, options []
 	}
 	var source string
 	a.selectedAgent, source = selection.DispatchPreference(projectRoot)
+	baseline := &agent.Agent{Type: selection.Type}
+	if name, baselineSource := baseline.DispatchPreference(projectRoot); strings.EqualFold(name, a.selectedAgent) && baselineSource != "automatic detection" {
+		source = baselineSource
+	}
 	if a.selectedAgent == "" {
 		if len(options) == 0 {
 			return
@@ -233,7 +241,7 @@ func (a *UnifiedApp) initAgentSelectorWithOptions(projectRoot string, options []
 		source = "configured, not detected"
 	}
 	if filepath.IsAbs(source) {
-		source = "project config (scan project)"
+		source = "project config"
 	}
 	found := false
 	for i := range options {
@@ -572,9 +580,11 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ScanCodebaseMsg:
 		a.projectRoot = msg.Path
-		a.agentSelector = nil
-		a.initAgentSelector()
+		if options, err := LoadAgentOptions(msg.Path); err == nil {
+			a.initAgentSelectorWithOptions(msg.Path, options)
+		}
 		if a.codingAgent != nil {
+			a.codingAgent = a.codingAgent.Clone()
 			a.codingAgent.ProjectRoot = msg.Path
 		}
 		a.attachAgentSelector(a.currentView)

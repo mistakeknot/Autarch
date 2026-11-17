@@ -582,7 +582,7 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 					v.scanFiles = findProjectFiles(cwd)
 					v.loadingMsg = "Scanning codebase..."
 					v.scanAgentName = v.resolvedScanAgent(cwd)
-					v.chatPanel.AddMessage("system", "Analyzing with "+v.scanAgentName+"...")
+					v.announceScanAgent()
 					return v, v.onScanCodebase(cwd)
 				}
 				return v, nil
@@ -1051,7 +1051,7 @@ func (v *KickoffView) HandleSlashCommand(command string, args []string) tea.Cmd 
 			v.scanFiles = findProjectFiles(cwd)
 			v.loadingMsg = "Scanning codebase..."
 			v.scanAgentName = v.resolvedScanAgent(cwd)
-			v.chatPanel.AddMessage("system", "Analyzing with "+v.scanAgentName+"...")
+			v.announceScanAgent()
 			return v.onScanCodebase(cwd)
 		}
 	case "new", "n":
@@ -1080,5 +1080,14 @@ func (v *KickoffView) resolvedScanAgent(path string) string {
 	if err == nil {
 		return string(detected.Type)
 	}
-	return "agent unavailable"
+	return ""
+}
+
+// announceScanAgent describes availability without claiming an unavailable agent is running.
+func (v *KickoffView) announceScanAgent() {
+	if v.scanAgentName == "" {
+		v.chatPanel.AddMessage("system", "No coding agent available for scan.")
+		return
+	}
+	v.chatPanel.AddMessage("system", "Analyzing with "+v.scanAgentName+"...")
 }

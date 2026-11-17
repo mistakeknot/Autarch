@@ -29,6 +29,15 @@ type Agent struct {
 	explicitSelection bool
 }
 
+// Clone returns an independent snapshot for a command goroutine.
+func (a *Agent) Clone() *Agent {
+	if a == nil {
+		return nil
+	}
+	copy := *a
+	return &copy
+}
+
 // DetectAgent finds available coding agents on the system.
 // Preference order: claude > codex.
 // Uses the cached multi-method detector from pkg/agenttargets.
@@ -108,9 +117,13 @@ func (a *Agent) Generate(ctx context.Context, req GenerateRequest) (*GenerateRes
 // GenerateWithOutput runs a prompt and streams output to a callback.
 // This dispatches via agenttargets.Dispatch() regardless of agent type.
 func (a *Agent) GenerateWithOutput(ctx context.Context, req GenerateRequest, onOutput OutputCallback) (*GenerateResponse, error) {
-	cfg := a.dispatchConfig(a.ProjectRoot)
+	root := a.ProjectRoot
+	if root == "" {
+		root = "."
+	}
+	cfg := a.dispatchConfig(root)
 
-	handle, err := agenttargets.Dispatch(ctx, cfg, a.ProjectRoot, req.Prompt)
+	handle, err := agenttargets.Dispatch(ctx, cfg, root, req.Prompt)
 	if err != nil {
 		return nil, fmt.Errorf("%s execution failed: %w", cfg.PreferredAgent, err)
 	}

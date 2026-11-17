@@ -826,6 +826,7 @@ func (v *GurgehOnboardingView) navigateToStep(state tui.OnboardingState) tea.Cmd
 // --- Generation methods ---
 
 func (v *GurgehOnboardingView) generateSuggestions() tea.Cmd {
+	ag, ctx, desc := v.codingAgent.Clone(), v.ctx, v.projectDesc
 	if v.codingAgent == nil {
 		// No agent available, user will type manually
 		return nil
@@ -841,12 +842,13 @@ func (v *GurgehOnboardingView) generateSuggestions() tea.Cmd {
 			"List the key requirements (one per line).",
 		}
 
-		suggestions, err := agent.SuggestAnswers(v.ctx, v.codingAgent, v.projectDesc, questions)
+		suggestions, err := agent.SuggestAnswers(ctx, ag, desc, questions)
 		return tui.SuggestionsReadyMsg{Suggestions: suggestions, Error: err}
 	}
 }
 
 func (v *GurgehOnboardingView) generateEpicsWithAgent(spec tui.SpecAcceptedMsg) tea.Cmd {
+	ag, ctx := v.codingAgent.Clone(), v.ctx
 	if v.codingAgent == nil {
 		// No agent - show error with instructions
 		return func() tea.Msg {
@@ -863,7 +865,7 @@ func (v *GurgehOnboardingView) generateEpicsWithAgent(spec tui.SpecAcceptedMsg) 
 		Problem:      spec.Problem,
 		Platform:     spec.Platform,
 		Language:     spec.Language,
-		Requirements: spec.Requirements,
+		Requirements: append([]string(nil), spec.Requirements...),
 	}
 
 	stream := make(chan agentStreamEvent, 100)
@@ -880,7 +882,7 @@ func (v *GurgehOnboardingView) generateEpicsWithAgent(spec tui.SpecAcceptedMsg) 
 			}
 		}
 
-		proposals, err := agent.GenerateEpicsWithOutput(v.ctx, v.codingAgent, input, outputCallback)
+		proposals, err := agent.GenerateEpicsWithOutput(ctx, ag, input, outputCallback)
 		if err != nil {
 			stream <- agentStreamEvent{err: err}
 			return
@@ -895,6 +897,12 @@ func (v *GurgehOnboardingView) generateEpicsWithAgent(spec tui.SpecAcceptedMsg) 
 }
 
 func (v *GurgehOnboardingView) generateTasksWithAgent() tea.Cmd {
+	ag, ctx := v.codingAgent.Clone(), v.ctx
+	epicList := append([]epics.EpicProposal(nil), v.generatedEpics...)
+	for i := range epicList {
+		epicList[i].Dependencies = append([]string(nil), epicList[i].Dependencies...)
+		epicList[i].Stories = append([]epics.StoryProposal(nil), epicList[i].Stories...)
+	}
 	if v.codingAgent == nil {
 		// No agent - show error with instructions
 		return func() tea.Msg {
@@ -919,7 +927,7 @@ func (v *GurgehOnboardingView) generateTasksWithAgent() tea.Cmd {
 			}
 		}
 
-		taskList, err := agent.GenerateTasksWithOutput(v.ctx, v.codingAgent, v.generatedEpics, outputCallback)
+		taskList, err := agent.GenerateTasksWithOutput(ctx, ag, epicList, outputCallback)
 		if err != nil {
 			stream <- agentStreamEvent{err: err}
 			return
@@ -937,6 +945,11 @@ func (v *GurgehOnboardingView) generateTasksWithAgent() tea.Cmd {
 
 func (v *GurgehOnboardingView) scanCodebase(path string) tea.Cmd {
 	cfg := v.codingAgent.ApplyDispatchConfig(exploration.Config(path))
+	ctx, explore := v.ctx, v.explore
+	name := cfg.PreferredAgent
+	if name == "" {
+		name = "coding agent"
+	}
 	// Create a channel for progress updates
 	progressChan := make(chan agent.ScanProgress, 100)
 
@@ -946,10 +959,10 @@ func (v *GurgehOnboardingView) scanCodebase(path string) tea.Cmd {
 		defer close(progressChan)
 
 		// Send initial progress to TUI
-		progressChan <- agent.ScanProgress{Step: "Exploring", Details: "Running " + cfg.PreferredAgent + "..."}
+		progressChan <- agent.ScanProgress{Step: "Exploring", Details: "Running " + name + "..."}
 
 		// Run exploration (progress logged via slog)
-		exploreResult, sessionID, err := v.explore(v.ctx, path, cfg)
+		exploreResult, sessionID, err := explore(ctx, path, cfg)
 
 		if err != nil {
 			progressChan <- agent.ScanProgress{Step: "_error", Details: err.Error()}
