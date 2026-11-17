@@ -1,10 +1,43 @@
 package agenttargets
 
 import (
+	"bytes"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
+
+// Recovery requires a complete bounded stream. An interior first LF would
+// require the reference's third, post-LF matching region, so decline it.
+func recoverStderrComplete(history []byte) (string, bool) {
+	if len(history) < stderrTailBytes || len(history) > stderrHistoryBytes {
+		return "", false
+	}
+	if first := bytes.IndexByte(history, '\n'); first >= 0 && first != len(history)-1 {
+		return "", false
+	}
+	whole := normalizeStderr(history, 0)
+	base := len(history) - stderrTailBytes
+	window := normalizeStderr(history[base:], base)
+	diff := make([]int32, len(history)+1)
+	for _, region := range []stderrRegion{whole, window} {
+		maskStderrNew(diff, region)
+		for _, span := range stderrToken.FindAllIndex(region.text, -1) {
+			maskStderrSpan(diff, region, span[0], span[1])
+		}
+	}
+	for i := 1; i < len(diff); i++ {
+		diff[i] += diff[i-1]
+	}
+	rendered := renderStderrMasked(history, 0, whole, diff)
+	if strings.TrimSpace(rendered) == "" {
+		return "", false
+	}
+	return rendered, true
+}
+
+// Tests observe coverage and emitted source runes; production leaves this nil.
+var stderrRenderObserver func(region stderrRegion, mask []int32, emitted []int32)
 
 // stderrRegion preserves provenance through ANSI removal and UTF-8 repair.
 // Offsets are absolute in the retained raw window, including for region (a).
@@ -85,6 +118,12 @@ func renderStderr(raw []byte, start int) string {
 // Rendering hides every byte main's uncut redaction hides. The final 4096-byte
 // cut can keep text that main's cut dropped when additional masking shortens it.
 func renderStderrMasked(raw []byte, start int, region stderrRegion, mask []int32) string {
+	observer := stderrRenderObserver
+	var observedSources []int32
+	if observer != nil {
+		observer(region, mask, nil)
+		observedSources = make([]int32, 0, len(region.source))
+	}
 	frames := stderrFrameStarts(raw, start, region.ansi)
 	var out strings.Builder
 	out.Grow(len(region.text))
@@ -111,10 +150,16 @@ func renderStderrMasked(raw []byte, start int, region stderrRegion, mask []int32
 				emitted = true
 			}
 		} else if selected {
+			if observer != nil {
+				observedSources = append(observedSources, region.source[i:i+n]...)
+			}
 			out.Write(region.text[i : i+n])
 		}
 		hiddenRun = hidden
 		i += n
+	}
+	if observer != nil && len(observedSources) != 0 {
+		observer(region, mask, observedSources)
 	}
 	text := out.String()
 	if len(text) > stderrTailBytes {

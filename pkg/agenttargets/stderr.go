@@ -11,8 +11,8 @@ import (
 const stderrTailBytes = 4096
 const stderrHistoryBytes = 8192
 
-// stderrTail retains only the last bytes. The process reader owns it until Wait
-// completes, so callers must only inspect it after that reader has finished.
+// stderrTail retains a trailing window and, lazily, bounded complete history.
+// The process reader owns it until Wait completes; inspect only after it joins.
 type stderrTail struct {
 	data        []byte
 	started     bool
@@ -125,5 +125,14 @@ func processError(err error, timedOut bool, tail *stderrTail) error {
 	if len(tail.data) == 0 {
 		return err
 	}
-	return fmt.Errorf("%w (timed out: %t): stderr: %s", err, timedOut, sanitizedStderr(tail.data))
+	return fmt.Errorf("%w (timed out: %t): stderr: %s", err, timedOut, sanitizedStderrTail(tail))
+}
+
+func sanitizedStderrTail(t *stderrTail) string {
+	if history, ok := t.completeHistory(); ok {
+		if text, accepted := recoverStderrComplete(history); accepted {
+			return text
+		}
+	}
+	return sanitizedStderr(t.data)
 }
