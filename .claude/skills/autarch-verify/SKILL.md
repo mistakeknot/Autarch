@@ -64,9 +64,11 @@ setup and teardown; a label alone does not establish that caches were warm.
 Run `go test -race ./scripts/verify` for driver tests. To exercise the three real
 browser fault oracles, set `AUTARCH_VERIFY_ORACLE_FIXTURES` to an external JSON
 file containing `cache`, `app` and `seed`, then run
-`go test -race ./scripts/verify -run TestPickClickPlantedFaults -timeout 25m`.
+`go test -race ./scripts/verify -run TestPickClickPlantedFaults -timeout 30m`.
 The suite first requires a passing control, then plants each fault in a
 standalone scratch repository and requires FAIL at the expected assertion.
+The routing fault also requires a passing control with its second-recipient
+fixture, and every fault's scenario hash must match its healthy control.
 An oracle skip leaves acceptance unverified. Run the full Go race suite and the
 plugin typecheck, lint and vitest at the reported head as well.
 
