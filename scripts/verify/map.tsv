@@ -1,0 +1,204 @@
+# Source: bead mk-05q0j.3. Git :(glob) patterns; all shared files remain partial.
+# glob	journey	coverage	implementation	label	deadline seconds	asserted behavior
+integrations/bb-plugin-autarch/**/*.ts	home-pick	partial	implemented	new	300	Filing, persisted picks and wake delivery; other behavior remains uncovered
+integrations/bb-plugin-autarch/**/*.tsx	home-pick	partial	implemented	new	300	Browser pick and archive presentation; other behavior remains uncovered
+internal/homefooter/**	cli-needsmk-footer	partial	deferred	regression	120	Footer output and owned database rows
+internal/homeask/*budget*.go	cli-needsmk-budget	partial	deferred	regression	120	Budget enforcement
+internal/homeask/filer.go	cli-needsmk-file	partial	deferred	regression	120	File request rows and output
+internal/homeask/filer.go	home-pick	partial	implemented	new	300	CLI filing before the browser pick
+internal/homeask/filing*.go	cli-needsmk-file	partial	deferred	regression	120	Filing preconditions and state transitions
+internal/homeask/filing*.go	home-pick	partial	implemented	new	300	CLI filing before the browser pick
+internal/homeask/*release*.go	cli-needsmk-release	partial	deferred	regression	120	Release held request
+internal/homeask/*cancel*.go	cli-needsmk-cancel-held	partial	deferred	regression	120	Cancel held request
+internal/homeask/adopt.go	cli-needsmk-adopt-move	partial	deferred	regression	120	Adopt a move onto a card
+internal/homeask/held*.go	cli-needsmk-file	partial	deferred	regression	120	Shared held-request state
+internal/homeask/held*.go	cli-needsmk-budget	partial	deferred	regression	120	Shared held-request state
+internal/homeask/held*.go	cli-needsmk-release	partial	deferred	regression	120	Shared held-request state
+internal/homeask/held*.go	cli-needsmk-cancel-held	partial	deferred	regression	120	Shared held-request state
+internal/**/tui/**	tui-navigation	partial	deferred	new	180	Tool TUI readiness, dimensions and error propagation
+internal/**/tui/**	tui-resize	partial	deferred	new	180	Tool TUI readiness, dimensions and error propagation
+internal/**/tui/**	tui-child-error	partial	deferred	new	180	Tool TUI readiness, dimensions and error propagation
+cmd/autarch/serve*.go	home-pick	partial	implemented	new	300	Shared serve, build or plugin wiring
+cmd/autarch/serve*.go	real-bb-regression	partial	deferred	regression	600	Shared serve, build or plugin wiring
+integrations/bb-plugin-autarch/scripts/**	home-pick	partial	implemented	new	300	Shared serve, build or plugin wiring
+integrations/bb-plugin-autarch/scripts/**	real-bb-regression	partial	deferred	regression	600	Shared serve, build or plugin wiring
+integrations/bb-plugin-autarch/tsconfig*.json	home-pick	partial	implemented	new	300	Shared serve, build or plugin wiring
+integrations/bb-plugin-autarch/tsconfig*.json	real-bb-regression	partial	deferred	regression	600	Shared serve, build or plugin wiring
+integrations/bb-plugin-autarch/app.tsx	home-pick	partial	implemented	new	300	CLI filing, browser pick, persistence, correct recipient, comment, reload and archive
+integrations/bb-plugin-autarch/server.ts	home-pick	partial	implemented	new	300	CLI to browser pick delivery
+integrations/bb-plugin-autarch/ui/asks.tsx	home-pick	partial	implemented	new	300	Option button dispatch
+integrations/bb-plugin-autarch/ui/archive.tsx	home-pick	partial	implemented	new	300	Settled card after reload
+integrations/bb-plugin-autarch/**/*.ts	home-stale-pick	partial	deferred	new	300	Superseded card refuses pick and delivers nothing
+integrations/bb-plugin-autarch/**/*.tsx	home-stale-pick	partial	deferred	new	300	Stale browser action refuses pick
+integrations/bb-plugin-autarch/**/*.ts	home-project-isolation	partial	deferred	new	300	Project filtering and recipient isolation
+integrations/bb-plugin-autarch/**/*.tsx	home-project-isolation	partial	deferred	new	300	Project view isolation
+integrations/bb-plugin-autarch/server.ts	real-bb-regression	partial	deferred	regression	600	Filing, polling, panel isolation, instruction and vizier delivery
+integrations/bb-plugin-autarch/app.tsx	real-bb-regression	partial	deferred	regression	600	SDK browser and panel wiring
+integrations/bb-plugin-autarch/e2e/**	home-pick	partial	implemented	new	300	Head harness and scenarios
+integrations/bb-plugin-autarch/package*.json	home-pick	partial	implemented	new	300	Plugin and harness dependencies
+integrations/bb-plugin-autarch/package*.json	real-bb-regression	partial	deferred	regression	600	BB dependency compatibility
+integrations/bb-plugin-autarch/package*.json	home-stale-pick	partial	deferred	new	300	Stale pick dependencies
+integrations/bb-plugin-autarch/package*.json	home-project-isolation	partial	deferred	new	300	Project isolation dependencies
+integrations/bb-plugin-autarch/*adapter*	real-bb-regression	partial	deferred	regression	600	Thread and SDK adapters
+internal/homeask/cardfiler*.go	cli-needsmk-file	partial	deferred	regression	120	File card through built CLI and assert rows and output
+internal/homeask/budget*.go	cli-needsmk-budget	partial	deferred	regression	120	Budget enforcement rows and output
+internal/homeask/release*.go	cli-needsmk-release	partial	deferred	regression	120	Release held ask
+internal/homeask/cancel*.go	cli-needsmk-cancel-held	partial	deferred	regression	120	Cancel held ask
+internal/homeask/*footer*.go	cli-needsmk-footer	partial	deferred	regression	120	Footer rows and output
+internal/homeask/*move*.go	cli-needsmk-adopt-move	partial	deferred	regression	120	Adopt move onto owned card
+cmd/autarch/needsmk*.go	home-pick	partial	implemented	new	300	CLI filing boundary
+cmd/autarch/needsmk*.go	cli-needsmk-file	partial	deferred	regression	120	CLI file dispatch
+cmd/autarch/needsmk*.go	cli-needsmk-footer	partial	deferred	regression	120	CLI footer dispatch
+cmd/autarch/needsmk*.go	cli-needsmk-budget	partial	deferred	regression	120	CLI budget dispatch
+cmd/autarch/needsmk*.go	cli-needsmk-release	partial	deferred	regression	120	CLI release dispatch
+cmd/autarch/needsmk*.go	cli-needsmk-cancel-held	partial	deferred	regression	120	CLI cancel-held dispatch
+cmd/autarch/needsmk*.go	cli-needsmk-adopt-move	partial	deferred	regression	120	CLI adopt-move dispatch
+internal/tui/**	tui-navigation	partial	deferred	new	180	Semantic readiness and navigation at wide and narrow sizes
+internal/tui/**	tui-resize	partial	deferred	new	180	ANSI-safe resize rendering
+internal/tui/**	tui-child-error	partial	deferred	new	180	Child errors reach the user
+pkg/tui/**	tui-navigation	partial	deferred	new	180	Shared TUI navigation
+pkg/tui/**	tui-resize	partial	deferred	new	180	Shared TUI dimensions
+pkg/tui/**	tui-child-error	partial	deferred	new	180	Shared error propagation
+go.mod	home-pick	partial	implemented	new	300	Shared contract or verifier dependency; coverage requires review
+go.mod	home-stale-pick	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+go.mod	home-project-isolation	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+go.mod	cli-needsmk-file	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+go.mod	cli-needsmk-footer	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+go.mod	cli-needsmk-budget	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+go.mod	cli-needsmk-release	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+go.mod	cli-needsmk-cancel-held	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+go.mod	cli-needsmk-adopt-move	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+go.mod	real-bb-regression	partial	deferred	regression	600	Shared contract or verifier dependency; coverage requires review
+go.mod	tui-navigation	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+go.mod	tui-resize	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+go.mod	tui-child-error	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+go.sum	home-pick	partial	implemented	new	300	Shared contract or verifier dependency; coverage requires review
+go.sum	home-stale-pick	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+go.sum	home-project-isolation	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+go.sum	cli-needsmk-file	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+go.sum	cli-needsmk-footer	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+go.sum	cli-needsmk-budget	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+go.sum	cli-needsmk-release	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+go.sum	cli-needsmk-cancel-held	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+go.sum	cli-needsmk-adopt-move	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+go.sum	real-bb-regression	partial	deferred	regression	600	Shared contract or verifier dependency; coverage requires review
+go.sum	tui-navigation	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+go.sum	tui-resize	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+go.sum	tui-child-error	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+cmd/autarch/main.go	home-pick	partial	implemented	new	300	Shared contract or verifier dependency; coverage requires review
+cmd/autarch/main.go	home-stale-pick	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+cmd/autarch/main.go	home-project-isolation	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+cmd/autarch/main.go	cli-needsmk-file	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+cmd/autarch/main.go	cli-needsmk-footer	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+cmd/autarch/main.go	cli-needsmk-budget	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+cmd/autarch/main.go	cli-needsmk-release	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+cmd/autarch/main.go	cli-needsmk-cancel-held	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+cmd/autarch/main.go	cli-needsmk-adopt-move	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+cmd/autarch/main.go	real-bb-regression	partial	deferred	regression	600	Shared contract or verifier dependency; coverage requires review
+cmd/autarch/main.go	tui-navigation	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+cmd/autarch/main.go	tui-resize	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+cmd/autarch/main.go	tui-child-error	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+internal/homeask/schema*.go	home-pick	partial	implemented	new	300	Shared contract or verifier dependency; coverage requires review
+internal/homeask/schema*.go	home-stale-pick	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+internal/homeask/schema*.go	home-project-isolation	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+internal/homeask/schema*.go	cli-needsmk-file	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+internal/homeask/schema*.go	cli-needsmk-footer	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+internal/homeask/schema*.go	cli-needsmk-budget	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+internal/homeask/schema*.go	cli-needsmk-release	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+internal/homeask/schema*.go	cli-needsmk-cancel-held	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+internal/homeask/schema*.go	cli-needsmk-adopt-move	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+internal/homeask/schema*.go	real-bb-regression	partial	deferred	regression	600	Shared contract or verifier dependency; coverage requires review
+internal/homeask/schema*.go	tui-navigation	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+internal/homeask/schema*.go	tui-resize	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+internal/homeask/schema*.go	tui-child-error	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+internal/homeask/types.go	home-pick	partial	implemented	new	300	Shared contract or verifier dependency; coverage requires review
+internal/homeask/types.go	home-stale-pick	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+internal/homeask/types.go	home-project-isolation	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+internal/homeask/types.go	cli-needsmk-file	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+internal/homeask/types.go	cli-needsmk-footer	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+internal/homeask/types.go	cli-needsmk-budget	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+internal/homeask/types.go	cli-needsmk-release	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+internal/homeask/types.go	cli-needsmk-cancel-held	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+internal/homeask/types.go	cli-needsmk-adopt-move	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+internal/homeask/types.go	real-bb-regression	partial	deferred	regression	600	Shared contract or verifier dependency; coverage requires review
+internal/homeask/types.go	tui-navigation	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+internal/homeask/types.go	tui-resize	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+internal/homeask/types.go	tui-child-error	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+scripts/verify/**	home-pick	partial	implemented	new	300	Shared contract or verifier dependency; coverage requires review
+scripts/verify/**	home-stale-pick	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+scripts/verify/**	home-project-isolation	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+scripts/verify/**	cli-needsmk-file	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+scripts/verify/**	cli-needsmk-footer	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+scripts/verify/**	cli-needsmk-budget	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+scripts/verify/**	cli-needsmk-release	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+scripts/verify/**	cli-needsmk-cancel-held	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+scripts/verify/**	cli-needsmk-adopt-move	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+scripts/verify/**	real-bb-regression	partial	deferred	regression	600	Shared contract or verifier dependency; coverage requires review
+scripts/verify/**	tui-navigation	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+scripts/verify/**	tui-resize	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+scripts/verify/**	tui-child-error	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+.claude/skills/autarch-verify/**	home-pick	partial	implemented	new	300	Shared contract or verifier dependency; coverage requires review
+.claude/skills/autarch-verify/**	home-stale-pick	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+.claude/skills/autarch-verify/**	home-project-isolation	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+.claude/skills/autarch-verify/**	cli-needsmk-file	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+.claude/skills/autarch-verify/**	cli-needsmk-footer	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+.claude/skills/autarch-verify/**	cli-needsmk-budget	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+.claude/skills/autarch-verify/**	cli-needsmk-release	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+.claude/skills/autarch-verify/**	cli-needsmk-cancel-held	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+.claude/skills/autarch-verify/**	cli-needsmk-adopt-move	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+.claude/skills/autarch-verify/**	real-bb-regression	partial	deferred	regression	600	Shared contract or verifier dependency; coverage requires review
+.claude/skills/autarch-verify/**	tui-navigation	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+.claude/skills/autarch-verify/**	tui-resize	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+.claude/skills/autarch-verify/**	tui-child-error	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+AGENTS.md	home-pick	partial	implemented	new	300	Shared contract or verifier dependency; coverage requires review
+AGENTS.md	home-stale-pick	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+AGENTS.md	home-project-isolation	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+AGENTS.md	cli-needsmk-file	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+AGENTS.md	cli-needsmk-footer	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+AGENTS.md	cli-needsmk-budget	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+AGENTS.md	cli-needsmk-release	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+AGENTS.md	cli-needsmk-cancel-held	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+AGENTS.md	cli-needsmk-adopt-move	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+AGENTS.md	real-bb-regression	partial	deferred	regression	600	Shared contract or verifier dependency; coverage requires review
+AGENTS.md	tui-navigation	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+AGENTS.md	tui-resize	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+AGENTS.md	tui-child-error	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+CLAUDE.md	home-pick	partial	implemented	new	300	Shared contract or verifier dependency; coverage requires review
+CLAUDE.md	home-stale-pick	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+CLAUDE.md	home-project-isolation	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+CLAUDE.md	cli-needsmk-file	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+CLAUDE.md	cli-needsmk-footer	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+CLAUDE.md	cli-needsmk-budget	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+CLAUDE.md	cli-needsmk-release	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+CLAUDE.md	cli-needsmk-cancel-held	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+CLAUDE.md	cli-needsmk-adopt-move	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+CLAUDE.md	real-bb-regression	partial	deferred	regression	600	Shared contract or verifier dependency; coverage requires review
+CLAUDE.md	tui-navigation	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+CLAUDE.md	tui-resize	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+CLAUDE.md	tui-child-error	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+CODING_STANDARDS.md	home-pick	partial	implemented	new	300	Shared contract or verifier dependency; coverage requires review
+CODING_STANDARDS.md	home-stale-pick	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+CODING_STANDARDS.md	home-project-isolation	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+CODING_STANDARDS.md	cli-needsmk-file	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+CODING_STANDARDS.md	cli-needsmk-footer	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+CODING_STANDARDS.md	cli-needsmk-budget	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+CODING_STANDARDS.md	cli-needsmk-release	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+CODING_STANDARDS.md	cli-needsmk-cancel-held	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+CODING_STANDARDS.md	cli-needsmk-adopt-move	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+CODING_STANDARDS.md	real-bb-regression	partial	deferred	regression	600	Shared contract or verifier dependency; coverage requires review
+CODING_STANDARDS.md	tui-navigation	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+CODING_STANDARDS.md	tui-resize	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+CODING_STANDARDS.md	tui-child-error	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+config/**	home-pick	partial	implemented	new	300	Shared contract or verifier dependency; coverage requires review
+config/**	home-stale-pick	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+config/**	home-project-isolation	partial	deferred	new	300	Shared contract or verifier dependency; coverage requires review
+config/**	cli-needsmk-file	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+config/**	cli-needsmk-footer	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+config/**	cli-needsmk-budget	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+config/**	cli-needsmk-release	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+config/**	cli-needsmk-cancel-held	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+config/**	cli-needsmk-adopt-move	partial	deferred	regression	120	Shared contract or verifier dependency; coverage requires review
+config/**	real-bb-regression	partial	deferred	regression	600	Shared contract or verifier dependency; coverage requires review
+config/**	tui-navigation	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+config/**	tui-resize	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
+config/**	tui-child-error	partial	deferred	new	180	Shared contract or verifier dependency; coverage requires review
