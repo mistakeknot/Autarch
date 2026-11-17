@@ -572,14 +572,38 @@ describe("sdkAdapter against the real threads.send contract", () => {
     const seen: unknown[] = [];
     const threads = {
       send: async (a: { input: unknown }) => {
-        seen.push(a.input);
+        seen.push(a);
         return { delivery: "sent" };
       },
       queuedMessages: { list: async () => [], delete: async () => undefined },
       events: { list: async () => [] },
     };
     await sdkAdapter(threads as never).send({ threadId: "thr_x", input: "hello", mode: "queue-if-active" });
-    expect(seen).toEqual([[{ type: "text", text: "hello" }]]);
+    expect(seen).toStrictEqual([{ threadId: "thr_x", input: [{ type: "text", text: "hello" }], mode: "queue-if-active" }]);
+  });
+
+  it.each([
+    { name: "full", attribution: { wakeCause: "card_pick" as const, wakeRef: "pick-123" } },
+    { name: "cause only", attribution: { wakeCause: "card_pick" as const } },
+    { name: "reference only", attribution: { wakeRef: "pick-123" } },
+    { name: "none", attribution: {} },
+  ])("sends exactly the attribution keys for $name attribution", async ({ attribution }) => {
+    const seen: unknown[] = [];
+    const threads = {
+      send: async (a: unknown) => {
+        seen.push(a);
+        return { delivery: "sent" };
+      },
+      queuedMessages: { list: async () => [], delete: async () => undefined },
+      events: { list: async () => [] },
+    };
+    await sdkAdapter(threads).send({ threadId: "thr_x", input: "hello", mode: "queue-if-active", ...attribution });
+    expect(seen).toStrictEqual([{
+      threadId: "thr_x",
+      input: [{ type: "text", text: "hello" }],
+      mode: "queue-if-active",
+      ...attribution,
+    }]);
   });
 });
 
