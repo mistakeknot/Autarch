@@ -102,14 +102,26 @@ they do not change live policy, concurrency limits, inboxes or throttle files.
 
 Every completed shadow or live decision appends to `quota_governor_history` in
 this plugin's store. The `quotaGovernor` read model exposes `history`, ordered
-oldest first: `time` (Unix milliseconds), `mode`, `level`, `new_level`, `pace`,
-`note`, and `script_level`. The script level is read from its compatibility
-throttle file during that run; missing, unreadable or invalid levels are null.
-Unknown pace is null. `new_level` is the decision's target, including when an
+by insertion ID: `time` (Unix milliseconds), `mode`, `level`, `new_level`, `pace`,
+`note`, and `script_level`. In shadow mode, `script_level` is the script's last
+`throttle.json` write,
+which can lag by up to one timer period. In live mode, the legacy timer is
+inactive and this is the plugin's own previous compatibility-file write. A
+one-row disagreement can therefore reflect write timing. Missing, unreadable
+or invalid levels are null.
+Unknown pace is null. Default RPC input `null` returns only the current mode's
+last 48 hours, capped at 288 rows. Input `{ "history": "full" }` returns the full
+retained seven-day window across modes, including the clock-jump safety rows.
+The full read also works while off and creates no tables. History is omitted
+from the persisted `view` row. `new_level` is the decision's target, including
+when an
 apply subsequently fails; the existing decision and state fields still report
 failures and the committed level. Holds are recorded too. Each append deletes
-entries older than seven days, retaining the exact boundary. Off mode appends
-and prunes nothing. Runs refused by host/timer checks or failing before a
+entries older than seven days, retaining the exact boundary and at least the
+latest 1,008 decisions (one week at the normal cadence). The minimum survives
+large forward clock jumps; backward jumps never reorder rows. Full history can
+therefore include older or apparently future timestamps around clock changes.
+Off mode appends and prunes nothing. Runs refused by host/timer checks or failing before a
 decision do not create history entries.
 
 The sanitized `governor-zero-pace.json` fixture records a real dry run from
