@@ -34,7 +34,7 @@ describe("answer routing: which thread a card's ruling goes to", () => {
     );
     const sdk = new FakeSdk();
     await new WakeLoop(r.svc, sdk).drain();
-    expect(sdk.sent).toEqual([{ threadId: "thr_a", input: `[home-msg ${wake.op} #1] ${wake.payload}`, mode: "queue-if-active" }]);
+    expect(sdk.sent).toEqual([{ threadId: "thr_a", input: `[home-msg ${wake.op} #1] ${wake.payload}`, mode: "queue-if-active", wakeCause: "card_pick", wakeRef: wake.op }]);
     expect(wakeOf(r, g1.id).state).toBe("done");
   });
 

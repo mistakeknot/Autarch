@@ -70,8 +70,8 @@ describe("wake sends", () => {
     const b = await wake("thr-b");
     await loop.drain();
     expect(sdk.sent).toHaveLength(2);
-    expect(sdk.sent[0]).toEqual({ threadId: "thr-a", input: `[home-msg ${a.op} #1] ${a.payload}`, mode: "queue-if-active" });
-    expect(sdk.sent[1]).toEqual({ threadId: "thr-b", input: `[home-msg ${b.op} #1] ${b.payload}`, mode: "queue-if-active" });
+    expect(sdk.sent[0]).toEqual({ threadId: "thr-a", input: `[home-msg ${a.op} #1] ${a.payload}`, mode: "queue-if-active", wakeCause: "card_pick", wakeRef: a.op });
+    expect(sdk.sent[1]).toEqual({ threadId: "thr-b", input: `[home-msg ${b.op} #1] ${b.payload}`, mode: "queue-if-active", wakeCause: "card_pick", wakeRef: b.op });
     expect(row(a.id).state).toBe("done");
     expect(svc.store.attempts(a.id)[0]).toMatchObject({ state: "delivered", evidence: "m1" });
   });
@@ -769,3 +769,50 @@ describe("archived recipient routing (Stalled addendum)", () => {
     expect(row(a.id).state).toBe("dismissed");
   });
 });
+
+it("forwards pick attribution through queue admission and preserves it on retry and reroute", async () => {
+  const w = await wake();
+  sdk.script = [{ kind: "throw", err: econnrefused() }, { kind: "throw", err: archived() }, { kind: "queue" }];
+  loop = new WakeLoop(svc, sdk, async () => "thr-successor");
+  await loop.drain();
+  advance(3_600_000);
+  await loop.drain();
+  expect(sdk.sent.length).toBe(3);
+  for (const send of sdk.sent) expect(send).toMatchObject({ wakeCause: "card_pick", wakeRef: w.op });
+  expect(sdk.sent[2]!.threadId).toBe("thr-successor");
+  expect(row(w.id).state).toBe("queued");
+  expect(sdk.sent.every(send => !("requestId" in send))).toBe(true);
+});
+
+it("records mixed notice digests as unknown", async () => {
+  env.batch.noticeWindowMs = 3_600_000;
+  restart();
+  svc.store.insertObligations("legacy", [
+    { id: "ob:notice:one", kind: "notice", op: "notice:one:thr-a", recipient: "thr-a", payload: "ruling" },
+    { id: "ob:unreadable:two", kind: "notice", op: "unreadable:two", recipient: "thr-a", payload: "operational" },
+  ]);
+  advance(3_600_000);
+  await loop.drain();
+  expect(sdk.sent).toHaveLength(1);
+  expect(sdk.sent[0]).toMatchObject({ wakeCause: "unknown" });
+  expect(sdk.sent[0]!.input).toContain("ruling");
+  expect(sdk.sent[0]!.input).toContain("operational");
+});
+
+it("the adapter forwards cause and stable reference without a client request ID", async () => {
+  const seen: unknown[] = [];
+  const adapter = sdkAdapter({ send: async a => { seen.push(a); return { delivery: "sent" }; },
+    queuedMessages: { list: async () => [], delete: async () => undefined }, events: { list: async () => [] } });
+  await adapter.send({ threadId: "thr-a", input: "hello", mode: "queue-if-active", wakeCause: "timer", wakeRef: "hold-end:opaque" });
+  expect(seen).toEqual([{ threadId: "thr-a", input: [{ type: "text", text: "hello" }], mode: "queue-if-active", wakeCause: "timer", wakeRef: "hold-end:opaque" }]);
+});
+
+it.each([["hold-ended", "hold-end:t:n", "timer"], ["note", "note:t:n", "message"], ["wake", "wake:d:p", "card_pick"], ["notice", "legacy-op", "unknown"]])(
+  "sends durable %s provenance after reopening", async (kind, op, wakeCause) => {
+    svc.store.insertObligations("legacy", [{ id: `ob:${op}`, kind, op, recipient: "thr-a", payload: "opaque payload" }]);
+    restart();
+    await loop.drain();
+    expect(sdk.sent).toHaveLength(1);
+    expect(sdk.sent[0]).toMatchObject({ wakeCause, wakeRef: op });
+  },
+);
