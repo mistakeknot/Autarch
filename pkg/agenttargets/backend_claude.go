@@ -62,6 +62,9 @@ func (b *ClaudeBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wo
 		return nil, fmt.Errorf("claude stdout pipe: %w", err)
 	}
 
+	var stderr stderrTail
+	cmd.Stderr = &stderr // os/exec drains this concurrently with stdout.
+
 	startedAt := time.Now()
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -120,6 +123,7 @@ func (b *ClaudeBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wo
 				TimedOut: runCtx.Err() == context.DeadlineExceeded,
 				Duration: duration,
 			}
+			waitErr = processError(cmdErr, result.TimedOut, &stderr)
 			close(doneCh)
 		}()
 

@@ -50,6 +50,10 @@ func Explore(ctx context.Context, cwd string) (map[string]any, string, error) {
 		}
 	}
 
+	if _, err := handle.Wait(); err != nil {
+		return nil, "", err
+	}
+
 	if isError {
 		return nil, "", fmt.Errorf("agent returned error: %s", finalResult)
 	}

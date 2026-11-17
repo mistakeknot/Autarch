@@ -71,6 +71,10 @@ func CollectResult(handle *StreamHandle) (string, string, error) {
 		}
 	}
 
+	if _, err := handle.Wait(); err != nil {
+		return "", sessionID, err
+	}
+
 	if resultIsError {
 		return "", sessionID, fmt.Errorf("agent returned error: %s", resultText)
 	}

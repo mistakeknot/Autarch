@@ -52,6 +52,7 @@ func (b *CodexBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wor
 		return nil, fmt.Errorf("codex stderr pipe: %w", err)
 	}
 
+	var stderr stderrTail
 	startedAt := time.Now()
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -143,6 +144,7 @@ func (b *CodexBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wor
 				TimedOut: runCtx.Err() == context.DeadlineExceeded,
 				Duration: duration,
 			}
+			waitErr = processError(cmdErr, result.TimedOut, &stderr)
 			close(doneCh)
 		}()
 
@@ -152,6 +154,7 @@ func (b *CodexBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wor
 		for {
 			n, err := stderrPipe.Read(buf)
 			if n > 0 {
+				_, _ = stderr.Write(buf[:n])
 				for _, b := range buf[:n] {
 					if b == '\n' || b == '\r' {
 						if line.Len() > 0 {
@@ -162,7 +165,7 @@ func (b *CodexBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wor
 								Backend: "codex",
 							}:
 							case <-runCtx.Done():
-								return
+								// Keep draining stderr after cancellation.
 							}
 							line.Reset()
 						}
@@ -179,7 +182,7 @@ func (b *CodexBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wor
 						Backend: "codex",
 					}:
 					case <-runCtx.Done():
-						return
+						// Keep draining stderr after cancellation.
 					}
 				}
 			}
