@@ -34,13 +34,13 @@ var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|(?:ghp_|gho_|ghs_|ghu
 
 // Match complete credential names at field boundaries, rather than arbitrary
 // words ending in "key". Go's regexp engine guarantees linear-time matching.
-var stderrAssignment = regexp.MustCompile(`(?i)(^|[ \t{(\[,?&"'\x5c])(?:token|key|secret|password|passwd|authorization|cookie|(?:access|refresh|id)[_-]?token|client[_-]?secret|secretKey|(?:[a-z0-9]+[_-])+(?:token|key|secret|password|passwd)|api[_-]?key|x-api-key)\\?["']?[ \t]*[=:][ \t]*(?:\\".*?(?:\\"|$)|"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s&,;}\]\)]+(?:[ \t][^\s&,;}\]\)]+)*)`)
+var stderrAssignment = regexp.MustCompile(`(?i)(^|[ \t{(\[,?&"'\x5c])(?:token|key|secret|password|passwd|authorization|cookie|(?:access|refresh|id)[_-]?token|client[_-]?secret|secretKey|(?:[a-z0-9]+[_-])+(?:token|key|secret|password|passwd)|api[_-]?key|x-api-key)\\?["']?[ \t]*([=:])[ \t]*(\\".*?(?:\\"|$)|"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s&,;}\]\)]+(?:[ \t][^\s&,;}\]\)]+)*)`)
 var stderrFlags = regexp.MustCompile(`(?i)(^|[ \t])--(?:api-key|token|password|passwd|secret)[ \t]+[^\s]+`)
 
 // Preserve the original header coverage: arbitrary schemes and embedded
 // Authorization/x-api-key headers are sensitive through the end of the frame.
 var stderrHeader = regexp.MustCompile(`(?i)(?:Authorization|x-api-key|Set-Cookie|Cookie)[ \t]*:[^\r\n]*`)
-var stderrURLCredential = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)([^/\s:@]+)(?::[^/\s@]*)?@`)
+var stderrURLCredential = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]*@`)
 
 func redactStderrFrame(text string) string {
 	text = stderrToken.ReplaceAllString(text, "[REDACTED]")
@@ -49,16 +49,14 @@ func redactStderrFrame(text string) string {
 	text = stderrAssignment.ReplaceAllStringFunc(text, func(field string) string {
 		// These diagnostic phrases describe a credential lookup failure rather
 		// than a credential value. Quoted values are always redacted.
-		if i := strings.IndexByte(field, ':'); i >= 0 {
-			value := strings.TrimSpace(field[i+1:])
+		parts := stderrAssignment.FindStringSubmatch(field)
+		if parts[2] == ":" {
+			value := strings.TrimSpace(parts[3])
 			if value == "unknown field" || value == "not found in vault" || value == "expired" {
 				return field
 			}
 		}
-		prefix := ""
-		if strings.ContainsRune(" \t{([,?&\"'\\", rune(field[0])) {
-			prefix = field[:1]
-		}
+		prefix := parts[1]
 		return prefix + "[REDACTED]"
 	})
 	return stderrURLCredential.ReplaceAllStringFunc(text, func(value string) string {
@@ -76,6 +74,9 @@ func sanitizedStderr(data []byte) string {
 	// A full tail may start inside a credential keyword or its value. Drop
 	// the entire first frame when its boundary is available.
 	if len(data) >= stderrTailBytes {
+		// A final line terminator does not establish a complete next frame.
+		// Search only within the content so a single long line uses fallback.
+		data = []byte(strings.TrimRight(string(data), "\r\n"))
 		if end := strings.IndexAny(string(data), "\r\n"); end >= 0 {
 			data = data[end+1:]
 		} else {

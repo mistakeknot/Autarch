@@ -433,3 +433,37 @@ func TestRoundTwoAdditionalNamesAndExceptions(t *testing.T) {
 		}
 	}
 }
+
+func TestRoundThreeAssignmentSeparator(t *testing.T) {
+	for _, input := range []string{
+		"access_token=xxxxxxxxxxxx: expired", "token=xxxxxxxxxxxx: expired",
+		"password=xxxxxxxxxxxx:unknown field",
+	} {
+		if got := sanitizedStderr([]byte(input)); strings.Contains(got, "xxxx") {
+			t.Errorf("credential survived: %q", got)
+		}
+	}
+}
+
+func TestRoundThreeTerminatedLongLine(t *testing.T) {
+	for _, ending := range []string{"\n", "\r\n"} {
+		var tail stderrTail
+		tail.Write([]byte(strings.Repeat("x", 6000) + " Error: quota exceeded" + ending))
+		if got := sanitizedStderr(tail.data); !strings.Contains(got, "quota exceeded") {
+			t.Errorf("lost terminated long line: %q", got)
+		}
+	}
+}
+
+func TestRoundThreeURLPassword(t *testing.T) {
+	for _, input := range []string{
+		"https://xxx:xx@xxxxxxxxxxxx@example.test/",
+		"https://xxx:xx/xxxxxxxxxxxx@example.test/",
+		"https://xxx:xx/@xxxxxxxxxxxx@example.test/",
+	} {
+		if got := sanitizedStderr([]byte(input)); strings.Contains(got, "xxxxxxxxxxxx") ||
+			got != "https://xxx:[REDACTED]@example.test/" {
+			t.Errorf("URL credential survived or URL changed: %q", got)
+		}
+	}
+}
