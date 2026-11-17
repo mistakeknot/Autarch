@@ -155,3 +155,74 @@ func TestUnroutedEditWaitsForHomeIndex(t *testing.T) {
 		}
 	}
 }
+
+func TestRepairedUpdateReadbackFailures(t *testing.T) {
+	for _, mode := range []string{"project-mismatch", "never-indexed", "cancelled"} {
+		t.Run(mode, func(t *testing.T) {
+			f, fl, _ := updateRig(t)
+			r := testReq()
+			r.Ask["ask_key"] = "repair-readback-failure"
+			deriveRoutingTestKey(t, &r)
+			original := f.fail
+			f.fail = func(args []string) *BBResult {
+				if args[0] == "tasks" && args[1] == "comment" {
+					return badRes(1, "comment unavailable")
+				}
+				return original(args)
+			}
+			if _, err := fl.FileOrUpdateCard(context.Background(), r, ""); !errors.Is(err, ErrOutcomeUnknown) {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			reads := 0
+			f.fail = func(args []string) *BBResult {
+				if strings.Join(args[:min(3, len(args))], " ") == "home get --card" {
+					reads++
+					if mode == "project-mismatch" {
+						reply := okRes(CardView{TaskID: args[3], ProjectID: "P2", CardKey: "P2-1"})
+						return &reply
+					}
+					if mode == "cancelled" {
+						cancel()
+					}
+					return badRes(1, "card not found")
+				}
+				return original(args)
+			}
+			fl.ReadbackTimeout = 40 * time.Millisecond
+			fl.ReadbackInterval = time.Millisecond
+			if mode == "cancelled" {
+				fl.ReadbackInterval = time.Second
+				fl.ReadbackTimeout = 2 * time.Second
+			}
+			r.Ask["question"] = "Changed before readback?"
+			deriveRoutingTestKey(t, &r)
+			start := time.Now()
+			res, err := fl.FileOrUpdateCard(ctx, r, "")
+			elapsed := time.Since(start)
+			if !errors.Is(err, ErrOutcomeUnknown) || !res.Updated || res.CardKey != "" || f.count("tasks", "update") != 1 {
+				t.Fatalf("res=%+v err=%v", res, err)
+			}
+			if elapsed > 500*time.Millisecond {
+				t.Fatalf("wait took %s", elapsed)
+			}
+			if mode == "project-mismatch" {
+				if reads != 1 {
+					t.Fatalf("reads=%d", reads)
+				}
+			} else {
+				want := fmt.Sprintf("%v: card %s updated but Home could not confirm its card or ruling state within %s", ErrOutcomeUnknown, res.ID, fl.ReadbackTimeout)
+				if err.Error() != want {
+					t.Fatalf("message=%q, want %q", err, want)
+				}
+				if mode == "never-indexed" && reads < 2 {
+					t.Fatalf("reads=%d", reads)
+				}
+				if mode == "cancelled" && reads != 1 {
+					t.Fatalf("reads=%d", reads)
+				}
+			}
+		})
+	}
+}
