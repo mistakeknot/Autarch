@@ -264,7 +264,7 @@ func (f *CardFiler) fileOrUpdateCard(ctx context.Context, req CardRequest, super
 					return res, fmt.Errorf("%w: card %s updated but Home could not confirm its card or ruling state: wait was cancelled", ErrOutcomeUnknown, res.ID)
 				}
 				if callerDeadline || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-					return res, fmt.Errorf("%w: card %s updated but Home could not confirm its card or ruling state: caller's deadline passed", ErrOutcomeUnknown, res.ID)
+					return res, fmt.Errorf("%w: card %s updated but Home could not confirm its card or ruling state before the caller's deadline", ErrOutcomeUnknown, res.ID)
 				}
 				return res, fmt.Errorf("%w: card %s updated but Home could not confirm its card or ruling state within %s", ErrOutcomeUnknown, res.ID, readback.ReadbackTimeout)
 			}

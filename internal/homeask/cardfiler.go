@@ -909,6 +909,9 @@ func (f *CardFiler) withCardKey(ctx context.Context, res CardResult) (CardResult
 		return res, err
 	}
 	if res.CardKey == "" {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return res, fmt.Errorf("%w: card %s may have been filed but card_key was not indexed: wait was cancelled; re-run with --request %s and unchanged input to replay without duplicating it", ErrOutcomeUnknown, res.ID, res.Key)
+		}
 		if callerDeadline {
 			return res, fmt.Errorf("%w: card %s may have been filed but card_key was not indexed before the caller's deadline; re-run with --request %s and unchanged input to replay without duplicating it", ErrOutcomeUnknown, res.ID, res.Key)
 		}
