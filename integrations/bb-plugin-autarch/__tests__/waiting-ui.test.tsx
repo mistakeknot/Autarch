@@ -48,7 +48,8 @@ describe("waiting row layout", () => {
     const host = document.createElement("div");
     host.innerHTML = renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} line={W.line} definition={W.definition} />);
     const tabs = host.querySelector<HTMLElement>('[role="tablist"]')!;
-    expect(tabs.style.flexBasis).toBe("");
+    expect(tabs.classList.contains("basis-full")).toBe(true);
+    expect(tabs.classList.contains("sm:basis-0")).toBe(true);
     expect(tabs.classList.contains("flex-1")).toBe(true);
     expect(host.querySelector("[data-waiting-line]")!.classList.contains("shrink-0")).toBe(true);
     expect(tabs.nextElementSibling!.classList.contains("shrink-0")).toBe(true);

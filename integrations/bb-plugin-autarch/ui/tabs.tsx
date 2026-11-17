@@ -114,7 +114,7 @@ export function QueueTabs({ tab, counts, onTab, definition = null, line = null }
   return (
     <div className="border-b border-border px-2 sm:px-4">
     <div className="flex flex-wrap items-center gap-x-3">
-    <div role="tablist" aria-label="Queue" className="flex min-w-0 flex-1 flex-wrap gap-x-3 sm:flex-nowrap sm:overflow-x-auto" data-queue-tabs>
+    <div role="tablist" aria-label="Queue" className="flex min-w-0 flex-1 basis-full flex-wrap gap-x-3 sm:basis-0 sm:flex-nowrap sm:overflow-x-auto" data-queue-tabs>
       {QUEUE_TABS.map(([id, label]) => (
         <button
           key={id}
