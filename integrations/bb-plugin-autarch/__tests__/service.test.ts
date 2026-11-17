@@ -798,3 +798,22 @@ describe25("card pick: wake, notices and write-backs in one transaction", () => 
     expect25(JSON.parse(rows[0].payload)).toMatchObject({ option_id: "a", by: "mk", generation: 1 });
   });
 });
+
+describe("wake attribution from durable structured provenance", () => {
+  it.each([
+    ["wake", "wake:d:p", "card_pick"], ["steps-done", "steps-done:d:t", "card_pick"],
+    ["notice", "notice:d:t", "card_pick"], ["hold-ended", "hold-end:t:n", "timer"],
+    ["note", "note:t:n", "message"], ["notice", "unreadable:d", "message"],
+    ["void-notice", "void:d", "card_pick"],
+    ["notice", "undelivered:t", "message"], ["notice", "legacy", "unknown"],
+    ["notice-digest", "notice-digest:t:o", "unknown"],
+  ])("classifies %s / %s as %s", (kind, op, wakeCause) => {
+    expect(svc.wakeAttribution({ kind, op })).toEqual({ wakeCause, wakeRef: op });
+  });
+  it("never derives provenance from payload or emits an unbounded reference", () => {
+    expect(svc.wakeAttribution({ kind: "notice", op: null })).toEqual({ wakeCause: "unknown" });
+    expect(svc.wakeAttribution({ kind: "note", op: "x".repeat(201) })).toEqual({ wakeCause: "message" });
+    expect(svc.wakeAttribution({ kind: "note", op: "x".repeat(200) }).wakeRef).toBe("x".repeat(200));
+    expect(svc.wakeAttribution({ kind: "note", op: "note:\ntext" }).wakeRef).toBeUndefined();
+  });
+});

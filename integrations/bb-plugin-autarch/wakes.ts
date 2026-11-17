@@ -9,6 +9,8 @@ import type { Service } from "./service.js";
 import { THREAD_EVENT_PAGE_CAP, threadEventLimit } from "./hostLimits.js";
 import { claimPickReceipt, reconcilePickReceipts } from "./pickcapture.js";
 import { hasAcceptedPickEvidence } from "./pickhandler.js";
+import type { WakeAttribution } from "./wake-attribution.js";
+import type { ThreadSendArgs } from "@get-bb/plugin-sdk";
 
 export type SendResult = { delivery: "sent"; messageId?: string } | { delivery: "queued"; queuedMessageId: string };
 export interface QueuedRow {
@@ -23,7 +25,7 @@ export type QueuedRowState = "queued" | "dispatched" | "cancelled" | "unknown";
 
 /** The slice of bb.sdk.threads the loop touches. Any method may throw when the host lacks it. */
 export interface WakeSdk {
-  send(a: { threadId: string; input: string; mode: "queue-if-active"; images?: readonly string[] }): Promise<SendResult>;
+  send(a: { threadId: string; input: string; mode: "queue-if-active"; images?: readonly string[] } & Partial<WakeAttribution>): Promise<SendResult>;
   queuedState(threadId: string, id: string): Promise<QueuedRowState>;
   queuedList(threadId: string): Promise<QueuedRow[]>;
   queuedDelete(threadId: string, id: string): Promise<void>;
@@ -196,7 +198,7 @@ export class WakeLoop {
     let failure: unknown;
     let failed = false;
     try {
-      const sending = this.sdk.send({ threadId, input, mode: "queue-if-active", ...(images.length > 0 ? { images } : {}) });
+      const sending = this.sdk.send({ threadId, input, mode: "queue-if-active", ...this.svc.wakeAttribution(row), ...(images.length > 0 ? { images } : {}) });
       if (row.kind === "pick-relay") {
         const action = this.db.prepare("SELECT evaluation_deadline_at FROM pick_actions WHERE relay_op = ? AND decision_id = ?")
           .get(row.op, row.decision_id) as { evaluation_deadline_at: string } | undefined;
@@ -548,7 +550,7 @@ const textOf = (parts: unknown): string =>
 
 /** The slice of bb.sdk.threads the adapter uses. */
 export interface ThreadsLike {
-  send(a: { threadId: string; input: readonly ({ type: "text"; text: string } | { type: "localImage"; path: string })[]; mode?: string }): Promise<unknown>;
+  send(a: { threadId: string; input: readonly ({ type: "text"; text: string } | { type: "localImage"; path: string })[]; mode?: string } & Partial<Pick<ThreadSendArgs, "wakeCause" | "wakeRef">>): Promise<unknown>;
   queuedMessages: {
     list(a: { threadId: string }): Promise<unknown>;
     delete(a: { threadId: string; queuedMessageId: string }): Promise<unknown>;
@@ -568,7 +570,8 @@ export function sdkAdapter(threads: ThreadsLike): WakeSdk {
   };
   return {
     async send(a) {
-      const r = (await threads.send({ threadId: a.threadId, input: [{ type: "text", text: a.input }, ...(a.images ?? []).map((path) => ({ type: "localImage" as const, path }))], mode: a.mode })) as {
+      const r = (await threads.send({ threadId: a.threadId, input: [{ type: "text", text: a.input }, ...(a.images ?? []).map((path) => ({ type: "localImage" as const, path }))], mode: a.mode,
+        ...(a.wakeCause ? { wakeCause: a.wakeCause } : {}), ...(a.wakeRef ? { wakeRef: a.wakeRef } : {}) })) as {
         delivery: "sent" | "queued";
         queuedMessage?: { id: string };
         messageId?: string;

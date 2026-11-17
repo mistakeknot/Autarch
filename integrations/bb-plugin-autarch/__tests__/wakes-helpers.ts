@@ -21,7 +21,7 @@ export const archived = () => Object.assign(new Error("thread is archived"), { c
 export class FakeSdk implements WakeSdk {
   rows = new Map<string, FakeRow>();
   accepted: (AcceptedEvent & { threadId: string })[] = [];
-  sent: { threadId: string; input: string; mode: string; images?: readonly string[] }[] = [];
+  sent: Parameters<WakeSdk["send"]>[0][] = [];
   script: Behavior[] = [];
   fallback: Behavior = { kind: "sent" };
   gate: Promise<void> | null = null;
