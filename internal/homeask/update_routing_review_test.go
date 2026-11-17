@@ -179,7 +179,8 @@ func TestRepairedUpdateReadbackFailures(t *testing.T) {
 				// Early stopping needs setup headroom without adding a sleep.
 				callerTimeout := 5 * time.Second
 				if mode == "deadline" {
-					callerTimeout = 250 * time.Millisecond
+					// Keep 400 ms of headroom under the 500 ms elapsed bound.
+					callerTimeout = 100 * time.Millisecond
 				}
 				ctx, cancel = context.WithTimeout(context.Background(), callerTimeout)
 			}
