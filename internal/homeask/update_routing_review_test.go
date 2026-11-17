@@ -208,11 +208,17 @@ func TestRepairedUpdateReadbackFailures(t *testing.T) {
 				t.Fatalf("wait took %s", elapsed)
 			}
 			if mode == "project-mismatch" {
+				if errors.Is(err, ErrInvalid) {
+					t.Fatalf("project mismatch must not be invalid: %v", err)
+				}
 				if reads != 1 {
 					t.Fatalf("reads=%d", reads)
 				}
 			} else {
 				want := fmt.Sprintf("%v: card %s updated but Home could not confirm its card or ruling state within %s", ErrOutcomeUnknown, res.ID, fl.ReadbackTimeout)
+				if mode == "cancelled" {
+					want = fmt.Sprintf("%v: card %s updated but Home could not confirm its card or ruling state: wait was cancelled", ErrOutcomeUnknown, res.ID)
+				}
 				if err.Error() != want {
 					t.Fatalf("message=%q, want %q", err, want)
 				}
