@@ -126,7 +126,7 @@ func TestExecuteMergeBaseRanges(t *testing.T) {
 		}
 		write("scripts/verify/"+name, data)
 	}
-	write("scripts/verify/fixture_lock.go", []byte(fmt.Sprintf("package main\nfunc init() { repoLockName = func() string { return %q } }\n", filepath.Join(ownedTestDir(t), "verify.lock"))))
+	write("scripts/verify/fixture_lock.go", []byte(fmt.Sprintf("package main\nfunc init() { checkoutWalkStop = %q; gitScratchRoot = %q; repoLockName = func() string { return %q } }\n", checkoutWalkStop, gitScratchRoot, filepath.Join(ownedTestDir(t), "verify.lock"))))
 	write("go.mod", []byte("module verifyfixture\n\ngo 1.25.0\n"))
 	run("add", ".")
 	run("commit", "-qm", "verifier fixture")

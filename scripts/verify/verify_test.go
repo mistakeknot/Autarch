@@ -144,11 +144,17 @@ func TestNamespaceCannotReadUnboundHostData(t *testing.T) {
 	if err != nil {
 		t.Skip("INCOMPLETE: node missing")
 	}
+	// Keep the victim outside the sandbox's temporary-directory mask so an
+	// accidental host-directory bind remains observable.
 	outside, err := os.MkdirTemp("/var/tmp", "autarch-verify-test-")
 	if err != nil {
 		t.Skip("INCOMPLETE: external fixture directory unavailable")
 	}
-	defer os.RemoveAll(outside)
+	t.Cleanup(func() {
+		if err := os.RemoveAll(outside); err != nil {
+			t.Error(err)
+		}
+	})
 	victim := filepath.Join(outside, "live.db")
 	if err = os.WriteFile(victim, []byte("private"), 0600); err != nil {
 		t.Fatal(err)
@@ -221,16 +227,7 @@ func strings64() string { return "0000000000000000000000000000000000000000000000
 
 func ownedTestDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "autarch-verify-test-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Error(err)
-		}
-	})
-	return dir
+	return t.TempDir()
 }
 
 func TestMapRegistersDeferredJourneys(t *testing.T) {
