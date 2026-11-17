@@ -33,14 +33,4 @@ Review-only judgement rules (message fall-through, `Clone()` snapshots, chrome d
 
 ## Design Decisions (Do Not Re-Ask)
 
-- Module: `github.com/mistakeknot/autarch`
-- Shared TUI package with Tokyo Night colors
-- Bubble Tea for all TUIs
-- htmx + Tailwind for Bigend web
-- SQLite for local state (read-only to external DBs)
-- Local-only by default: servers bind to loopback; remote/multi-host deferred; non-loopback requires explicit opt-in + auth
-- tmux integration via CLI commands
-- Pollard tech hunters use free API tiers (no auth required)
-- Pollard general-purpose hunters: some require API keys (USDA, CourtListener)
-- Intermute for cross-tool coordination (REST + WebSocket + embedded in-process; first-class Spec, Insight, CUJ entities)
-- Legacy tool names (Vauxhall/Praude/Tandemonium) still work via aliases
+See [Design Decisions (Do Not Re-Ask) in AGENTS.md](AGENTS.md#design-decisions-do-not-re-ask).

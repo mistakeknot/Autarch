@@ -34,7 +34,7 @@ behavior consistent across tools.
 - `ctrl+c` should always quit from any screen.
 
 ## Checklist for New Shortcuts
-- Consistent with existing TUI Keybindings in `AGENTS.md`.
+- Consistent with existing [TUI Keybindings](../../agents/tui-keybindings.md).
 - No conflicts with terminal-reserved keys.
-- Documented in the tool help overlay and `AGENTS.md`.
+- Documented in the tool help overlay and [TUI Keybindings](../../agents/tui-keybindings.md).
 - Manually tested in a real terminal (not just IDE terminal).

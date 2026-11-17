@@ -279,9 +279,6 @@ Type `/` in the chat composer to open a fuzzy finder for commands. Use `â†‘`/`â†
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VAUXHALL_PORT` | 8099 | Web port |
-| `VAUXHALL_HOST` | 0.0.0.0 | Web host |
-| `VAUXHALL_SCAN_ROOTS` | ~/projects | Scan paths |
 
 ### Intermute (Cross-Tool)
 

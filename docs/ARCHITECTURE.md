@@ -462,7 +462,6 @@ command = "codex"
 | `INTERMUTE_URL` | All | Intermute server URL |
 | `INTERMUTE_API_KEY` | All | Intermute authentication |
 | `INTERMUTE_PROJECT` | All | Project scope |
-| `VAUXHALL_PORT` | Bigend | Web server port (default: 8099) |
 | `GITHUB_TOKEN` | Pollard | GitHub API access |
 
 ---

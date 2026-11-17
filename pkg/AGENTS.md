@@ -7,13 +7,31 @@ Shared Go packages used across Autarch tools.
 | Package | Purpose |
 |---------|---------|
 | `agenttargets` | Run-target registry/resolver for agent commands |
+| `agenttransport` | Local external-session transport boundary |
+| `autarch` | Shared domain data sources for HTTP and local access |
+| `claude` | Claude CLI streaming compatibility shim over agenttargets |
+| `clavain` | Client for Clavain OS commands and agent tracking |
+| `compound` | Capture and search solution documents |
 | `contract` | Cross-tool entity types (Initiative, Epic, Story, Task, Run, Outcome) |
-| `discovery` | Project discovery and tool detection |
+| `db` | Shared SQLite open helper |
+| `discovery` | Cross-tool data access and spec discovery |
 | `events` | Event spine for cross-tool communication (SQLite) |
-| `plan` | Plan file parsing |
-| `shell` | Shell integration utilities |
+| `fleet` | Shared fleet view types and aggregator sources |
+| `httpapi` | JSON response envelopes and metadata |
+| `intercore` | Go client for the Intercore CLI |
+| `intermute` | Shared Intermute client and agent registration |
+| `jobs` | In-memory job storage and execution |
+| `mcp` | Autarch MCP server and tool handlers |
+| `netguard` | Loopback-only bind address validation |
+| `plan` | Shared plan/apply types and plan file handling |
+| `review` | Versioned local source records for review workflows |
+| `shell` | Unified shell framework for composing tool panes |
+| `signals` | Signal parsing, broker, client and server |
+| `thinking` | Phase-specific thinking shapes and prompt templates |
+| `timeout` | Named timeout constants |
 | `toolpane` | Tool pane interface |
 | `tui` | Shared TUI styles (Tokyo Night palette) |
+| `yamlsafe` | Guarded YAML file reading and decoding |
 
 ---
 
