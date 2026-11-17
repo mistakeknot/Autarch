@@ -261,31 +261,42 @@ func TestTailCutInsideKeywords(t *testing.T) {
 	}
 }
 
-func TestStderrNoNewlineTail(t *testing.T) {
-	for _, tc := range []struct{ name, input, want string }{
-		{"long-line", strings.Repeat("x", 5000) + " quota exceeded", "quota exceeded"},
-		{"spinner", strings.Repeat("working\r", 800) + "quota exceeded", "quota exceeded"},
-		{"redacted-suffix", strings.Repeat(".", 5000) + " Bearer xxxxxxxxxxxx", "[REDACTED]"},
-		{"redact-before-suffix", strings.Repeat("x", 5000) + ` {"token":"` + strings.Repeat("y", 600) + `"}`, "[REDACTED]"},
+func TestStderrIncompleteTailWithheld(t *testing.T) {
+	const notice = "[stderr withheld: 4096 bytes with no complete line]"
+	cases := []struct{ name, input, want string }{
+		{"long-line", strings.Repeat("Q", 5000), notice},
+		{"json-final-newline", `{"error":"` + strings.Repeat("Q", 5000) + `"}` + "\n", notice},
+		{"whitespace-after-newline", strings.Repeat("Q", 5000) + "\n \t", notice},
+		{"spinner", strings.Repeat("Q\r", 2500), notice},
+		{"cr-split-credential", strings.Repeat(".", 5000) + " Bearer QQQQ\rQQQQ\nuseful", "useful"},
+	}
+	for _, prefix := range []string{
+		"sk-", "ghp_", "gho_", "ghs_", "ghu_", "ghr_", "github_pat_",
+		"Bearer ", "Authorization: ", "x-api-key: ", "access_token=",
+		`{"access_token":"`, `{"api_key":"`, `{"token":"`,
+		`{"refresh_token":"`, `{"id_token":"`, `{"client_secret":"`, `{"apiKey":"`,
 	} {
+		for _, padding := range []struct{ name, value string }{
+			{"ansi", strings.Repeat("Q", 300) + strings.Repeat("\x1b[2K\x1b[1G", 500)},
+			{"jwt", strings.Repeat("Q", 2000) + "." + strings.Repeat("Q", 2000) + "." + strings.Repeat("Q", 2000)},
+		} {
+			cases = append(cases, struct{ name, input, want string }{prefix + padding.name, prefix + padding.value, notice})
+		}
+	}
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var tail stderrTail
 			tail.Write([]byte(tc.input))
 			got := sanitizedStderr(tail.data)
-			if !strings.Contains(got, tc.want) {
-				t.Fatalf("lost diagnostic: %q", got)
+			if strings.ContainsAny(got, "Q") {
+				t.Errorf("credential placeholder survived: %.100q", got)
 			}
-			if strings.Contains(got, "xxxxxxxxxxxx") && tc.name == "redacted-suffix" || strings.Contains(got, "yyyy") {
-				t.Fatalf("unredacted suffix: %q", got)
+			if got != tc.want {
+				t.Errorf("got %.100q, want %q", got, tc.want)
+			}
+			if len(tail.data) != stderrTailBytes {
+				t.Fatalf("fixture tail length %d", len(tail.data))
 			}
 		})
-	}
-}
-
-func TestStderrCarriageReturnBoundary(t *testing.T) {
-	var tail stderrTail
-	tail.Write([]byte(strings.Repeat("x", 5000) + "\rquota exceeded"))
-	if got := sanitizedStderr(tail.data); got != "quota exceeded" {
-		t.Fatalf("partial frame retained: %q", got)
 	}
 }
