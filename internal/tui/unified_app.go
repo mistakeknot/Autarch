@@ -417,7 +417,7 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.openChatSettings()
 			return a, nil
 		case "model", "m":
-			// Toggle Dispatch
+			// Toggle the Dispatch agent selector.
 			if a.agentSelector != nil {
 				a.agentSelector.Toggle()
 			}
@@ -783,7 +783,7 @@ func (a *UnifiedApp) initPaletteCommands() {
 		})
 	}
 	cmds = append(cmds, Command{
-		Name:        "Choose Dispatch agent",
+		Name:        "Toggle Dispatch agent selector",
 		Description: "Choose Dispatch agent",
 		Action: func() tea.Cmd {
 			return func() tea.Msg {
@@ -843,7 +843,7 @@ func (a *UnifiedApp) updateCommands() {
 	var cmds []Command
 
 	cmds = append(cmds, Command{
-		Name:        "Choose Dispatch agent",
+		Name:        "Choose Dispatch agent (Ctrl+G / F2)",
 		Description: "Choose Dispatch agent",
 		Action: func() tea.Cmd {
 			return func() tea.Msg {

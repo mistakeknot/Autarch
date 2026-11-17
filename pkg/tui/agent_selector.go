@@ -111,7 +111,14 @@ func (s *AgentSelector) View(width ...int) string {
 	}
 
 	label := lipgloss.NewStyle().Foreground(ColorFgDim).Render("Dispatch: ") + strings.Join(parts, "  ")
-	if len(width) > 0 {
+	if len(width) > 0 && lipgloss.Width(label) > max(0, width[0]) {
+		// Prioritize the highlighted option over the prefix and other options.
+		// Omitting the ellipsis preserves the highlight even in a single column.
+		for i, part := range parts {
+			if i == s.Index {
+				return ansi.Truncate(part, max(0, width[0]), "")
+			}
+		}
 		label = ansi.Truncate(label, max(0, width[0]), "…")
 	}
 	return label
