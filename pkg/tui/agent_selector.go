@@ -91,7 +91,7 @@ func (s *AgentSelector) View(width ...int) string {
 	}
 	if !s.Open {
 		name := s.currentLabel()
-		label := fmt.Sprintf("UI model choice: %s (ctrl+g)", name)
+		label := fmt.Sprintf("Choice: %s (ctrl+g)", name)
 		label = lipgloss.NewStyle().Foreground(ColorMuted).Render(label)
 		if len(width) > 0 {
 			label = ansi.Truncate(label, max(0, width[0]), "…")
@@ -110,7 +110,7 @@ func (s *AgentSelector) View(width ...int) string {
 		parts = append(parts, label)
 	}
 
-	return lipgloss.NewStyle().Foreground(ColorFgDim).Render("Model: ") + strings.Join(parts, "  ")
+	return lipgloss.NewStyle().Foreground(ColorFgDim).Render("Choice: ") + strings.Join(parts, "  ")
 }
 
 func (s *AgentSelector) currentName() string {

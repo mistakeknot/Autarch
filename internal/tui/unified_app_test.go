@@ -460,7 +460,7 @@ func TestAgentSelectionLabelsUIChoice(t *testing.T) {
 		app.agentSelector = pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
 		app.Update(pkgtui.AgentSelectedMsg{Name: "codex"})
 		name, source := app.codingAgent.DispatchPreference(".")
-		if name != "codex" || source != "explicit agent selection" || !strings.Contains(app.agentSelector.View(), "UI choice; dispatch resolves per operation") {
+		if name != "codex" || source != "explicit agent selection" || !strings.Contains(app.agentSelector.View(), "runs use config; picked") {
 			t.Fatalf("UI choice mislabeled: %s %s %s", name, source, app.agentSelector.View())
 		}
 		return

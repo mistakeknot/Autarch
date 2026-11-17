@@ -546,7 +546,7 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.selectedAgent = msg.Name
 			a.setSelectorIndex(msg.Name)
 			if a.agentSelector != nil && len(a.agentSelector.Options) > 0 {
-				a.agentSelector.Options[a.agentSelector.Index].Source = "UI choice; dispatch resolves per operation"
+				a.agentSelector.Options[a.agentSelector.Index].Source = "runs use config; picked"
 			}
 			a.attachAgentName(a.currentView)
 		} else {

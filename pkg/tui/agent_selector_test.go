@@ -48,7 +48,7 @@ func TestAgentSelectorIgnoresNumericPick(t *testing.T) {
 func TestAgentSelectorRendersAsModelControl(t *testing.T) {
 	sel := NewAgentSelector([]AgentOption{{Name: "codex"}})
 	view := sel.View()
-	if !strings.Contains(view, "UI model choice") {
+	if !strings.Contains(view, "Choice") {
 		t.Fatalf("expected model label")
 	}
 }
@@ -60,6 +60,16 @@ func TestAgentSelectorClosedLabelFitsWidth(t *testing.T) {
 			t.Fatalf("width %d exceeds allocation %d", got, width)
 		}
 	}
+	picked := NewAgentSelector([]AgentOption{{Name: "claude", Source: "runs use config; picked"}})
+	narrow := picked.View(40)
+	if lipgloss.Width(narrow) > 40 || !strings.Contains(narrow, "runs use config") || !strings.Contains(narrow, "claude") {
+		t.Fatalf("narrow label lost dispatch meaning: %s", narrow)
+	}
+	picked.Update(tea.KeyMsg{Type: tea.KeyF2})
+	if !strings.Contains(picked.View(), "Choice: ") {
+		t.Fatal("open label uses a different term")
+	}
+
 }
 
 func TestChatPanelShowsAgentPreferenceSource(t *testing.T) {
@@ -90,7 +100,7 @@ func TestAgentSelectorCancelRestoresEffectiveLabel(t *testing.T) {
 			s.Update(tea.KeyMsg{Type: tea.KeyDown})
 			s.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			s.Index = 1 // app confirms the requested choice
-			s.Options[1].Source = "UI choice; dispatch resolves per operation"
+			s.Options[1].Source = "runs use config; picked"
 			before = s.View()
 			s.Update(tea.KeyMsg{Type: tea.KeyF2})
 			s.Update(tea.KeyMsg{Type: tea.KeyUp})
