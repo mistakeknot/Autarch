@@ -1,6 +1,7 @@
 import { it, expect, vi, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import { applyOperator, homeAnswer, fileProtectedCard, loadConfig, timerActive, wireGovernor, prepareInboxes, resolveStorageRoot, readOverrides, type Exec } from "../governor-runtime.js";
+import { GovernorStore } from "../governor.js";
 import { DEFAULTS } from "../governor-policy.js";
 import type { PluginsLike } from "../tasks.js";
 import { homeMethods } from "../contract.js";
@@ -15,6 +16,23 @@ it("normalizes future optional quotaGovernor fields at the RPC contract boundary
   expect(JSON.parse(JSON.stringify(result))).toStrictEqual(result);
   expect(Object.hasOwn(input, "error")).toBe(true);
   expect(homeMethods.quotaGovernor.output.safeParse(7).success).toBe(false);
+});
+
+it("reads full retained history through the quotaGovernor option while off without creating tables", () => {
+  const db = new Database(":memory:");
+  const bb = { sdk: { threads: { list: async () => [] } }, background: { service: vi.fn() }, realtime: { publish: vi.fn() }, log: { warn: vi.fn() } };
+  const view = wireGovernor(bb, { ready: () => true, store: () => ({ db }) }, async () => ({ quota_governor_mode: "off" }));
+  expect(homeMethods.quotaGovernor.input.parse(null)).toBeNull();
+  expect(homeMethods.quotaGovernor.input.parse({ history: "full" })).toEqual({ history: "full" });
+  expect(homeMethods.quotaGovernor.input.safeParse({ history: "other" }).success).toBe(false);
+  expect(view({ history: "full" }).history).toEqual([]);
+  expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()).toEqual([]);
+  const store = new GovernorStore(db);
+  const row = { time: Date.now() - 72 * 3600000, mode: "shadow" as const, level: 0, new_level: 1, pace: 1.2, note: "older", script_level: 0 };
+  store.record(row); store.record({ ...row, mode: "live", note: "live" });
+  expect(view().history).toBeUndefined();
+  expect(view({ history: "full" }).history?.map(r => r.note)).toEqual(["older", "live"]);
+  db.close();
 });
 
 it("publishes a JSON-clean full shadow decision through wireGovernor with a ready store", async () => {
@@ -37,7 +55,9 @@ it("publishes a JSON-clean full shadow decision through wireGovernor with a read
   expect(view().decision?.new_level).toBe(1); expect(view().state?.level).toBe(1);
   expect(view().decision?.pace).toBeCloseTo(1.2); expect(view().last_run).toBeTypeOf("number");
   expect(view().state).toStrictEqual(JSON.parse((db.prepare("SELECT json FROM quota_governor_state WHERE key='shadow'").get() as { json: string }).json));
-  expect(view()).toStrictEqual(JSON.parse((db.prepare("SELECT json FROM quota_governor_state WHERE key='view'").get() as { json: string }).json));
+  const { history: _history, ...status } = view();
+  expect(status).toStrictEqual(JSON.parse((db.prepare("SELECT json FROM quota_governor_state WHERE key='view'").get() as { json: string }).json));
+  expect(view().history).toHaveLength(1);
   expect(JSON.parse(JSON.stringify(view()))).toStrictEqual(view());
   expect(homeMethods.quotaGovernor.output.parse(view())).toStrictEqual(view());
   db.close();

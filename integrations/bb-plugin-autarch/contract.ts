@@ -21,7 +21,7 @@ const conversationView = z.object({ task_id: z.string(), comments: list, unread:
 
 export const homeMethods = {
   pilotMetrics: { input: z.null(), output: z.object({ metrics: list }) },
-  quotaGovernor: { input: z.null(), output: jsonReadModel },
+  quotaGovernor: { input: z.union([z.null(), z.object({ history: z.literal("full") }).strict()]), output: jsonReadModel },
   pickAction: { input: PickActionQuerySchema, output: result },
   evidenceImage: { input: z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict(), output: result },
   listAsks: { input: z.null(), output: readModel },

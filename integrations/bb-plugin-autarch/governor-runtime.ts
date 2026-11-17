@@ -7,7 +7,7 @@ import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { z } from "zod";
-import { Governor, GovernorStore, atomicJson, setHostLimit, type AtomicFS, type Mode, type View, type NoticePlan } from "./governor.js";
+import { Governor, GovernorStore, readGovernorHistory, atomicJson, setHostLimit, type AtomicFS, type Mode, type View, type NoticePlan, type HistoryQuery } from "./governor.js";
 import { DEFAULTS, editOperator, findVizier, recipients, type Account, type Config, type Thread } from "./governor-policy.js";
 import type { PluginsLike } from "./tasks.js";
 import { docRoots } from "./docread.js";
@@ -147,7 +147,7 @@ export interface GovernorHost {
   realtime: { publish(channel: string, data: Record<string, unknown>): unknown };
   log: { warn(message: string): unknown };
 }
-export function wireGovernor(bb: GovernorHost, handle: { ready(): boolean; store(): { db: Database.Database } }, settings: () => Promise<GovernorSettings & { quota_governor_mode: string }>, deps: { config?: () => Promise<Config>; roots?: typeof docRoots; hostname?: () => string } = {}): () => View {
+export function wireGovernor(bb: GovernorHost, handle: { ready(): boolean; store(): { db: Database.Database } }, settings: () => Promise<GovernorSettings & { quota_governor_mode: string }>, deps: { config?: () => Promise<Config>; roots?: typeof docRoots; hostname?: () => string } = {}): (query?: HistoryQuery | null) => View {
   const config = deps.config ?? (async () => loadConfig(process.env, readOverrides, await settings()));
   const hostName = deps.hostname ?? hostname;
   let governor: Governor | null = null;
@@ -212,5 +212,14 @@ export function wireGovernor(bb: GovernorHost, handle: { ready(): boolean; store
       }
     },
   });
-  return () => last;
+  return query => {
+    if (query?.history === "full") {
+      try {
+        return { ...last, history: handle.ready() ? readGovernorHistory(handle.store().db, Date.now(), undefined, true) : [] };
+      } catch (e) { return { ...last, history: [], warnings: [...(last.warnings ?? []), `History read failed: ${String(e)}`] }; }
+    }
+    if (!last.history) return last;
+    const now = Date.now();
+    return { ...last, history: last.history.filter(row => row.mode === last.mode && row.time >= now - 48 * 3600000 && row.time <= now).slice(-288) };
+  };
 }

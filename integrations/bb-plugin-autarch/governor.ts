@@ -9,8 +9,16 @@ export type Card = { key?: string; level: number; answered?: string; declined_at
 export type State = { level: number; good_streak?: number; pace?: number | null; since?: number; why?: string; updated_at?: number; pending?: boolean; card?: Card; throttle?: Throttle };
 export type Throttle = { level: number; name: string; allowed_max: number | null; cuts_protected: boolean; pace: number | null; updated_at: number; why: string };
 export type Decision = { level: number; new_level: number; pace: number | null; note: string; why: string; floor: Floor | null; held?: string | null; applied: string[] };
+export type History = { time: number; mode: Exclude<Mode, "off">; level: number; new_level: number; pace: number | null; note: string; script_level: number | null };
+export type HistoryQuery = { history: "full" };
+export function readGovernorHistory(db: Database.Database, now: number, mode?: Mode, full = false): History[] {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='quota_governor_history'").get()) return [];
+  const columns = "time,mode,level,new_level,pace,note,script_level";
+  if (full) return db.prepare(`SELECT ${columns} FROM quota_governor_history ORDER BY id`).all() as History[];
+  return db.prepare(`SELECT ${columns} FROM (SELECT id,${columns} FROM quota_governor_history WHERE mode=? AND time BETWEEN ? AND ? ORDER BY id DESC LIMIT 288) ORDER BY id`).all(mode ?? "off", now - 48 * 3600000, now) as History[];
+}
 // Sent directly over JSON RPC: absent optional fields must be omitted, never undefined.
-export type View = { mode: Mode; state?: State; decision?: Decision; script?: unknown; last_run?: number; parts?: Part[]; error?: string; warnings?: string[] };
+export type View = { mode: Mode; state?: State; decision?: Decision; script?: unknown; last_run?: number; parts?: Part[]; error?: string; warnings?: string[]; history?: History[] };
 export type NoticePlan = { skipped: string[]; send(): Promise<string[]> };
 export interface GovernorIO {
   now(): number; hostname(): string; config(): Promise<Config>; mode(): Promise<Mode>;
@@ -25,7 +33,19 @@ export interface GovernorIO {
 export class GovernorStore {
   constructor(readonly db: Database.Database) {
     db.exec(`CREATE TABLE IF NOT EXISTS quota_governor_state (key TEXT PRIMARY KEY, json TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS quota_governor_samples (id TEXT NOT NULL, observed REAL NOT NULL, utilization REAL NOT NULL, reset REAL NOT NULL, PRIMARY KEY(id,observed,reset));`);
+      CREATE TABLE IF NOT EXISTS quota_governor_samples (id TEXT NOT NULL, observed REAL NOT NULL, utilization REAL NOT NULL, reset REAL NOT NULL, PRIMARY KEY(id,observed,reset));
+      CREATE TABLE IF NOT EXISTS quota_governor_history (id INTEGER PRIMARY KEY, time REAL NOT NULL, mode TEXT NOT NULL, level INTEGER NOT NULL, new_level INTEGER NOT NULL, pace REAL, note TEXT NOT NULL, script_level INTEGER);
+      CREATE INDEX IF NOT EXISTS quota_governor_history_time ON quota_governor_history(time);`);
+  }
+  record(row: History): void {
+    this.db.transaction(() => {
+      this.db.prepare("INSERT INTO quota_governor_history (time,mode,level,new_level,pace,note,script_level) VALUES (?,?,?,?,?,?,?)").run(row.time, row.mode, row.level, row.new_level, row.pace, row.note, row.script_level);
+      // Preserve at least a normal week's decisions even after a clock jump.
+      this.db.prepare("DELETE FROM quota_governor_history WHERE time < ? AND id < (SELECT id FROM quota_governor_history ORDER BY id DESC LIMIT 1 OFFSET 1007)").run(row.time - 7 * 86400000);
+    })();
+  }
+  history(now: number, mode?: Mode, full = false): History[] {
+    return readGovernorHistory(this.db, now, mode, full);
   }
   get<T>(key: string): T | null {
     const r = this.db.prepare("SELECT json FROM quota_governor_state WHERE key=?").get(key) as { json: string } | undefined;
@@ -63,7 +83,6 @@ export class Governor {
       const cfg = await io.config();
       if (!cfg.bb_host || io.hostname() !== cfg.bb_host) { this.current.error = "Inactive on this host"; return; }
       if (mode === "live" && await io.timerActive()) { this.current.error = "Legacy quota-governor.timer or quota-governor.service is active; live refused"; return; }
-      const now = io.now();
       const script = await io.readJson(join(cfg.state_dir, "state.json"));
       let st = this.store.get<State>(mode);
       if (!st) {
@@ -73,6 +92,9 @@ export class Governor {
       }
       if (!Number.isInteger(st.level) || !cfg.levels[st.level]) throw Error("Invalid persisted governor level");
       const accounts = await io.accounts();
+      // Retrieval can refresh quota. A clock read before it would reject that
+      // new observation as future data and silently omit the burning account.
+      const now = io.now();
       this.store.sample(accounts, now, cfg);
       const parts: Part[] = [];
       const [pace, note] = measurePace(accounts, now, cfg, this.store.samples(now, cfg), parts);
@@ -137,7 +159,12 @@ export class Governor {
       let scriptThrottle: unknown = null;
       try { scriptThrottle = await io.readJson(join(cfg.state_dir, "throttle.json")); }
       catch (e) { errors.push(`throttle.json read failed: ${String(e)}`); }
+      const scriptLevel = scriptThrottle && typeof scriptThrottle === "object" && "level" in scriptThrottle ? scriptThrottle.level : null;
+      try { this.store.record({ time: now, mode, level: cur, new_level: dec.new_level, pace, note, script_level: typeof scriptLevel === "number" && Number.isInteger(scriptLevel) && !!levels[scriptLevel] ? scriptLevel : null }); }
+      catch (e) { warnings.push(`History write failed: ${String(e)}`); }
       this.current = { mode, state: ns, decision: dec, script: { state: script, throttle: scriptThrottle }, last_run: now, parts, warnings };
+      try { this.current.history = this.store.history(now, mode); }
+      catch (e) { warnings.push(`History read failed: ${String(e)}`); }
       const failure = dec.applied.find(s => /FAILED/.test(s)) ?? (dec.held?.includes("card not filed") ? dec.held : undefined);
       if (failure) errors.push(failure);
       if (mode === "live") {
@@ -151,7 +178,8 @@ export class Governor {
         try { warnings.push(...await notices.send()); }
         catch (e) { warnings.push(`Notification delivery failed after commit: ${String(e)}`); }
       }
-      this.store.put("view", this.current);
+      const { history: _history, ...persisted } = this.current;
+      this.store.put("view", persisted);
     } catch (e) { this.current.error = String(e); }
     finally { io.publish(this.current); }
   }
