@@ -29,9 +29,18 @@ func (t *stderrTail) Write(p []byte) (int, error) {
 }
 
 var stderrANSI = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))`)
-var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|Bearer[ \t]+[^\s]+`)
+var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|(?:ghp_|gho_|github_pat_)[a-z0-9_]+|Bearer[ \t]+[^\s]+|Authorization[ \t]*:[^\r\n]*|"(?:access_token|api_key|token)"\s*:\s*"(?:[^"\\]|\\.)*"`)
 
 func sanitizedStderr(data []byte) string {
+	// A full tail may begin inside a credential. Conservatively discard its
+	// first token-like word, including when the original prefix is unavailable.
+	if len(data) >= stderrTailBytes {
+		i := 0
+		for i < len(data) && (data[i] >= 'a' && data[i] <= 'z' || data[i] >= 'A' && data[i] <= 'Z' || data[i] >= '0' && data[i] <= '9' || strings.ContainsRune("_-/+=.", rune(data[i]))) {
+			i++
+		}
+		data = data[i:]
+	}
 	text := stderrANSI.ReplaceAllString(string(data), "")
 	text = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) && r != '\n' && r != '\t' {

@@ -69,7 +69,8 @@ func (b *ClaudeBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wo
 	cmd.Stderr = &stderr // os/exec drains this concurrently with stdout.
 
 	startedAt := time.Now()
-	if err := cmd.Start(); err != nil {
+	waitProcess, err := startProcess(cmd)
+	if err != nil {
 		cancel()
 		if execErr, ok := err.(*exec.Error); ok && execErr.Err == exec.ErrNotFound {
 			return nil, fmt.Errorf("claude CLI not found: install with 'npm install -g @anthropic-ai/claude-code'")
@@ -109,7 +110,7 @@ func (b *ClaudeBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wo
 	go func() {
 		defer close(events)
 		defer func() {
-			cmdErr := cmd.Wait()
+			cmdErr := waitProcess()
 			// A descendant retaining stderr must not turn a successful CLI exit
 			// into a failure when the bounded drain expires.
 			if errors.Is(cmdErr, exec.ErrWaitDelay) && cmd.ProcessState.Success() {

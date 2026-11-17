@@ -117,6 +117,7 @@ func (a *Agent) GenerateWithOutput(ctx context.Context, req GenerateRequest, onO
 	var finalResult string
 	var contentBuilder strings.Builder
 	var sawResult bool
+	var streamErr error
 
 	for event := range handle.Events {
 		switch event.Type {
@@ -132,16 +133,22 @@ func (a *Agent) GenerateWithOutput(ctx context.Context, req GenerateRequest, onO
 		case agenttargets.StreamResult:
 			sawResult = true
 			if event.IsError {
-				return nil, fmt.Errorf("%s error: %s", cfg.PreferredAgent, event.Text)
+				streamErr = fmt.Errorf("%s error: %s", cfg.PreferredAgent, event.Text)
 			}
 			finalResult = event.Text
 		case agenttargets.StreamError:
 			if !sawResult {
-				return nil, fmt.Errorf("%s execution failed: %s", cfg.PreferredAgent, event.Text)
+				streamErr = fmt.Errorf("%s execution failed: %s", cfg.PreferredAgent, event.Text)
 			}
 		}
 	}
 
+	if _, err := handle.Wait(); err != nil {
+		return nil, err
+	}
+	if streamErr != nil {
+		return nil, streamErr
+	}
 	// Prefer the explicit result if available, otherwise use accumulated content
 	content := finalResult
 	if content == "" {
