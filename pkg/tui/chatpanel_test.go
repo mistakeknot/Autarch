@@ -435,9 +435,16 @@ func TestChatPanelWithoutHandlerShowsDispatchOnly(t *testing.T) {
 }
 
 func TestGlobalModelCommandUsesDispatchLabel(t *testing.T) {
+	found := false
 	for _, cmd := range GlobalCommands() {
-		if cmd.Command == "model" && cmd.Description != "Toggle Dispatch" {
-			t.Errorf("unexpected description: %s", cmd.Description)
+		if cmd.Command == "model" {
+			found = true
+			if cmd.Description != "Choose Dispatch agent" {
+				t.Errorf("unexpected description: %s", cmd.Description)
+			}
 		}
+	}
+	if !found {
+		t.Fatal("missing /model command")
 	}
 }

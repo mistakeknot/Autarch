@@ -784,7 +784,7 @@ func (a *UnifiedApp) initPaletteCommands() {
 	}
 	cmds = append(cmds, Command{
 		Name:        "Choose Dispatch agent",
-		Description: "Toggle Dispatch",
+		Description: "Choose Dispatch agent",
 		Action: func() tea.Cmd {
 			return func() tea.Msg {
 				return tea.KeyMsg{Type: tea.KeyF2}
@@ -844,7 +844,7 @@ func (a *UnifiedApp) updateCommands() {
 
 	cmds = append(cmds, Command{
 		Name:        "Choose Dispatch agent",
-		Description: "Toggle Dispatch",
+		Description: "Choose Dispatch agent",
 		Action: func() tea.Cmd {
 			return func() tea.Msg {
 				return tea.KeyMsg{Type: tea.KeyF2}

@@ -84,7 +84,7 @@ func (s *AgentSelector) Update(msg tea.KeyMsg) (tea.Msg, tea.Cmd) {
 }
 
 // View renders the selector line.
-// An optional width limits the closed label to the caller's allocated columns.
+// An optional width limits the selector to the caller's allocated columns.
 func (s *AgentSelector) View(width ...int) string {
 	if len(s.Options) == 0 {
 		return ""
@@ -110,7 +110,11 @@ func (s *AgentSelector) View(width ...int) string {
 		parts = append(parts, label)
 	}
 
-	return lipgloss.NewStyle().Foreground(ColorFgDim).Render("Dispatch: ") + strings.Join(parts, "  ")
+	label := lipgloss.NewStyle().Foreground(ColorFgDim).Render("Dispatch: ") + strings.Join(parts, "  ")
+	if len(width) > 0 {
+		label = ansi.Truncate(label, max(0, width[0]), "…")
+	}
+	return label
 }
 
 func (s *AgentSelector) currentName() string {

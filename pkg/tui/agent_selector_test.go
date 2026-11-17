@@ -125,3 +125,13 @@ func TestAgentSelectorEnterWaitsForConfirmation(t *testing.T) {
 		t.Fatal("unconfirmed pick changed closed label:", s.View())
 	}
 }
+
+func TestAgentSelectorOpenLabelFitsWidth(t *testing.T) {
+	s := NewAgentSelector([]AgentOption{{Name: "claude"}, {Name: "codex"}})
+	s.Open = true
+	for _, width := range []int{0, 1, 12, 20} {
+		if got := lipgloss.Width(s.View(width)); got > width {
+			t.Errorf("open selector width %d exceeds allocation %d", got, width)
+		}
+	}
+}

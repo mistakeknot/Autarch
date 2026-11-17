@@ -190,7 +190,7 @@ Type `/` in the chat composer to open a fuzzy finder for commands. Use `â†‘`/`â†
 | `/help` | `/h` | Show help overlay |
 | `/quit` | `/q`, `/exit` | Quit the application |
 | `/settings` | `/config` | Open chat settings |
-| `/model` | `/m` | Toggle Dispatch |
+| `/model` | `/m` | Choose Dispatch agent |
 | `/palette` | `/p` | Open command palette (dashboard) |
 | `/refresh` | `/r` | Refresh current view |
 | `/back` | `/b` | Go back / cancel |
