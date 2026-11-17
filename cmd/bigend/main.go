@@ -28,9 +28,9 @@ import (
 
 func main() {
 	var (
-		port       = flag.Int("port", 8099, "HTTP server port")
-		host       = flag.String("host", "127.0.0.1", "HTTP server bind address")
-		scanRoot   = flag.String("scan-root", "", "Root directory to scan for projects")
+		_          = flag.Int("port", 8099, "HTTP server port")
+		_          = flag.String("host", "127.0.0.1", "HTTP server bind address")
+		_          = flag.String("scan-root", "", "Root directory to scan for projects")
 		cfgPath    = flag.String("config", "", "Path to config file")
 		tuiMode    = flag.Bool("tui", false, "Run in TUI mode instead of web server")
 		daemonMode = flag.Bool("daemon", false, "Run as daemon with HTTP API (schmux-style)")
@@ -65,16 +65,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Override with flags
-	if *port != 8099 {
-		cfg.Server.Port = *port
-	}
-	if *host != "0.0.0.0" {
-		cfg.Server.Host = *host
-	}
-	if *scanRoot != "" {
-		cfg.Discovery.ScanRoots = []string{*scanRoot}
-	}
+	applyFlagOverrides(flag.CommandLine, cfg)
 
 	// Create scanner
 	scanner := discovery.NewScanner(cfg.Discovery)
@@ -243,4 +234,18 @@ func runWeb(cfg *config.Config, agg *aggregator.Aggregator) {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("server shutdown error", "error", err)
 	}
+}
+
+// applyFlagOverrides preserves file configuration unless a flag was supplied.
+func applyFlagOverrides(fs *flag.FlagSet, cfg *config.Config) {
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "port":
+			cfg.Server.Port = f.Value.(flag.Getter).Get().(int)
+		case "host":
+			cfg.Server.Host = f.Value.String()
+		case "scan-root":
+			cfg.Discovery.ScanRoots = []string{f.Value.String()}
+		}
+	})
 }
