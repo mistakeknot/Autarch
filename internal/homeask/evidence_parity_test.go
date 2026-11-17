@@ -70,3 +70,22 @@ func TestEvidenceRootOverride(t *testing.T) {
 		t.Fatal("absolute override ignored")
 	}
 }
+
+func TestEvidenceRootCleanParity(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  string
+	}{
+		{"/store/", "/store"},
+		{"/link/../store//", "/store"},
+		{"//store/./", "/store"},
+		{"/../../", "/"},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			t.Setenv("AUTARCH_HOME_EVIDENCE", tc.input)
+			if got := EvidenceRoot(); got != tc.want {
+				t.Errorf("EvidenceRoot() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
