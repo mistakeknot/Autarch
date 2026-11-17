@@ -70,3 +70,33 @@ func TestChatPanelShowsAgentPreferenceSource(t *testing.T) {
 		t.Fatal("closed composer lost preference source")
 	}
 }
+
+func TestAgentSelectorCancelRestoresEffectiveLabel(t *testing.T) {
+	for _, closeKey := range []tea.KeyType{tea.KeyEsc, tea.KeyF2, tea.KeyCtrlG} {
+		t.Run(tea.KeyMsg{Type: closeKey}.String(), func(t *testing.T) {
+			s := NewAgentSelector([]AgentOption{{Name: "codex", Source: "AUTARCH_DISPATCH_AGENT"}, {Name: "claude", Source: "detected"}})
+			before := s.View()
+			s.Update(tea.KeyMsg{Type: tea.KeyF2})
+			s.Update(tea.KeyMsg{Type: tea.KeyDown})
+			if s.Index != 1 {
+				t.Fatal("navigation did not move cursor")
+			}
+			s.Update(tea.KeyMsg{Type: closeKey})
+			if s.Open || s.Index != 0 || s.View() != before {
+				t.Fatalf("cancel changed effective label: %s", s.View())
+			}
+			// A subsequent confirmed choice becomes the next opening's baseline.
+			s.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+			s.Update(tea.KeyMsg{Type: tea.KeyDown})
+			s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			s.Options[1].Source = "explicit agent selection"
+			before = s.View()
+			s.Update(tea.KeyMsg{Type: tea.KeyF2})
+			s.Update(tea.KeyMsg{Type: tea.KeyUp})
+			s.Update(tea.KeyMsg{Type: closeKey})
+			if s.Index != 1 || s.View() != before {
+				t.Fatal("cancel lost confirmed selection")
+			}
+		})
+	}
+}

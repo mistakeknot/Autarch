@@ -223,7 +223,7 @@ func (a *UnifiedApp) initAgentSelector() {
 			return
 		}
 		a.selectedAgent = options[0].Name
-		source = "automatic detection"
+		source = "configured, not detected"
 	}
 	if filepath.IsAbs(source) {
 		source = "project config"
@@ -392,7 +392,7 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "model", "m":
 			// Toggle model selector
 			if a.agentSelector != nil {
-				a.agentSelector.Open = !a.agentSelector.Open
+				a.agentSelector.Toggle()
 			}
 			return a, nil
 		case "palette", "p":

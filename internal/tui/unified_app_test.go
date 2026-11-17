@@ -429,6 +429,8 @@ func TestAgentSelectionFailureKeepsEffectiveLabel(t *testing.T) {
 }
 
 func TestAgentSelectorConfiguredOptionsWithoutDetection(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 	t.Chdir(t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("AUTARCH_DISPATCH_AGENT", "")
@@ -443,8 +445,8 @@ func TestAgentSelectorConfiguredOptionsWithoutDetection(t *testing.T) {
 	if app.agentSelector == nil {
 		t.Fatal("configured options lost without detection")
 	}
-	if strings.Contains(app.agentSelector.View(), "explicit") {
-		t.Fatal("automatic option marked explicit")
+	if !strings.Contains(app.agentSelector.View(), "configured, not detected") {
+		t.Fatal("undetected configured option mislabeled:", app.agentSelector.View())
 	}
 }
 
@@ -472,6 +474,8 @@ func TestAgentSelectionExplicitOverridesPreference(t *testing.T) {
 }
 
 func TestAgentSelectorMatchesPreferenceIgnoringCase(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 	t.Chdir(t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("AUTARCH_DISPATCH_AGENT", "Codex")

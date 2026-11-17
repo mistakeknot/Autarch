@@ -22,9 +22,10 @@ type AgentSelectedMsg struct {
 
 // AgentSelector renders a small selector line and handles selection keys.
 type AgentSelector struct {
-	Options []AgentOption
-	Open    bool
-	Index   int
+	Options      []AgentOption
+	Open         bool
+	Index        int
+	openingIndex int
 }
 
 // NewAgentSelector creates a new selector with options.
@@ -32,17 +33,27 @@ func NewAgentSelector(opts []AgentOption) *AgentSelector {
 	return &AgentSelector{Options: opts}
 }
 
+// Toggle opens the selector or cancels navigation back to the opening selection.
+func (s *AgentSelector) Toggle() {
+	if s.Open {
+		s.Index = s.openingIndex
+	} else {
+		s.openingIndex = s.Index
+	}
+	s.Open = !s.Open
+}
+
 // Update handles key input for toggling and selecting agents.
 // Responds to ctrl+g (MacBook-friendly) and F2 (external keyboard).
 func (s *AgentSelector) Update(msg tea.KeyMsg) (tea.Msg, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyF2:
-		s.Open = !s.Open
+		s.Toggle()
 		return nil, nil
 	}
 	// ctrl+g is more reliable on MacBooks where F-keys are bound to system functions
 	if msg.String() == "ctrl+g" {
-		s.Open = !s.Open
+		s.Toggle()
 		return nil, nil
 	}
 	if !s.Open {
@@ -51,7 +62,7 @@ func (s *AgentSelector) Update(msg tea.KeyMsg) (tea.Msg, tea.Cmd) {
 
 	switch msg.String() {
 	case "esc":
-		s.Open = false
+		s.Toggle()
 	case "up":
 		if s.Index > 0 {
 			s.Index--
