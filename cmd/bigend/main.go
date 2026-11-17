@@ -27,15 +27,8 @@ import (
 )
 
 func main() {
-	var (
-		_          = flag.Int("port", 8099, "HTTP server port")
-		_          = flag.String("host", "127.0.0.1", "HTTP server bind address")
-		_          = flag.String("scan-root", "", "Root directory to scan for projects")
-		cfgPath    = flag.String("config", "", "Path to config file")
-		tuiMode    = flag.Bool("tui", false, "Run in TUI mode instead of web server")
-		daemonMode = flag.Bool("daemon", false, "Run as daemon with HTTP API (schmux-style)")
-		daemonAddr = flag.String("daemon-addr", "127.0.0.1:8100", "Daemon HTTP API address")
-	)
+	opts := registerFlags(flag.CommandLine)
+	cfgPath, tuiMode, daemonMode, daemonAddr := opts.config, opts.tui, opts.daemon, opts.daemonAddr
 	flag.Parse()
 
 	// Setup logging — TUI mode routes all levels through LogHandler to the log pane;
@@ -248,4 +241,24 @@ func applyFlagOverrides(fs *flag.FlagSet, cfg *config.Config) {
 			cfg.Discovery.ScanRoots = []string{f.Value.String()}
 		}
 	})
+}
+
+// commandFlags holds the values registered for the standalone command.
+type commandFlags struct {
+	config     *string
+	tui        *bool
+	daemon     *bool
+	daemonAddr *string
+}
+
+func registerFlags(fs *flag.FlagSet) commandFlags {
+	fs.Int("port", 8099, "HTTP server port")
+	fs.String("host", "127.0.0.1", "HTTP server bind address")
+	fs.String("scan-root", "", "Root directory to scan for projects")
+	return commandFlags{
+		config:     fs.String("config", "", "Path to config file"),
+		tui:        fs.Bool("tui", false, "Run in TUI mode instead of web server"),
+		daemon:     fs.Bool("daemon", false, "Run as daemon with HTTP API (schmux-style)"),
+		daemonAddr: fs.String("daemon-addr", "127.0.0.1:8100", "Daemon HTTP API address"),
+	}
 }

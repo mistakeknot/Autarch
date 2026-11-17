@@ -161,7 +161,7 @@ When connected to Intermute WebSocket, events trigger targeted refreshes:
 ```toml
 [server]
 port = 8099
-host = "0.0.0.0"
+host = "127.0.0.1"
 
 [discovery]
 scan_roots = ["~/projects", "/root/projects"]

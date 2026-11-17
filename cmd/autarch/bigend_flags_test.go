@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/mistakeknot/autarch/internal/bigend/config"
-	"github.com/mistakeknot/autarch/internal/bigend/web"
+	"github.com/mistakeknot/autarch/pkg/netguard"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,8 +46,8 @@ func TestBigendFlagOverrides(t *testing.T) {
 				t.Fatalf("got host=%q port=%d roots=%q", cfg.Server.Host, cfg.Server.Port, cfg.Discovery.ScanRoots)
 			}
 			if tc.host == "0.0.0.0" {
-				// Rejection happens before listener creation; no network access is needed.
-				err := web.NewServer(cfg.Server, nil).ListenAndServe(fmt.Sprintf("%s:0", cfg.Server.Host))
+				// Validate the resolved address without ever opening a listener.
+				err := netguard.EnsureLocalOnly(fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port))
 				if err == nil || !strings.Contains(err.Error(), "refusing to bind non-loopback") {
 					t.Fatalf("expected bind refusal, got %v", err)
 				}
