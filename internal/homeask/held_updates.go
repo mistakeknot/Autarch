@@ -319,6 +319,12 @@ func (f *CardFiler) reconcileAttemptedEscalation(ctx context.Context, e filingEn
 		}
 	}
 	if err != nil {
+		if errors.Is(err, ErrInvalid) {
+			return result, fmt.Errorf("reconcile attempted card: %w", err)
+		}
+		if errors.Is(err, errTaskGone) && e.DeliveredCard != "" {
+			return result, fmt.Errorf("%w: recorded card %s was deleted; use a new Request", ErrInvalid, e.DeliveredCard)
+		}
 		return result, fmt.Errorf("%w: reconcile attempted card: %v", ErrOutcomeUnknown, err)
 	}
 	state, path, done, err := f.openState()
