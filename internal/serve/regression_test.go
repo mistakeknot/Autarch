@@ -23,10 +23,16 @@ func TestThreadHeaderInvalidOrEmpty(t *testing.T) {
 				if _, ok := r.Header["X-Autarch-Thread"]; ok {
 					t.Error("sent invalid or empty thread")
 				}
-				w.Write([]byte(`[]`))
+				w.Write([]byte(`[{"name":"fixture","root":"/fixture"}]`))
 			}))
 			defer srv.Close()
-			if _, err := FetchProjects(srv.URL, tokenFile(t, testTok), time.Second); err != nil {
+			token := tokenFile(t, testTok)
+			t.Setenv("AUTARCH_SERVE_URL", srv.URL)
+			t.Setenv("AUTARCH_SERVE_TOKEN_FILE", token)
+			if err := CheckFiling("fixture", "/fixture"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := FetchProjects(srv.URL, token, time.Second); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -126,5 +132,26 @@ func TestHijackedUpgradeStatus(t *testing.T) {
 	json.Unmarshal(data, &row)
 	if row["status"] != float64(101) {
 		t.Fatal(row)
+	}
+}
+
+func TestClaimedThreadUTF8ByteCap(t *testing.T) {
+	l := callerlog.New(filepath.Join(t.TempDir(), "audit"))
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(http.ResponseWriter, *http.Request) {})
+	r := httptest.NewRequest("GET", "http://localhost/health", nil)
+	r.Header.Set("X-Autarch-Thread", strings.Repeat("界", 100))
+	callerLogging(l, mux, mux).ServeHTTP(httptest.NewRecorder(), r)
+	l.Close()
+	data, err := os.ReadFile(filepath.Join(l.Dir(), "caller-log.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal(data, &row); err != nil {
+		t.Fatal(err)
+	}
+	if got := row["claimed_thread"].(string); len(got) > 128 {
+		t.Fatalf("decoded thread has %d bytes", len(got))
 	}
 }

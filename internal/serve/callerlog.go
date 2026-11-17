@@ -69,9 +69,9 @@ func callerLogging(log *callerlog.Log, mux *http.ServeMux, next http.Handler) ht
 		}
 		file := r.Method == "GET" && pattern == "GET /api/projects"
 		read := r.Method == "GET" && (file || strings.HasPrefix(pattern, "/signals/") || strings.HasPrefix(pattern, "/gurgeh/") || strings.HasPrefix(pattern, "GET /gurgeh/"))
-		thread := r.Header.Get("X-Autarch-Thread")
+		thread := strings.ToValidUTF8(r.Header.Get("X-Autarch-Thread"), "")
 		if len(thread) > 128 {
-			thread = thread[:128]
+			thread = strings.ToValidUTF8(thread[:128], "")
 		}
 		denied := outcome != "ok"
 		log.Record(map[string]any{"method": r.Method, "route": pattern, "status": status, "guard": outcome, "claimed_thread": thread, "peer": "unknown", "would_deny_cards:file": denied || !file, "would_deny_cards:read": denied || !read, "would_deny_admin": denied}, r.RemoteAddr)
