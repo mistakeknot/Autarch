@@ -129,25 +129,43 @@ func processError(err error, timedOut bool, tail *stderrTail) error {
 }
 
 func sanitizedStderrTail(t *stderrTail) string {
+	var text string
+	var recovered bool
+	raw := t.data
 	if history, ok := t.completeHistory(); ok {
-		if text, accepted := recoverStderrComplete(history); accepted {
-			return text
+		text, recovered = recoverStderrComplete(history)
+		if recovered {
+			// Inspect the same complete source recovery rendered; the trailing
+			// window alone may begin inside a UTF-8 rune or ANSI sequence.
+			raw = history
 		}
 	}
-	text := sanitizedStderr(t.data)
-	if strings.TrimSpace(text) == "" {
+	if !recovered {
+		text = sanitizedStderr(t.data)
+	}
+	if !stderrHasVisibleText(text) {
 		// Only replace blank output when frame selection hid visible content.
-		// Preserve streams containing only whitespace or stripped controls.
-		cleaned := stderrANSI.ReplaceAllString(string(t.data), "")
+		// Preserve streams containing only whitespace, format characters or
+		// stripped controls. Never disclose their length in a wrapper notice.
+		cleaned := stderrANSI.ReplaceAllString(string(raw), "")
 		cleaned = strings.Map(func(r rune) rune {
 			if unicode.IsControl(r) && r != '\n' && r != '\t' {
 				return -1
 			}
 			return r
 		}, cleaned)
-		if strings.TrimSpace(cleaned) != "" {
-			return fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(t.data))
+		if stderrHasVisibleText(cleaned) {
+			return "[stderr withheld: no visible final frame]"
 		}
 	}
 	return text
+}
+
+func stderrHasVisibleText(text string) bool {
+	for _, r := range text {
+		if !unicode.IsSpace(r) && !unicode.Is(unicode.Cf, r) {
+			return true
+		}
+	}
+	return false
 }

@@ -5,16 +5,28 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 func TestStderrTailBlankFrameNotice(t *testing.T) {
 	for _, prefix := range []string{"", strings.Repeat("x", 5000) + "\n"} {
-		for _, ending := range []string{"p\r", "p\r   ", "p\r\t\u2003", "p\r\r\r", "p\r\x1b]0;title\x07", "p\r \x1b]0;x\ry\x1b\\\t"} {
+		for _, row := range []struct{ ending, fullWant string }{
+			{"p\r", recoveryNotice},
+			{"p\r   ", "[stderr withheld: no visible final frame]"},
+			{"p\r\t\u2003", "[stderr withheld: no visible final frame]"},
+			{"p\r\r\r", recoveryNotice},
+			{"p\r\x1b]0;title\x07", recoveryNotice},
+			{"p\r \x1b]0;x\ry\x1b\\\t", "[stderr withheld: no visible final frame]"},
+		} {
+			ending := row.ending
 			input := prefix + ending
 			t.Run(fmt.Sprintf("%d/%q", len(prefix), ending), func(t *testing.T) {
 				for _, chunk := range []int{1, 7, len(input)} {
 					tail := recoveryWrite(input, chunk)
-					want := fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(tail.data))
+					want := "[stderr withheld: no visible final frame]"
+					if prefix != "" {
+						want = row.fullWant
+					}
 					if got := recoveryOutput(t, tail); got != want {
 						t.Errorf("chunk %d: got %q, want %q", chunk, got, want)
 					}
@@ -58,7 +70,7 @@ func beforeBlankNoticeStderrTail(t *stderrTail) string {
 
 func TestStderrTailNonblankUnchanged(t *testing.T) {
 	rng := rand.New(rand.NewSource(105))
-	parts := []string{"p", "\r", "\r\n", "\n", "\t", "\u2003", "\x1b]0;x\ry\x07", "\x1b[m", "token=1111 ", "Bearer 1111", "\xff", "é", "useful"}
+	parts := []string{"p", "\r", "\r\n", "\n", "\t", "\u2003", "\x1b]0;x\ry\x07", "\x1b[m", "token=1111 ", "Bearer 1111", "\xff", "é", "useful", "\u200b", "\u2060"}
 	nonblank := 0
 	for i := 0; i < 300; i++ {
 		var input strings.Builder
@@ -69,12 +81,12 @@ func TestStderrTailNonblankUnchanged(t *testing.T) {
 		tail := recoveryWrite(input.String(), 7)
 		old := beforeBlankNoticeStderrTail(tail)
 		got := sanitizedStderrTail(tail)
-		if strings.TrimSpace(old) != "" {
+		if strings.TrimFunc(old, func(r rune) bool { return unicode.IsSpace(r) || unicode.Is(unicode.Cf, r) }) != "" {
 			nonblank++
 			if got != old {
 				t.Fatalf("nonblank render changed at case %d: %q != %q", i, got, old)
 			}
-		} else if got != old && got != fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(tail.data)) {
+		} else if got != old && got != "[stderr withheld: no visible final frame]" {
 			t.Fatalf("blank render exposed content at case %d: %q", i, got)
 		}
 	}
