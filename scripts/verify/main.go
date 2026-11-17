@@ -590,7 +590,7 @@ func execute(started time.Time) (resultErr error) {
 	defer lock.Close()
 	mergeBase, e := git(root, "merge-base", baseSHA, headSHA)
 	if e != nil {
-		return e
+		return fmt.Errorf("no merge-base between base and head: %w", e)
 	}
 	headTree, e := git(root, "rev-parse", headSHA+"^{tree}")
 	if e != nil {

@@ -5,8 +5,10 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -86,6 +88,115 @@ func TestChangedUsesRecordedMergeBase(t *testing.T) {
 			}
 			if recorded.Base != base || recorded.MergeBase != fork {
 				t.Fatal("lost range provenance", recorded)
+			}
+		})
+	}
+}
+
+// Exercise execute through a clean, VCS-stamped driver built in an owned repo.
+// No selected journey is implemented, so this never launches Home or bb.
+func TestExecuteMergeBaseRanges(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("execute requires a non-root user")
+	}
+	root := testRepository(t)
+	run := func(args ...string) string {
+		t.Helper()
+		out, err := git(root, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	write := func(name string, data []byte) {
+		t.Helper()
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"main.go", "core.go", "listener.go", "map.tsv"} {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		write("scripts/verify/"+name, data)
+	}
+	write("go.mod", []byte("module verifyfixture\n\ngo 1.25.0\n"))
+	run("add", ".")
+	run("commit", "-qm", "verifier fixture")
+	fork := run("rev-parse", "HEAD")
+	write("docs/guide.md", []byte("head documentation\n"))
+	run("add", ".")
+	run("commit", "-qm", "head documentation")
+	head := run("rev-parse", "HEAD")
+	run("checkout", "--detach", fork)
+	write("internal/homefooter/footer.go", []byte("base-only change\n"))
+	run("add", ".")
+	run("commit", "-qm", "base change")
+	base := run("rev-parse", "HEAD")
+	run("checkout", "--orphan", "unrelated")
+	run("commit", "-qm", "unrelated root")
+	unrelated := run("rev-parse", "HEAD")
+	run("checkout", "--detach", base)
+	bin := filepath.Join(ownedTestDir(t), "verify")
+	build := exec.Command("go", "build", "-race", "-buildvcs=true", "-o", bin, "./scripts/verify")
+	build.Dir = root
+	build.Env = append(os.Environ(), "GOWORK=off", "GOMAXPROCS=2", "GOFLAGS=-p=2")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build driver: %v\n%s", err, out)
+	}
+	for _, tc := range []struct{ name, base, head, mergeBase string }{
+		{"unrelated-histories", unrelated, head, ""},
+		{"head-ancestor-of-base", base, fork, fork},
+		{"merge-base-before-changed", base, head, fork},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := ownedTestDir(t)
+			outDir := filepath.Join(state, "out")
+			cmd := exec.Command(bin, "--base", tc.base, "--head", tc.head, "--verifier-commit", base, "--out", outDir)
+			cmd.Dir = root
+			cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + state, "XDG_STATE_HOME=" + state}
+			output, runErr := cmd.CombinedOutput()
+			data, err := os.ReadFile(filepath.Join(outDir, "report.json"))
+			if err != nil {
+				t.Fatalf("report: %v; run: %v\n%s", err, runErr, output)
+			}
+			var report Report
+			if err := json.Unmarshal(data, &report); err != nil {
+				t.Fatal(err)
+			}
+			if tc.mergeBase == "" {
+				if runErr == nil || report.Verdict != "INCOMPLETE" {
+					t.Fatalf("unrelated histories did not fail closed: %v %+v", runErr, report)
+				}
+				if !strings.Contains(string(output), "no merge-base between base and head:") {
+					t.Fatalf("missing range context: %s", output)
+				}
+				return
+			}
+			if runErr != nil {
+				t.Fatalf("execute: %v\n%s", runErr, output)
+			}
+			if report.MergeBase != tc.mergeBase {
+				t.Fatalf("merge base = %q, want %q", report.MergeBase, tc.mergeBase)
+			}
+			if report.Verdict != "NO-FLOW" {
+				t.Fatalf("verdict = %s, want NO-FLOW: %+v", report.Verdict, report)
+			}
+			var paths []string
+			for _, p := range report.Paths {
+				paths = append(paths, p.Path)
+			}
+			var want []string
+			if tc.head == head {
+				want = []string{"docs/guide.md"}
+			}
+			if !reflect.DeepEqual(paths, want) {
+				t.Fatalf("changed paths = %v, want %v", paths, want)
 			}
 		})
 	}
