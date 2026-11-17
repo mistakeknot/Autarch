@@ -31,14 +31,26 @@ func (t *stderrTail) Write(p []byte) (int, error) {
 var stderrANSI = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))`)
 var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|(?:ghp_|gho_|ghs_|ghu_|ghr_|github_pat_)[a-z0-9_]+|Bearer[ \t]+[^\s]+|(?:Authorization|x-api-key)[ \t]*:[^\r\n]*|"(?:access_token|api_key|token|refresh_token|id_token|client_secret|apiKey)"\s*:\s*"(?:[^"\\]|\\.)*(?:"|$)|access_token=[^&\s]*`)
 
+// Go's regexp engine guarantees linear-time matching. Assignment keys must end
+// in a credential name; quoted values may contain escaped characters.
+var stderrAssignment = regexp.MustCompile(`(?i)\b[a-z0-9_-]*(?:token|key|secret|password|authorization)["']?[ \t]*[=:][ \t]*(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s&,;}]+)`)
+var stderrURLCredential = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s:@]+:[^/\s@]*@`)
+
 func sanitizedStderr(data []byte) string {
 	// A full tail may start inside a credential keyword or its value. Drop
 	// the entire first line: retaining only its suffix loses redaction context.
 	if len(data) >= stderrTailBytes {
-		if end := strings.IndexByte(string(data), '\n'); end >= 0 {
+		if end := strings.IndexAny(string(data), "\r\n"); end >= 0 {
 			data = data[end+1:]
 		} else {
-			data = nil
+			// Keep at most 512 bytes, dropping the leading fragment so a
+			// credential whose keyword fell outside the tail cannot survive.
+			data = data[len(data)-512:]
+			if end := strings.IndexAny(string(data), " \t"); end >= 0 {
+				data = data[end+1:]
+			} else {
+				data = nil
+			}
 		}
 	}
 
@@ -50,6 +62,8 @@ func sanitizedStderr(data []byte) string {
 		return r
 	}, text)
 	text = stderrToken.ReplaceAllString(text, "[REDACTED]")
+	text = stderrAssignment.ReplaceAllString(text, "[REDACTED]")
+	text = stderrURLCredential.ReplaceAllString(text, "[REDACTED]")
 	if len(text) > stderrTailBytes {
 		start := len(text) - stderrTailBytes
 		for start < len(text) && !utf8.RuneStart(text[start]) {

@@ -167,9 +167,9 @@ func TestStreamingErrorResultPrecedence(t *testing.T) {
 
 func TestStderrSanitized(t *testing.T) {
 	var tail stderrTail
-	tail.Write([]byte("\x1b[31merror\x1b[0m\r sk-xxxxxxxxxxxx Bearer secret456\x00"))
+	tail.Write([]byte("\x1b[31merror\x1b[0m\r sk-xxxxxxxxxxxx Bearer xxxxxxxxxxxx\x00"))
 	err := processError(context.Canceled, false, &tail)
-	for _, bad := range []string{"\x1b", "\r", "\x00", "sk-xxxxxxxxxxxx", "secret456"} {
+	for _, bad := range []string{"\x1b", "\r", "\x00", "sk-xxxxxxxxxxxx", "xxxxxxxxxxxx"} {
 		if strings.Contains(err.Error(), bad) {
 			t.Errorf("unsafe error: %q", err)
 		}
@@ -213,8 +213,8 @@ func TestAdditionalSecretShapes(t *testing.T) {
 		})
 	}
 	var tail stderrTail
-	tail.Write([]byte("ghp_" + strings.Repeat("a", 5000) + "\nuseful diagnostic"))
-	if got := sanitizedStderr(tail.data); strings.Contains(got, "aaaa") || !strings.Contains(got, "useful diagnostic") {
+	tail.Write([]byte("ghp_" + strings.Repeat("x", 5000) + "\nuseful diagnostic"))
+	if got := sanitizedStderr(tail.data); strings.Contains(got, "xxxx") || !strings.Contains(got, "useful diagnostic") {
 		t.Fatalf("partial token survived: %.100s", got)
 	}
 }
@@ -251,12 +251,56 @@ func TestTailCutInsideKeywords(t *testing.T) {
 	for _, key := range []string{`"access_token"`, `"api_key"`, `"token"`, "Authorization", "Bearer", `"refresh_token"`, `"id_token"`, `"client_secret"`, `"apiKey"`, "x-api-key", "access_token="} {
 		for offset := 0; offset < len(key); offset++ {
 			suffix := key[offset:] + `: "xxxxxxxxxxxx"` + "\nuseful diagnostic\n"
-			input := strings.Repeat("a", 5000) + suffix + strings.Repeat(" ", stderrTailBytes-len(suffix))
+			input := strings.Repeat("x", 5000) + suffix + strings.Repeat(" ", stderrTailBytes-len(suffix))
 			var tail stderrTail
 			tail.Write([]byte(input))
 			if got := sanitizedStderr(tail.data); strings.Contains(got, "xxxxxxxxxxxx") || !strings.Contains(got, "useful diagnostic") {
 				t.Fatalf("key %q cut %d leaked: %.100s", key, offset, got)
 			}
 		}
+	}
+}
+
+func TestStderrNoNewlineTail(t *testing.T) {
+	for _, tc := range []struct{ name, input, want string }{
+		{"spinner", strings.Repeat("\rWorking...", 600) + "\rError: quota exceeded", "Error: quota exceeded"},
+		{"long-line", strings.Repeat("x", 6000) + ` {"error":"quota exceeded"}`, "quota exceeded"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var tail stderrTail
+			tail.Write([]byte(tc.input))
+			if got := sanitizedStderr(tail.data); !strings.Contains(got, tc.want) {
+				t.Fatalf("lost diagnostic: %q", got)
+			}
+		})
+	}
+}
+
+func TestCredentialAssignments(t *testing.T) {
+	for _, input := range []string{
+		`{"Authorization":"xxxxxxxxxxxx"}`, "x-api-key: xxxxxxxxxxxx",
+		"api_key=xxxxxxxxxxxx&ok=yes", "token=xxxxxxxxxxxx",
+		"'access_token'='xxxxxxxxxxxx'", `{"accessToken":"xxxxxxxxxxxx"}`,
+		`{"password":"xxxxxxxxxxxx"}`, "ANTHROPIC_API_KEY=xxxxxxxxxxxx",
+		"https://xxx:xxxxxxxxxxxx@example.test/error", `secret = "xxxx xxxx"`,
+	} {
+		t.Run(input, func(t *testing.T) {
+			if got := sanitizedStderr([]byte(input)); strings.Contains(got, "xxxx") {
+				t.Fatalf("credential survived: %q", got)
+			}
+		})
+	}
+	for _, input := range []string{"disk-full; task-runner", "Error: quota exceeded", "keyboard: unavailable", "token count exceeded", "secretary: unavailable"} {
+		if got := sanitizedStderr([]byte(input)); got != input {
+			t.Errorf("ordinary text changed: %q", got)
+		}
+	}
+}
+
+func TestNoBoundaryPartialToken(t *testing.T) {
+	var tail stderrTail
+	tail.Write([]byte("token=" + strings.Repeat("x", 6000)))
+	if got := sanitizedStderr(tail.data); strings.Contains(got, "xxxx") {
+		t.Fatalf("partial credential survived: %.100s", got)
 	}
 }

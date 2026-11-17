@@ -101,7 +101,7 @@ func Run(ctx context.Context, cwd string, args []string) (string, error) {
 		return "", err
 	}
 	if resultIsError {
-		return "", fmt.Errorf("claude returned error: %s", resultText)
+		return "", fmt.Errorf("agent returned error: %s", resultText)
 	}
 	if sawResult {
 		return strings.TrimSpace(resultText), nil
