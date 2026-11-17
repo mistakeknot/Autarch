@@ -50,10 +50,18 @@ func Explore(ctx context.Context, cwd string) (map[string]any, string, error) {
 		}
 	}
 
+	_, processErr := handle.Wait()
+
 	if isError {
+		if processErr != nil {
+			return nil, "", fmt.Errorf("agent returned error: %s: %w", finalResult, processErr)
+		}
 		return nil, "", fmt.Errorf("agent returned error: %s", finalResult)
 	}
 
+	if processErr != nil {
+		return nil, "", processErr
+	}
 	slog.Info("exploration complete")
 
 	// Parse the result JSON (stream-json gives us the result directly)

@@ -1,6 +1,7 @@
 package brief
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -214,5 +215,19 @@ func TestSaveBriefs(t *testing.T) {
 	}
 	if !strings.Contains(string(content), "First outcome") {
 		t.Error("first brief missing outcome")
+	}
+}
+
+func TestDecomposeProcessErrorPrefix(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"result\",\"is_error\":true,\"result\":\"Invalid API key\"}'\nprintf diagnostic >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("AUTARCH_DISPATCH_BACKEND", "subscription-cli")
+	_, err := Decompose(context.Background(), &specs.Spec{Title: "test"}, dir, "claude")
+	if err == nil || !strings.HasPrefix(err.Error(), "brief decomposition failed: agent returned error: Invalid API key") || !strings.Contains(err.Error(), "diagnostic") {
+		t.Fatalf("lost diagnostic or prefix: %v", err)
 	}
 }

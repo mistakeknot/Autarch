@@ -45,7 +45,7 @@ func Decompose(ctx context.Context, spec *specs.Spec, workingDir string, agent .
 	defer handle.Cancel()
 	out, _, err := agenttargets.CollectResult(handle)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("brief decomposition failed: %w", err)
 	}
 	run, err := handle.Wait()
 	if err != nil {
