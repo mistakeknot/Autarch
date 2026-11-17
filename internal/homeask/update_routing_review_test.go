@@ -176,7 +176,12 @@ func TestRepairedUpdateReadbackFailures(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			if mode == "deadline" || mode == "early-deadline" {
 				cancel()
-				ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+				// Early stopping needs setup headroom without adding a sleep.
+				callerTimeout := 5 * time.Second
+				if mode == "deadline" {
+					callerTimeout = 250 * time.Millisecond
+				}
+				ctx, cancel = context.WithTimeout(context.Background(), callerTimeout)
 			}
 			defer cancel()
 			reads := 0
@@ -200,8 +205,8 @@ func TestRepairedUpdateReadbackFailures(t *testing.T) {
 			fl.ReadbackTimeout = 40 * time.Millisecond
 			fl.ReadbackInterval = time.Millisecond
 			if mode == "cancelled" || mode == "deadline" || mode == "early-deadline" {
-				fl.ReadbackInterval = 200 * time.Millisecond
-				fl.ReadbackTimeout = 2 * time.Second
+				fl.ReadbackInterval = 6 * time.Second
+				fl.ReadbackTimeout = 10 * time.Second
 			}
 			r.Ask["question"] = "Changed before readback?"
 			deriveRoutingTestKey(t, &r)

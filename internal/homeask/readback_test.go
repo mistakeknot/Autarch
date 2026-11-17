@@ -199,8 +199,10 @@ func TestFileCardReadbackCallerDeadlineBeforeNextPoll(t *testing.T) {
 		return nil
 	}
 	fl := f.filer()
-	fl.ReadbackTimeout, fl.ReadbackInterval = 2*time.Second, 200*time.Millisecond
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	// Leave ample setup headroom, but make another interval cross the caller's
+	// deadline even if setup completes immediately. No interval should be slept.
+	fl.ReadbackTimeout, fl.ReadbackInterval = 10*time.Second, 6*time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	res, err := fl.FileCard(ctx, testReq())
 	if !errors.Is(err, ErrOutcomeUnknown) || res.ID != "T1" || polls != 1 {
@@ -211,7 +213,7 @@ func TestFileCardReadbackCallerDeadlineBeforeNextPoll(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "before the caller's deadline") ||
 		!strings.Contains(err.Error(), "re-run with --request "+res.Key+" and unchanged input") ||
-		strings.Contains(err.Error(), "within 2s") {
+		strings.Contains(err.Error(), "within 10s") {
 		t.Fatalf("message=%q", err)
 	}
 }
@@ -221,7 +223,13 @@ func TestFileCardReadbackInterrupted(t *testing.T) {
 	for _, mode := range []string{"cancelled", "deadline"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newFake(t, registryOnCreate)
-			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			// Cancellation needs setup headroom; the deadline case intentionally waits
+			// for expiry and stays below the package's elapsed-time bounds.
+			callerTimeout := 5 * time.Second
+			if mode == "deadline" {
+				callerTimeout = 250 * time.Millisecond
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), callerTimeout)
 			defer cancel()
 			polls := 0
 			f.fail = func(args []string) *BBResult {
@@ -237,7 +245,7 @@ func TestFileCardReadbackInterrupted(t *testing.T) {
 				return nil
 			}
 			fl := f.filer()
-			fl.ReadbackTimeout, fl.ReadbackInterval = 2*time.Second, 200*time.Millisecond
+			fl.ReadbackTimeout, fl.ReadbackInterval = 10*time.Second, 6*time.Second
 			res, err := fl.FileCard(ctx, testReq())
 			if !errors.Is(err, ErrOutcomeUnknown) || res.ID != "T1" || polls != 1 {
 				t.Fatalf("res=%+v err=%v polls=%d", res, err, polls)
@@ -248,7 +256,7 @@ func TestFileCardReadbackInterrupted(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), want) ||
 				!strings.Contains(err.Error(), "re-run with --request "+res.Key+" and unchanged input") ||
-				strings.Contains(err.Error(), "within 2s") {
+				strings.Contains(err.Error(), "within 10s") {
 				t.Fatalf("message=%q", err)
 			}
 			wantErr := context.DeadlineExceeded
