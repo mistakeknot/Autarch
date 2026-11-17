@@ -9,7 +9,7 @@ import (
 )
 
 func prepareEvidenceRoot(root string) error {
-	// Mkdir, unlike MkdirAll, tells us whether this call created the root.
+	// Create missing parents and the root; validate an existing root below.
 	if err := os.MkdirAll(filepath.Dir(root), 0700); err != nil {
 		return fmt.Errorf("cannot create evidence store")
 	}

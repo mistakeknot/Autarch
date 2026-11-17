@@ -206,7 +206,7 @@ func ValidateEvidence(list []Evidence) error {
 
 func EvidenceRoot() string {
 	if p := os.Getenv("AUTARCH_HOME_EVIDENCE"); p != "" && filepath.IsAbs(p) {
-		return p
+		return filepath.Clean(p)
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".autarch", "home-evidence")
