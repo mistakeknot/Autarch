@@ -1,7 +1,10 @@
 package agenttargets
 
 import (
+	"bytes"
 	"fmt"
+	"math/rand"
+	"regexp"
 	"strings"
 	"testing"
 	"unicode"
@@ -79,6 +82,10 @@ func referenceStart(raw []byte) (int, bool) {
 func checkMainSuperset(t testing.TB, raw []byte) {
 	t.Helper()
 	got := sanitizedStderr(raw)
+	checkMainSupersetOutput(t, raw, got)
+}
+func checkMainSupersetOutput(t testing.TB, raw []byte, got string) {
+	t.Helper()
 	start, notice := referenceStart(raw)
 	if notice {
 		if got != fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(raw)) {
@@ -87,7 +94,15 @@ func checkMainSuperset(t testing.TB, raw []byte) {
 		return
 	}
 	text, src, mask := referenceRegion(t, raw[start:], start)
-	_, actualMask := stderrSourceMask(raw, start)
+	actualRegion, actualMask := stderrSourceMask(raw, start)
+	if string(actualRegion.text) != text || len(actualRegion.source) != len(src) {
+		t.Fatalf("production normalization for %q", raw)
+	}
+	for i, p := range src {
+		if actualRegion.source[i] != int32(p) {
+			t.Fatalf("production provenance for %q", raw)
+		}
+	}
 	for p, hidden := range mask {
 		if hidden && actualMask[p] <= 0 {
 			t.Fatalf("legacy source %d exposed for %q", p, raw)
@@ -106,7 +121,18 @@ func checkMainSuperset(t testing.TB, raw []byte) {
 		i += n
 	}
 	allowed := visible.String()
-	output := strings.ReplaceAll(got, "[REDACTED]", "")
+	// The final byte cut can bisect a generated marker. Its alphabet is
+	// excluded here; exact source-mask coverage above remains positional.
+	stripMarkerAlphabet := func(s string) string {
+		return strings.Map(func(r rune) rune {
+			if strings.ContainsRune("[REDACTED]", r) {
+				return -1
+			}
+			return r
+		}, s)
+	}
+	output := stripMarkerAlphabet(got)
+	allowed = stripMarkerAlphabet(allowed)
 	// Marker spelling is generated text; all other bytes must retain ordering.
 	for i := 0; i < len(output); i++ {
 		p := strings.IndexByte(allowed, output[i])
@@ -122,5 +148,619 @@ func checkMainSuperset(t testing.TB, raw []byte) {
 		if unicode.IsControl(r) && r != '\n' && r != '\t' {
 			t.Fatalf("control in %q", got)
 		}
+	}
+}
+
+// Sentinels occur only in one instance's value, never filler or generated text.
+const stderrSentinels = "123578JMQ"
+
+func checkConstructed(t testing.TB, input string) string {
+	t.Helper()
+	var tail stderrTail
+	tail.Write([]byte(input))
+	raw := tail.data
+	got := sanitizedStderr(raw)
+	_, notice := referenceStart(raw)
+	want := fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(raw))
+	if (got == want) != notice {
+		t.Fatalf("notice iff for %q: %q", raw, got)
+	}
+	// Sweeps use the per-instance oracle: source provenance determines main's
+	// visible byte counts. Positional production-mask checks are separate in
+	// TestMainRedactionSuperset and the generator, avoiding duplicate sanitizing.
+	start, condition := referenceStart(raw)
+	if !condition {
+		text, src, mask := referenceRegion(t, raw[start:], start)
+		var visible, shown [256]int
+		for i, b := range []byte(text) {
+			if !mask[src[i]] {
+				visible[b]++
+			}
+		}
+		for _, b := range []byte(got) {
+			shown[b]++
+		}
+		for b := range visible {
+			if strings.IndexByte("[REDACTED]", byte(b)) < 0 && shown[b] > visible[b] {
+				t.Fatalf("legacy visibility byte %d raw %q output %q", b, raw, got)
+			}
+		}
+	}
+	if !utf8.ValidString(got) || len(got) > 4096 {
+		t.Fatal("bounded UTF-8")
+	}
+	for _, r := range got {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			t.Fatal("output control")
+		}
+	}
+
+	if len(input) < 4096 && sanitizedStderr([]byte(input)) != got {
+		t.Fatal("direct/streamed drift")
+	}
+	return got
+}
+
+// expectedHidden aligns the exact reviewed output with its raw fixture. It
+// derives hidden positions from the contract, never the production matcher.
+func expectedHidden(t testing.TB, c redactCase) []bool {
+	t.Helper()
+	hidden := make([]bool, len(c.input))
+	parts := strings.Split(c.want, "[REDACTED]")
+	pos := 0
+	for i, part := range parts {
+		if i == 0 {
+			if !strings.HasPrefix(c.input, part) {
+				t.Fatalf("fixture prefix %q", c.input)
+			}
+			pos = len(part)
+			continue
+		}
+		end := len(c.input)
+		if i < len(parts)-1 || part != "" {
+			next := strings.Index(c.input[pos:], part)
+			if next < 0 {
+				t.Fatalf("fixture suffix %q", c.input)
+			}
+			end = pos + next
+		}
+		for j := pos; j < end; j++ {
+			hidden[j] = true
+		}
+		pos = end + len(part)
+	}
+	return hidden
+}
+
+type stderrSweepFixture struct {
+	input, want string
+	symbol      byte
+	legacy      bool
+}
+
+func stderrSweepFixtures(t testing.TB) []stderrSweepFixture {
+	t.Helper()
+	var fixtures []stderrSweepFixture
+	for _, c := range newShapeCases {
+		if !strings.Contains(c.want, "[REDACTED]") {
+			continue
+		}
+		hidden := expectedHidden(t, c)
+		placeholder := func(i int) bool { return hidden[i] && (c.input[i] >= '0' && c.input[i] <= '9') }
+		count := 0
+		for i := range hidden {
+			if placeholder(i) {
+				count++
+			}
+		}
+		if count == 0 {
+			// Exact-output-only: no placeholder bytes in the required-hidden part.
+			// These include expired, not-found prose and an unterminated name value.
+			fixtures = append(fixtures, stderrSweepFixture{input: c.input, want: c.want})
+			continue
+		}
+		outside := ""
+		for i := range c.input {
+			if !placeholder(i) {
+				outside += c.input[i : i+1]
+			}
+		}
+		symbol := byte(0)
+		for i := range stderrSentinels {
+			s := stderrSentinels[i]
+			if !strings.ContainsRune(outside, rune(s)) && !strings.ContainsRune(c.want, rune(s)) {
+				symbol = s
+				break
+			}
+		}
+		if symbol == 0 {
+			t.Fatalf("no sentinel for %q", c.input)
+		}
+		input := []byte(c.input)
+		for i := range input {
+			if placeholder(i) {
+				input[i] = symbol
+			}
+		}
+		fixtures = append(fixtures, stderrSweepFixture{string(input), c.want, symbol, false})
+	}
+	for _, shape := range []string{"sk-1111", "ghp_1111", "gho_1111", "ghs_1111", "ghu_1111", "ghr_1111", "github_pat_1111", "Bearer 1111", "Authorization: 1111", "x-api-key: 1111", "access_token=1111", `{"access_token":"1111"}`, `{"api_key":"1111"}`, `{"token":"1111"}`, `{"refresh_token":"1111"}`, `{"id_token":"1111"}`, `{"client_secret":"1111"}`, `{"apiKey":"1111"}`} {
+		fixtures = append(fixtures, stderrSweepFixture{shape, frozenStderr([]byte(shape)), '1', true})
+	}
+	return fixtures
+}
+
+// requiredDiagnosticHidden checks legacy masks separately from new quoted-key
+// forms. In particular token":"1111 survives eviction of the opening quote.
+func requiredDiagnosticHidden(t testing.TB, raw []byte) bool {
+	start, notice := referenceStart(raw)
+	if notice {
+		return true
+	}
+	diagnostic := strings.LastIndex(string(raw), "useful")
+	legacyHidden := false
+	for _, base := range []int{start, 0} {
+		text, src, mask := referenceRegion(t, raw[base:], base)
+		if diagnostic < len(mask) && mask[diagnostic] {
+			legacyHidden = true
+		}
+		// Independent, deliberately simple quoted-key parser: only this form can
+		// carry a new mask through the first newline into the diagnostic.
+		for _, name := range referenceNames.FindAllStringIndex(text, -1) {
+			if !referenceSensitiveName.MatchString(text[name[0]:name[1]]) {
+				continue
+			}
+			pos := name[1]
+			token := func() (byte, int, bool) {
+				begin := pos
+				for pos < len(text) && text[pos] == '\\' {
+					pos++
+				}
+				if pos < len(text) && (text[pos] == '"' || text[pos] == '\'') {
+					q := text[pos]
+					k := pos - begin
+					pos++
+					return q, k, true
+				}
+				return 0, 0, false
+			}
+			if _, _, ok := token(); !ok {
+				continue
+			}
+			for pos < len(text) && stderrSpace(text[pos]) {
+				pos++
+			}
+			if pos == len(text) || text[pos] != ':' {
+				continue
+			}
+			pos++
+			for pos < len(text) && stderrSpace(text[pos]) {
+				pos++
+			}
+			q, k, ok := token()
+			if !ok {
+				continue
+			}
+			valueStart := pos
+			end := len(text)
+			slashes := 0
+			for j := pos; j < len(text); j++ {
+				if text[j] == q && (k == 0 && slashes%2 == 0 || k > 0 && slashes == k) {
+					end = j + 1
+					break
+				}
+				if text[j] == '\\' {
+					slashes++
+				} else {
+					slashes = 0
+				}
+			}
+			if valueStart < end && src[valueStart] <= diagnostic && src[end-1] >= diagnostic {
+				return true
+			}
+		}
+	}
+	return legacyHidden
+}
+
+func TestStderrSweeps(t *testing.T) {
+	fixtures := stderrSweepFixtures(t)
+	t.Run("SW1", func(t *testing.T) {
+		windowFixtures := append([]stderrSweepFixture{}, fixtures...)
+		windowFixtures = append(windowFixtures, stderrSweepFixture{input: `{"token":"1111`}, stderrSweepFixture{input: `{"password": "1111`})
+		for _, f := range windowFixtures {
+			for offset := 0; offset <= len(f.input); offset++ {
+				suffix := f.input[offset:] + "\nuseful"
+				raw := []byte(suffix + strings.Repeat(" ", 4096-len(suffix)))
+				// Keep the legacy-only applicability cross-check distinct from the new
+				// quoted-key forms, whose name can survive its opening quote's eviction.
+				if f.input == `{"token":"1111` {
+					_, _, mask := referenceRegion(t, raw, 0)
+					legacyFlag := offset <= strings.IndexByte(f.input, '"')
+					if mask[strings.Index(string(raw), "useful")] != legacyFlag {
+						t.Fatal("legacy flag/reference drift")
+					}
+				}
+				hide := requiredDiagnosticHidden(t, raw)
+				got := checkConstructed(t, strings.Repeat("x", 5000)+string(raw))
+				if strings.Contains(got, "useful") == hide {
+					t.Fatalf("diagnostic coverage offset %d fixture %q hidden %v got %q", offset, f.input, hide, got)
+				}
+			}
+		}
+	})
+	for _, group := range []struct {
+		name    string
+		inserts []string
+	}{{"SW2", []string{"\r"}}, {"SW3", []string{"\x1b[0m", "\x1b]0;t\x07"}}, {"SW4", []string{"\x00", "\x07", "\x7f", "\xc2\x85"}}} {
+		t.Run(group.name, func(t *testing.T) {
+			for _, f := range fixtures {
+				for _, insert := range group.inserts {
+					for offset := 0; offset <= len(f.input); offset++ {
+						input := f.input[:offset] + insert + f.input[offset:]
+						checkConstructed(t, input)
+						checkConstructed(t, strings.Repeat("x", 5000)+"\n"+input)
+					}
+				}
+			}
+		})
+	}
+	t.Run("SW5", func(t *testing.T) {
+		for _, f := range fixtures {
+			for offset := -64; offset <= 64; offset++ {
+				input := strings.Repeat("x", 4096+offset) + "\n" + f.input + strings.Repeat(" ", 8192-(4096+offset+1+len(f.input)))
+				checkConstructed(t, input)
+			}
+		}
+	})
+	t.Run("SW6", func(t *testing.T) {
+		for _, size := range []int{4095, 4096, 4097} {
+			for _, ending := range []string{" ", "\t", "\xc2\x85", "\xc2\xa0", "\x00", "\x1b[0m"} {
+				for _, first := range []bool{false, true} {
+					input := strings.Repeat("x", size-len(ending)-1) + "\n" + ending
+					if first {
+						input = "\n" + strings.Repeat(" ", size-len(ending)-1) + ending
+					}
+					got := checkConstructed(t, input)
+					var tail stderrTail
+					tail.Write([]byte(input))
+					if got != frozenStderr(tail.data) {
+						t.Fatalf("SW6 %q", got)
+					}
+				}
+			}
+		}
+		for _, size := range []int{4095, 4096, 4097} {
+			checkConstructed(t, strings.Repeat("x", size-1)+"\n")
+		}
+	})
+	t.Run("SW7", func(t *testing.T) {
+		const digits = "4096 0 9 6"
+		if got := checkConstructed(t, strings.Repeat("x", 5000)+"\n"+digits); got != digits {
+			t.Fatalf("digits %q", got)
+		}
+	})
+	t.Run("SW8", func(t *testing.T) {
+		for _, f := range fixtures {
+			if f.symbol == 0 {
+				continue
+			}
+			for _, space := range []string{"", " "} {
+				for offset := 0; offset <= len(f.input); offset++ {
+					// The cut of unredacted normalized text lands at offset in F.
+					base := len(f.input) + len(space)
+					p := (4096 - base + offset) / 3
+					r := 4096 + offset - base - 3*p
+					input := f.input + space + strings.Repeat("\xff", p) + strings.Repeat("x", r)
+					normalized, _, _ := referenceRegion(t, []byte(input), 0)
+					if len(input) >= 4096 || len(normalized)-4096 != offset {
+						t.Fatal("SW8 construction")
+					}
+					got := checkConstructed(t, input)
+					if strings.ContainsRune(got, rune(f.symbol)) {
+						t.Fatalf("SW8 symbol %q input %q", f.symbol, input)
+					}
+					if f.legacy && got != frozenStderr([]byte(input)) {
+						t.Fatalf("SW8 legacy output %q", got)
+					}
+				}
+			}
+		}
+		if got := checkConstructed(t, "Bearer "+strings.Repeat("\xff", 1366)+"11"); got != "[REDACTED]" {
+			t.Fatalf("SW8 killing fixture %q", got)
+		}
+	})
+	t.Run("SW8u", func(t *testing.T) {
+		for _, r := range []string{"é", "€", "\xef\xbf\xbd", "\xff"} {
+			for offset := -8; offset <= 8; offset++ {
+				for _, input := range []string{strings.Repeat("x", 4096+offset) + r + "\nuseful", "\n" + strings.Repeat("\xff", 1360) + strings.Repeat("x", 16+offset) + r} {
+					got := checkConstructed(t, input)
+					var tail stderrTail
+					tail.Write([]byte(input))
+					if got != frozenStderr(tail.data) {
+						t.Fatalf("SW8u %q", got)
+					}
+				}
+			}
+		}
+	})
+	t.Run("SW9", func(t *testing.T) {
+		for _, f := range fixtures {
+			if f.legacy {
+				continue
+			}
+			if got := checkConstructed(t, f.input); got != f.want {
+				t.Fatalf("SW9 baseline %q: %q want %q", f.input, got, f.want)
+			}
+			for _, insert := range []string{"\x1b[0m", "\x1b]0;t\x07", "\x00", "\x7f", "\xc2\x85", "\r"} {
+				for offset := 0; offset <= len(f.input); offset++ {
+					input := f.input[:offset] + insert + f.input[offset:]
+					norm, _, _ := referenceRegion(t, []byte(input), 0)
+					if norm != f.input {
+						t.Fatal("SW9 transform precondition")
+					}
+					for _, prefix := range []string{"", strings.Repeat("x", 5000) + "\n"} {
+						got := checkConstructed(t, prefix+input)
+						if f.symbol != 0 && strings.ContainsRune(got, rune(f.symbol)) {
+							t.Fatalf("SW9 symbol %q for %q", f.symbol, input)
+						}
+						if insert != "\r" && got != f.want {
+							t.Fatalf("SW9 equality %q got %q want %q", input, got, f.want)
+						}
+					}
+				}
+			}
+			input := strings.ReplaceAll(f.input, "\n", "\r\n")
+			norm, _, _ := referenceRegion(t, []byte(input), 0)
+			if norm != f.input {
+				t.Fatal("CRLF precondition")
+			}
+			got := checkConstructed(t, input)
+			if f.symbol != 0 && strings.ContainsRune(got, rune(f.symbol)) {
+				t.Fatal("SW9 CRLF")
+			}
+		}
+	})
+}
+
+var referenceNames = regexp.MustCompile(`[A-Za-z0-9_-]+`)
+var referenceSensitiveName = regexp.MustCompile(`(?i)(?:password|passwd|secret|credentials?|authorization|cookie|privatekey|private_key|private-key|token|apikey|api_key|api-key|accesskey|access_key|secretkey|secret_key|.+_key|.+-key)$`)
+
+func TestStderrGeneratedSuperset(t *testing.T) {
+	rng := rand.New(rand.NewSource(1704))
+	shapes := []string{"sk-%s", "ghp_%s", "Bearer %s", "access_token=%s&ok=yes", `{"token":"%s"}`, "api_key=%s", "password: %s", "--token %s", "https://u:%s@example.test/"}
+	noises := []string{"", "\x1b[0m", "\x1b]0;t\x07", "\r", "\r\n", "\x00", "\x7f", "\xff", " useful ", "\x1b]0;"}
+	classes := map[string]int{}
+	for iteration := 0; iteration < 20000; iteration++ {
+		var input strings.Builder
+		instances := 1 + rng.Intn(9)
+		symbols := stderrSentinels[:instances]
+		for j := 0; j < instances; j++ {
+			symbol := symbols[j]
+			value := strings.Repeat(string(symbol), 1+rng.Intn(8))
+			shape := fmt.Sprintf(shapes[rng.Intn(len(shapes))], value)
+			at := rng.Intn(len(shape) + 1)
+			input.WriteString(noises[rng.Intn(len(noises))])
+			input.WriteString(shape[:at])
+			input.WriteString(noises[rng.Intn(len(noises))])
+			input.WriteString(shape[at:])
+			input.WriteString("\n")
+		}
+		stream := input.String()
+		// An entire instance inside a terminated OSC produces ERASED rather than
+		// merely modifying its grammar. Its sentinel still belongs to that instance.
+		if iteration%13 == 0 {
+			stream = "\x1b]0;" + stream + "\x07useful\n"
+		}
+
+		// Prefix and suffix sizes cover empty, short, exact-window and evicted data.
+		if iteration%20 == 0 {
+			size := []int{0, 4095, 4096, 4097, 8192, 20000}[rng.Intn(6)]
+			if size < len(stream) {
+				stream = stream[:size]
+			} else {
+				padding := size - len(stream)
+				before := rng.Intn(padding + 1)
+				stream = strings.Repeat("x", before) + stream + strings.Repeat("x", padding-before)
+			}
+		}
+		// Each sentinel was introduced only within its own instance. None of the
+		// grammar, noise or filler strings contains any sentinel.
+		for j := 0; j < instances; j++ {
+			if strings.ContainsRune("useful example.test x", rune(symbols[j])) {
+				t.Fatal("generator sentinel collision")
+			}
+		}
+		var tail stderrTail
+		for pos := 0; pos < len(stream); {
+			n := 1 + rng.Intn(97)
+			if iteration%7 == 0 {
+				n = 1
+			}
+			if iteration%11 == 0 {
+				n = len(stream)
+			}
+			if n > len(stream)-pos {
+				n = len(stream) - pos
+			}
+			tail.Write([]byte(stream[pos : pos+n]))
+			pos += n
+		}
+		raw := tail.data
+		got := checkConstructed(t, stream)
+		checkMainSupersetOutput(t, raw, got)
+		if got != sanitizedStderr(raw) {
+			t.Fatal("chunk-dependent tail")
+		}
+		start, notice := referenceStart(raw)
+		if notice {
+			continue
+		}
+		text, src, mask := referenceRegion(t, raw[start:], start)
+		for j := 0; j < instances; j++ {
+			symbol := symbols[j]
+			rawCount := bytes.Count(raw[start:], []byte{symbol})
+			normalizedCount, maskedCount, visibleCount := 0, 0, 0
+			for i, b := range []byte(text) {
+				if b == symbol {
+					normalizedCount++
+					if mask[src[i]] {
+						maskedCount++
+					} else {
+						visibleCount++
+					}
+				}
+			}
+			class := "MIXED"
+			switch {
+			case rawCount == 0:
+				class = "DROPPED"
+			case normalizedCount == 0:
+				class = "ERASED"
+			case visibleCount == 0 && maskedCount > 0:
+				class = "HIDDEN"
+			}
+			classes[class]++
+			if strings.Count(got, string(symbol)) > visibleCount {
+				t.Fatalf("%s instance %q raw %q output %q visible %d", class, symbol, raw, got, visibleCount)
+			}
+		}
+	}
+	for _, class := range []string{"DROPPED", "ERASED", "HIDDEN", "MIXED"} {
+		if classes[class] == 0 {
+			t.Fatalf("generator missed %s", class)
+		}
+	}
+	t.Logf("instance classes: %v", classes)
+}
+
+func FuzzSanitizedStderrSuperset(f *testing.F) {
+	for _, cases := range portedDirectCases {
+		for _, c := range cases {
+			f.Add([]byte(c.input))
+		}
+	}
+	for _, input := range []string{"sk-11é77", "sk-11\xc3\x1b[0m\xa977", "sk-11\xff77", "ghp_11-77", "Bearer 11\t77", "access_token=11&77", `"token": "11\\"77`, "Bearer \xef\xbf\xbd11 ok"} {
+		f.Add([]byte(input))
+	}
+
+	for _, c := range newShapeCases {
+		f.Add([]byte(c.input))
+	}
+	for _, input := range legacyGuardInputs() {
+		f.Add([]byte(input))
+	}
+	for _, input := range []string{"\xc3\x1b[0m\xa9", "Bearer \xff11 ok", "\x1b]0;t\nx\x07y", "\x1b[0m\x1b[0msk-1111 ok", "--token =1111", "secret: \"1111\" useful", "xſk-11", "ſk-11", "[stderr withheld: 4096 bytes with no complete line]"} {
+		f.Add([]byte(input))
+	}
+	f.Fuzz(func(t *testing.T, input []byte) {
+		var tail stderrTail
+		tail.Write(input)
+		raw := tail.data
+		// Raw condition selects the branch, even on a literal notice collision.
+		start, notice := referenceStart(raw)
+		got := sanitizedStderr(raw)
+		if notice {
+			want := fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(raw))
+			if got != want {
+				t.Fatalf("notice %q", got)
+			}
+			return
+		}
+		text, _, _ := referenceRegion(t, raw[start:], start)
+		uncut := frozenToken.ReplaceAllString(text, "[REDACTED]")
+		for b := 0; b < 256; b++ {
+			if strings.IndexByte("[REDACTED]", byte(b)) >= 0 {
+				continue
+			}
+			if bytes.Count([]byte(got), []byte{byte(b)}) > bytes.Count([]byte(uncut), []byte{byte(b)}) {
+				t.Fatalf("byte %d increased input %q got %q", b, raw, got)
+			}
+		}
+		checkMainSuperset(t, raw)
+	})
+}
+
+func stderrAdversarialInputs() map[string]string {
+	distinct := ""
+	for k := 1; len(distinct)+k+7 < 4095; k++ {
+		distinct += "token:" + strings.Repeat("\\", k) + "\""
+	}
+	return map[string]string{
+		"invalid":          strings.Repeat("\xff", 4095),
+		"ansi":             strings.Repeat("\x1b[m", 1365),
+		"legacy":           strings.Repeat("sk-x ", 819),
+		"alternating":      strings.Repeat("sk-x\xff", 819),
+		"distinct-quotes":  distinct,
+		"candidates":       strings.Repeat("token=", 682),
+		"schemes":          strings.Repeat("a://", 1024),
+		"schemes-short":    strings.Repeat("a://", 1023),
+		"full-schemes":     "\n" + strings.Repeat("a://", 1023) + "xxx",
+		"userinfo":         strings.Repeat("https://a@", 409),
+		"quoted":           strings.Repeat(`"token":"\`, 409),
+		"cr":               strings.Repeat("x\r", 2047),
+		"full-ansi":        "\n" + strings.Repeat("\x1b[m", 1365),
+		"full-legacy":      "\n" + strings.Repeat("sk-x ", 819),
+		"full-alternating": "\n" + strings.Repeat("sk-x\xff", 819),
+		"authorization":    "Authorization: " + strings.Repeat("x", 4000),
+		"json":             `{"token":"` + strings.Repeat("x", 4000),
+		"cookie":           "Cookie: " + strings.Repeat("x ", 2000),
+		"form":             "token=" + strings.Repeat("x", 4000),
+		"url":              "https://u:" + strings.Repeat("x", 3900) + "@example.test/",
+		"osc":              "\x1b]0;" + strings.Repeat("x", 4000) + "\x07useful",
+		"multiline":        strings.Repeat("useful\n", 585),
+		"plain":            strings.Repeat("x", 4095),
+	}
+}
+
+func TestSanitizeAllocBudget(t *testing.T) {
+	if raceEnabled {
+		t.Skip("race instrumentation and randomized sync.Pool eviction distort regexp allocations; run this unchanged 1 MiB gate without -race")
+	}
+
+	inputs := stderrAdversarialInputs()
+	for _, name := range []string{"full-ansi", "full-legacy", "full-alternating"} {
+		input := []byte(inputs[name])
+		result := testing.Benchmark(func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				sanitizedStderr(input)
+			}
+		})
+		t.Logf("%s: %d B/op %d allocs/op", name, result.AllocedBytesPerOp(), result.AllocsPerOp())
+		if result.AllocedBytesPerOp() > 1<<20 {
+			t.Fatalf("allocation budget %s: %d B/op", name, result.AllocedBytesPerOp())
+		}
+	}
+}
+func BenchmarkSanitizeAdversarial(b *testing.B) {
+	for name, input := range stderrAdversarialInputs() {
+		b.Run(name, func(b *testing.B) {
+			raw := []byte(input)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				sanitizedStderr(raw)
+			}
+		})
+	}
+}
+func BenchmarkSanitizeTypical(b *testing.B) {
+	raw := []byte("Error: quota exceeded; retry later")
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		sanitizedStderr(raw)
+	}
+}
+func BenchmarkTailWrite(b *testing.B) {
+	for name, input := range map[string]string{"one-byte": "x", "64KiB": strings.Repeat("x", 65536), "cr": strings.Repeat("x\r", 2048)} {
+		b.Run(name, func(b *testing.B) {
+			var tail stderrTail
+			raw := []byte(input)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				tail.Write(raw)
+			}
+		})
 	}
 }

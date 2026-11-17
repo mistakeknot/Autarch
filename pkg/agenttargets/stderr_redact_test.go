@@ -6,7 +6,7 @@ import (
 )
 
 // Stages and exact outputs follow the reviewed plan for mk-rkkao.2.
-const redactStage = 3
+const redactStage = 4
 
 type redactCase struct {
 	input, want string
@@ -149,6 +149,16 @@ func TestEveryCandidate(t *testing.T) {
 }
 func TestFrameSelection(t *testing.T) {
 	checkRedactStage(t, redactCase{"Working...\rWorking...\rError: quota exceeded", "Error: quota exceeded", 5}, false)
+	for _, c := range []redactCase{
+		{"Working\r\x1b]0;x\ry\x07Error: quota exceeded", "Error: quota exceeded", 5},
+		{"keep\x1b]0;x\ry\x07 useful", "keep useful", 0},
+		{"old\rnew\r\n", "new\n", 5},
+		{"old\rnew\nfirst\rsecond", "new\nsecond", 5},
+		{"old\r", "", 5},
+		{"Bearer \xc3\r\xa9", "[REDACTED]", 0},
+	} {
+		checkRedactStage(t, c, false)
+	}
 }
 func TestStraddlingRunRedacted(t *testing.T) {
 	for _, c := range []redactCase{{"Error: Authorization: abc\rdef ok", "[REDACTED]", 5}, {"Working \rsk-11\r22 ok", "[REDACTED] ok", 5}} {
@@ -201,7 +211,10 @@ func TestPartialMatches(t *testing.T) {
 		t.Fatalf("bare long-s changed: %q", got)
 	}
 
-	for _, input := range []string{"sk-11é77", "sk-11\xc3\x1b[0m\xa977", "sk-11\xff77", "ghp_11-77", "Bearer 11\t77", "access_token=11&77", "\"token\": \"11\\\"77", "xſk-11"} {
+	if got := sanitizedStderr([]byte("xſk-11")); got != "x[REDACTED]" {
+		t.Fatalf("Unicode fold and visible prefix: %q", got)
+	}
+	for _, input := range []string{"sk-11é77", "sk-11\xc3\x1b[0m\xa977", "sk-11\xff77", "ghp_11-77", "Bearer 11\t77", "access_token=11&77", `"token": "11\\"77`, "xſk-11"} {
 		checkMainSuperset(t, []byte(input))
 		got := sanitizedStderr([]byte(input))
 		if strings.Contains(got, "1") || strings.Count(got, "7") > strings.Count(frozenStderr([]byte(input)), "7") {
@@ -223,17 +236,8 @@ func TestAcceptedOverRedaction(t *testing.T) {
 // Historical test fixtures are ported under the compatibility decisions for
 // mk-rkkao.2; implementation is independent of the earlier attempt.
 func TestPortedCompatibility(t *testing.T) {
-	direct := map[string][]redactCase{
-		"TestCredentialAssignments":                {{`secret = "xxxx xxxx"`, `secret = [REDACTED]`, 3}},
-		"TestReviewOrdinaryErrors":                 {{"open /etc/ssl/server.key: no such file or directory", "open /etc/ssl/server.key: no such file or directory", 0}, {"error parsing config.yaml: key: unknown field", "error parsing config.yaml: key: unknown field", 0}, {"monkey: banana / hotkey=ctrl+c", "monkey: banana / hotkey=ctrl+c", 0}},
-		"TestReviewQuotingAndFrames":               {{`{\"access_token\":\"1111\"}`, `{\"access_token\":[REDACTED]}`, 3}, {`{\"token\": \"1111\"}`, `{\"token\": [REDACTED]}`, 3}},
-		"TestRoundTwoAuthorization":                {{"Authorization: token 1111", "[REDACTED]", 0}, {"Authorization: Bot 1111", "[REDACTED]", 0}, {`Authorization: Digest username="xxx", response="1111"`, "[REDACTED]", 0}, {"Authorization: AWS4-HMAC-SHA256 Credential=xxx, Signature=1111", "[REDACTED]", 0}, {"prefixAuthorization: Bot 1111", "prefix[REDACTED]", 0}},
-		"TestRoundTwoAdditionalNamesAndExceptions": {{"token: expiredxxxxxxxxxxxx", "token: [REDACTED]", 3}, {"token=expiredxxxxxxxxxxxx", "token=[REDACTED]", 3}, {"https://example.test/x?token=1111", "https://example.test/x?token=[REDACTED]", 3}},
-		"TestRoundThreeAssignmentSeparator":        {{"access_token=1111: expired", "[REDACTED] expired", 0}, {"token=1111: expired", "token=[REDACTED] expired", 3}, {"password=1111:unknown field", "password=[REDACTED] field", 3}},
-		"TestRoundThreeURLPassword":                {{"https://xxx:xx@1111@example.test/", "https://xxx:[REDACTED]@example.test/", 3}, {"https://xxx:xx/1111@example.test/", "https://xxx:[REDACTED]@example.test/", 3}, {"https://xxx:xx/@1111@example.test/", "https://xxx:[REDACTED]@example.test/", 3}},
-		"TestRoundTwoCRLF":                         {{"Error: quota exceeded\r\nsecond line\r\n", "Error: quota exceeded\nsecond line\n", 0}, {"< HTTP/1.1 401 Unauthorized\r\n< x: y\r\n", "< HTTP/1.1 401 Unauthorized\n< x: y\n", 0}, {"Working...\rError: quota exceeded\r\n", "Error: quota exceeded\n", 5}},
-	}
-	for name, cases := range direct {
+
+	for name, cases := range portedDirectCases {
 		t.Run(name+"/direct", func(t *testing.T) {
 			for _, c := range cases {
 				checkRedactStage(t, c, false)
@@ -262,4 +266,15 @@ func TestPortedCompatibility(t *testing.T) {
 			})
 		}
 	}
+}
+
+var portedDirectCases = map[string][]redactCase{
+	"TestCredentialAssignments":                {{`secret = "xxxx xxxx"`, `secret = [REDACTED]`, 3}},
+	"TestReviewOrdinaryErrors":                 {{"open /etc/ssl/server.key: no such file or directory", "open /etc/ssl/server.key: no such file or directory", 0}, {"error parsing config.yaml: key: unknown field", "error parsing config.yaml: key: unknown field", 0}, {"monkey: banana / hotkey=ctrl+c", "monkey: banana / hotkey=ctrl+c", 0}},
+	"TestReviewQuotingAndFrames":               {{`{\"access_token\":\"1111\"}`, `{\"access_token\":[REDACTED]}`, 3}, {`{\"token\": \"1111\"}`, `{\"token\": [REDACTED]}`, 3}},
+	"TestRoundTwoAuthorization":                {{"Authorization: token 1111", "[REDACTED]", 0}, {"Authorization: Bot 1111", "[REDACTED]", 0}, {`Authorization: Digest username="xxx", response="1111"`, "[REDACTED]", 0}, {"Authorization: AWS4-HMAC-SHA256 Credential=xxx, Signature=1111", "[REDACTED]", 0}, {"prefixAuthorization: Bot 1111", "prefix[REDACTED]", 0}},
+	"TestRoundTwoAdditionalNamesAndExceptions": {{"token: expiredxxxxxxxxxxxx", "token: [REDACTED]", 3}, {"token=expiredxxxxxxxxxxxx", "token=[REDACTED]", 3}, {"https://example.test/x?token=1111", "https://example.test/x?token=[REDACTED]", 3}},
+	"TestRoundThreeAssignmentSeparator":        {{"access_token=1111: expired", "[REDACTED] expired", 0}, {"token=1111: expired", "token=[REDACTED] expired", 3}, {"password=1111:unknown field", "password=[REDACTED] field", 3}},
+	"TestRoundThreeURLPassword":                {{"https://xxx:xx@1111@example.test/", "https://xxx:[REDACTED]@example.test/", 3}, {"https://xxx:xx/1111@example.test/", "https://xxx:[REDACTED]@example.test/", 3}, {"https://xxx:xx/@1111@example.test/", "https://xxx:[REDACTED]@example.test/", 3}},
+	"TestRoundTwoCRLF":                         {{"Error: quota exceeded\r\nsecond line\r\n", "Error: quota exceeded\nsecond line\n", 0}, {"< HTTP/1.1 401 Unauthorized\r\n< x: y\r\n", "< HTTP/1.1 401 Unauthorized\n< x: y\n", 0}, {"Working...\rError: quota exceeded\r\n", "Error: quota exceeded\n", 5}},
 }
