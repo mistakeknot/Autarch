@@ -153,6 +153,11 @@ func selectFlows(names []string, rows []Row, extra []string) ([]Mapping, []strin
 	}
 	return paths, flows
 }
+
+// checkoutWalkStop is unset in production. Tests bound the ancestor walk to
+// their temporary filesystem so ambient host ancestors cannot affect fixtures.
+var checkoutWalkStop string
+
 func safePath(name, checkout string) (string, error) {
 	abs, err := filepath.Abs(name)
 	if err != nil {
@@ -166,7 +171,7 @@ func safePath(name, checkout string) (string, error) {
 			return "", fmt.Errorf("refusing live machine path")
 		}
 	}
-	for p := abs; p != "/"; p = filepath.Dir(p) {
+	for p := abs; p != "/" && p != checkoutWalkStop; p = filepath.Dir(p) {
 		if _, e := os.Lstat(filepath.Join(p, ".git")); e == nil {
 			return "", fmt.Errorf("refusing path within a checkout")
 		}

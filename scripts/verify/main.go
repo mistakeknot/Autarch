@@ -157,11 +157,15 @@ func writeFresh(name string, b []byte) error {
 	_, err = f.Write(b)
 	return err
 }
+
+// gitScratchRoot is replaced only by tests to match their temporary root.
+var gitScratchRoot = "/tmp"
+
 func git(dir string, args ...string) (string, error) {
 	// Even metadata helpers get a private network namespace. Git hooks and file
 	// monitors are disabled; only local object transport is permitted.
 	gitArgs := append([]string{"/usr/bin/git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "protocol.allow=never", "-c", "protocol.file.allow=always", "-C", dir}, args...)
-	command := append([]string{"-n", "19", "/usr/bin/ionice", "-c3", "/usr/bin/bwrap", "--unshare-net", "--die-with-parent", "--ro-bind", "/", "/", "--dev", "/dev", "--bind", "/tmp", "/tmp", "--"}, gitArgs...)
+	command := append([]string{"-n", "19", "/usr/bin/ionice", "-c3", "/usr/bin/bwrap", "--unshare-net", "--die-with-parent", "--ro-bind", "/", "/", "--dev", "/dev", "--bind", gitScratchRoot, gitScratchRoot, "--"}, gitArgs...)
 	c := exec.Command("/usr/bin/nice", command...)
 	c.Env = []string{"PATH=/usr/bin:/bin", "HOME=/nonexistent", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"}
 	var output bytes.Buffer
@@ -651,7 +655,7 @@ func execute(started time.Time) (resultErr error) {
 			r.VerifierChanged = true
 		}
 	}
-	work, e := os.MkdirTemp("/tmp", "autarch-verify-")
+	work, e := os.MkdirTemp(gitScratchRoot, "autarch-verify-")
 	if e != nil {
 		return e
 	}

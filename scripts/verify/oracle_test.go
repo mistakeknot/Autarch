@@ -53,11 +53,7 @@ func TestPickClickPlantedFaults(t *testing.T) {
 			work := ownedTestDir(t)
 			mirror := filepath.Join(work, "objects.git")
 			product := filepath.Join(work, "product")
-			out, err := os.MkdirTemp("/tmp", "autarch-verify-oracle-evidence-")
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Logf("oracle evidence retained at %s", out)
+			out := t.TempDir()
 			if _, e = git(root, "clone", "--bare", "--no-local", root, mirror); e != nil {
 				t.Fatal(e)
 			}
@@ -159,11 +155,8 @@ func requireOracleControl(t *testing.T, root string, fixtures oracleFixtures) st
 	controlWork := ownedTestDir(t)
 	controlMirror := filepath.Join(controlWork, "objects.git")
 	controlProduct := filepath.Join(controlWork, "product")
-	controlOut, e := os.MkdirTemp("/tmp", "autarch-verify-oracle-control-")
-	if e != nil {
-		t.Fatal(e)
-	}
-	t.Logf("control evidence retained at %s", controlOut)
+	controlOut := t.TempDir()
+	var e error
 	if _, e = git(root, "clone", "--bare", "--no-local", root, controlMirror); e != nil {
 		t.Fatal(e)
 	}
