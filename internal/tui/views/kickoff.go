@@ -3,6 +3,8 @@ package views
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/mistakeknot/autarch/internal/autarch/agent"
+	"github.com/mistakeknot/autarch/internal/gurgeh/exploration"
 	"os"
 	"path/filepath"
 	"sort"
@@ -44,8 +46,9 @@ type KickoffView struct {
 	scanResult     *tui.CodebaseScanResultMsg // Stored scan result for passing to interview
 	scanPath       string                     // Path being scanned
 	scanFiles      []string                   // Files found during scan
-	scanAgentName  string                     // Name of agent being used
-	scanAgentLines []string                   // Recent lines of agent output
+	codingAgent    *agent.Agent
+	scanAgentName  string   // Name of agent being used
+	scanAgentLines []string // Recent lines of agent output
 
 	// Callbacks for navigation
 	onProjectStart func(project *Project) tea.Cmd
@@ -578,7 +581,8 @@ func (v *KickoffView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 					v.scanPath = cwd
 					v.scanFiles = findProjectFiles(cwd)
 					v.loadingMsg = "Scanning codebase..."
-					v.scanAgentName = "Claude Code"
+					v.scanAgentName = v.resolvedScanAgent(cwd)
+					v.chatPanel.AddMessage("system", "Analyzing with "+v.scanAgentName+"...")
 					return v, v.onScanCodebase(cwd)
 				}
 				return v, nil
@@ -1046,7 +1050,8 @@ func (v *KickoffView) HandleSlashCommand(command string, args []string) tea.Cmd 
 			v.scanPath = cwd
 			v.scanFiles = findProjectFiles(cwd)
 			v.loadingMsg = "Scanning codebase..."
-			v.scanAgentName = "Claude Code"
+			v.scanAgentName = v.resolvedScanAgent(cwd)
+			v.chatPanel.AddMessage("system", "Analyzing with "+v.scanAgentName+"...")
 			return v.onScanCodebase(cwd)
 		}
 	case "new", "n":
@@ -1061,4 +1066,19 @@ func (v *KickoffView) HandleSlashCommand(command string, args []string) tea.Cmd 
 		}
 	}
 	return nil
+}
+
+// SetCodingAgent supplies the selection used by onboarding dispatch.
+func (v *KickoffView) SetCodingAgent(a *agent.Agent) { v.codingAgent = a }
+
+func (v *KickoffView) resolvedScanAgent(path string) string {
+	cfg := v.codingAgent.ApplyDispatchConfig(exploration.Config(path))
+	if cfg.PreferredAgent != "" {
+		return cfg.PreferredAgent
+	}
+	detected, err := agent.DetectAgent()
+	if err == nil {
+		return string(detected.Type)
+	}
+	return "agent unavailable"
 }

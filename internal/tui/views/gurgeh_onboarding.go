@@ -940,15 +940,15 @@ func (v *GurgehOnboardingView) scanCodebase(path string) tea.Cmd {
 	// Create a channel for progress updates
 	progressChan := make(chan agent.ScanProgress, 100)
 
-	// Start exploration in a goroutine (Claude Code is the primary scan method)
+	// Start exploration with the resolved scan configuration.
 	// Progress is reported via slog, which appears in the log pane
 	go func() {
 		defer close(progressChan)
 
 		// Send initial progress to TUI
-		progressChan <- agent.ScanProgress{Step: "Exploring", Details: "Running Claude Code..."}
+		progressChan <- agent.ScanProgress{Step: "Exploring", Details: "Running " + cfg.PreferredAgent + "..."}
 
-		// Run Claude Code exploration (progress logged via slog)
+		// Run exploration (progress logged via slog)
 		exploreResult, sessionID, err := v.explore(v.ctx, path, cfg)
 
 		if err != nil {
