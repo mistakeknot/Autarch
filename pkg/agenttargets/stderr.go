@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 const stderrTailBytes = 4096
@@ -28,7 +29,7 @@ func (t *stderrTail) Write(p []byte) (int, error) {
 }
 
 var stderrANSI = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))`)
-var stderrToken = regexp.MustCompile(`(?i)sk-[a-z0-9_-]+|Bearer[ \t]+[^\s]+`)
+var stderrToken = regexp.MustCompile(`(?i)\bsk-[a-z0-9_-]+|Bearer[ \t]+[^\s]+`)
 
 func sanitizedStderr(data []byte) string {
 	text := stderrANSI.ReplaceAllString(string(data), "")
@@ -40,7 +41,11 @@ func sanitizedStderr(data []byte) string {
 	}, text)
 	text = stderrToken.ReplaceAllString(text, "[REDACTED]")
 	if len(text) > stderrTailBytes {
-		text = text[len(text)-stderrTailBytes:]
+		start := len(text) - stderrTailBytes
+		for start < len(text) && !utf8.RuneStart(text[start]) {
+			start++
+		}
+		text = text[start:]
 	}
 	return text
 }

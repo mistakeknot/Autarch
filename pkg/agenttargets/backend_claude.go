@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"sync"
@@ -109,6 +110,11 @@ func (b *ClaudeBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wo
 		defer close(events)
 		defer func() {
 			cmdErr := cmd.Wait()
+			// A descendant retaining stderr must not turn a successful CLI exit
+			// into a failure when the bounded drain expires.
+			if errors.Is(cmdErr, exec.ErrWaitDelay) && cmd.ProcessState.Success() {
+				cmdErr = nil
+			}
 			duration := time.Since(startedAt)
 
 			exitCode := 0

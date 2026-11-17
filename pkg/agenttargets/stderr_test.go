@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestStreamingStderr(t *testing.T) {
@@ -95,13 +96,18 @@ func TestStreamingInheritedStderr(t *testing.T) {
 			timeout bool
 			limit   time.Duration
 		}{
-			{"exit", false, 0}, {"exit-before-deadline", false, 300 * time.Millisecond}, {"timeout", true, 300 * time.Millisecond},
+			{"success", false, 0}, {"exit", false, 0}, {"exit-before-deadline", false, 300 * time.Millisecond}, {"timeout", true, 300 * time.Millisecond},
 		} {
 			timeout := tc.timeout
 			t.Run(agent+"/"+tc.name, func(t *testing.T) {
 				dir := t.TempDir()
 				script := "#!/bin/sh\nprintf diagnostic >&2\n/bin/sleep 8 >/dev/null </dev/null &\n"
-				if timeout {
+				if tc.name == "success" {
+					if agent == "claude" {
+						script += "printf '%s\\n' '{\"type\":\"result\",\"result\":\"ok\"}'\n"
+					}
+					script += "exit 0\n"
+				} else if timeout {
 					script += "while :; do :; done\n"
 				} else {
 					script += "exit 1\n"
@@ -115,7 +121,13 @@ func TestStreamingInheritedStderr(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				for range h.Events {
+				var output string
+				var collectErr error
+				if tc.name == "success" {
+					output, _, collectErr = CollectResult(h)
+				} else {
+					for range h.Events {
+					}
 				}
 				result, err := h.Wait()
 				if time.Since(start) > 3*time.Second {
@@ -124,7 +136,11 @@ func TestStreamingInheritedStderr(t *testing.T) {
 				if result.TimedOut != timeout {
 					t.Errorf("TimedOut=%v, want %v", result.TimedOut, timeout)
 				}
-				if err == nil || !strings.Contains(err.Error(), "diagnostic") {
+				if tc.name == "success" {
+					if err != nil || collectErr != nil || (agent == "claude" && output != "ok") {
+						t.Fatalf("successful result lost: output=%q err=%v collectErr=%v", output, err, collectErr)
+					}
+				} else if err == nil || !strings.Contains(err.Error(), "diagnostic") {
 					t.Fatalf("missing diagnostic: %v", err)
 				}
 			})
@@ -157,5 +173,33 @@ func TestStderrSanitized(t *testing.T) {
 		if strings.Contains(err.Error(), bad) {
 			t.Errorf("unsafe error: %q", err)
 		}
+	}
+}
+
+func TestSanitizedStderrUTF8AndWords(t *testing.T) {
+	text := sanitizedStderr([]byte(strings.Repeat("é", 2100) + "x"))
+	if !utf8.ValidString(text) || len(text) > stderrTailBytes {
+		t.Errorf("invalid bounded UTF-8: len=%d valid=%v", len(text), utf8.ValidString(text))
+	}
+	const words = "disk-full; task-runner"
+	if got := sanitizedStderr([]byte(words)); got != words {
+		t.Errorf("ordinary words changed: %q", got)
+	}
+}
+
+func TestStreamingNonErrorResultWithFailedExit(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"result\",\"result\":\"ok\"}'\nprintf diagnostic >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	h, err := Dispatch(context.Background(), DispatchConfig{PreferredAgent: "claude"}, dir, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := CollectResult(h)
+	if err == nil || !strings.Contains(err.Error(), "diagnostic") || out != "" {
+		t.Fatalf("failed exit accepted: out=%q err=%v", out, err)
 	}
 }
