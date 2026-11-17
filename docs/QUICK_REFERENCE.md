@@ -279,6 +279,7 @@ Type `/` in the chat composer to open a fuzzy finder for commands. Use `â†‘`/`â†
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude configuration directory used to discover sessions |
 
 ### Intermute (Cross-Tool)
 
