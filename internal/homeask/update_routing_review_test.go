@@ -227,7 +227,7 @@ func TestRepairedUpdateReadbackFailures(t *testing.T) {
 					want = fmt.Sprintf("%v: card %s updated but Home could not confirm its card or ruling state: wait was cancelled", ErrOutcomeUnknown, res.ID)
 				}
 				if mode == "deadline" || mode == "early-deadline" {
-					want = fmt.Sprintf("%v: card %s updated but Home could not confirm its card or ruling state: caller's deadline passed", ErrOutcomeUnknown, res.ID)
+					want = fmt.Sprintf("%v: card %s updated but Home could not confirm its card or ruling state before the caller's deadline", ErrOutcomeUnknown, res.ID)
 				}
 				if mode == "early-deadline" && ctx.Err() != nil {
 					t.Fatalf("caller context already expired: %v", ctx.Err())

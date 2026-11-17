@@ -215,3 +215,49 @@ func TestFileCardReadbackCallerDeadlineBeforeNextPoll(t *testing.T) {
 		t.Fatalf("message=%q", err)
 	}
 }
+
+// Cancellation must take precedence over an earlier caller deadline.
+func TestFileCardReadbackInterrupted(t *testing.T) {
+	for _, mode := range []string{"cancelled", "deadline"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newFake(t, registryOnCreate)
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			polls := 0
+			f.fail = func(args []string) *BBResult {
+				if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
+					polls++
+					if mode == "cancelled" {
+						cancel()
+					} else {
+						<-ctx.Done()
+					}
+					return badRes(1, "unknown card")
+				}
+				return nil
+			}
+			fl := f.filer()
+			fl.ReadbackTimeout, fl.ReadbackInterval = 2*time.Second, 200*time.Millisecond
+			res, err := fl.FileCard(ctx, testReq())
+			if !errors.Is(err, ErrOutcomeUnknown) || res.ID != "T1" || polls != 1 {
+				t.Fatalf("res=%+v err=%v polls=%d", res, err, polls)
+			}
+			want := "before the caller's deadline"
+			if mode == "cancelled" {
+				want = "wait was cancelled"
+			}
+			if !strings.Contains(err.Error(), want) ||
+				!strings.Contains(err.Error(), "re-run with --request "+res.Key+" and unchanged input") ||
+				strings.Contains(err.Error(), "within 2s") {
+				t.Fatalf("message=%q", err)
+			}
+			wantErr := context.DeadlineExceeded
+			if mode == "cancelled" {
+				wantErr = context.Canceled
+			}
+			if !errors.Is(ctx.Err(), wantErr) {
+				t.Fatalf("context=%v", ctx.Err())
+			}
+		})
+	}
+}
