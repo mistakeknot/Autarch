@@ -48,7 +48,7 @@ func decisionArgs() map[string]any {
 }
 
 func TestMCPToolsListIncludesFileDecision(t *testing.T) {
-	resp := runServerRequest(t, NewServer(t.TempDir()), `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`+"\n")
+	resp := runServerRequest(t, newTestServer(t.TempDir()), `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`+"\n")
 	tools := resp.Result.(map[string]any)["tools"].([]any)
 	for _, tool := range tools {
 		if tool.(map[string]any)["name"] == "autarch_file_decision" {
@@ -60,7 +60,7 @@ func TestMCPToolsListIncludesFileDecision(t *testing.T) {
 
 func TestMCPFileDecisionRequiresWriteScope(t *testing.T) {
 	f := &fakeFiler{}
-	s := NewServer(t.TempDir()).WithFiler(f)
+	s := newTestServer(t.TempDir()).WithFiler(f)
 	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "r", Scopes: []string{"read"}})
 	resp := callTool(t, s, ctx, "autarch_file_decision", decisionArgs())
 	if resp.Error == nil || !strings.Contains(resp.Error.Message, "Forbidden") || f.runs != 0 {
@@ -71,7 +71,7 @@ func TestMCPFileDecisionRequiresWriteScope(t *testing.T) {
 func TestMCPFileDecisionFilesWithProjectDefaultsAndThread(t *testing.T) {
 	root := t.TempDir()
 	f := &fakeFiler{}
-	s := NewServer(root).WithFiler(f)
+	s := newTestServer(root).WithFiler(f)
 	t.Setenv("BB_THREAD_ID", "")
 	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
 	resp := callTool(t, s, ctx, "autarch_file_decision", decisionArgs())
@@ -88,7 +88,7 @@ func TestMCPFileDecisionFilesWithProjectDefaultsAndThread(t *testing.T) {
 
 func TestMCPFileDecisionThreadMustMatchTheCallerThread(t *testing.T) {
 	f := &fakeFiler{}
-	s := NewServer(t.TempDir()).WithFiler(f)
+	s := newTestServer(t.TempDir()).WithFiler(f)
 	t.Setenv("BB_THREAD_ID", "thr-real")
 	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
 	resp := callTool(t, s, ctx, "autarch_file_decision", decisionArgs())
@@ -103,7 +103,7 @@ func marshal(v any) string { b, _ := json.Marshal(v); return string(b) }
 func TestMCPFileDecisionWithoutACallerIsDenied(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "")
 	f := &fakeFiler{}
-	s := NewServer(t.TempDir()).WithFiler(f)
+	s := newTestServer(t.TempDir()).WithFiler(f)
 	resp := callTool(t, s, context.Background(), "autarch_file_decision", decisionArgs())
 	if resp.Error == nil || !strings.Contains(resp.Error.Message, "Forbidden") || f.runs != 0 {
 		t.Fatalf("a write tool ran without a caller: %+v runs %d", resp, f.runs)
@@ -117,7 +117,7 @@ func TestMCPStdioCallerIsExplicitAndBounded(t *testing.T) {
 		t.Fatalf("stdio caller = %+v", c)
 	}
 	f := &fakeFiler{}
-	s := NewServer(t.TempDir()).WithFiler(f)
+	s := newTestServer(t.TempDir()).WithFiler(f)
 	resp := callTool(t, s, WithCaller(context.Background(), c), "autarch_file_decision", decisionArgs())
 	if resp.Error != nil || f.runs != 1 {
 		t.Fatalf("stdio caller could not file: %+v runs %d", resp, f.runs)
@@ -127,7 +127,7 @@ func TestMCPStdioCallerIsExplicitAndBounded(t *testing.T) {
 func TestMCPFileDecisionNonStringProjectFieldsAreErrorsNotPanics(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "")
 	f := &fakeFiler{}
-	s := NewServer(t.TempDir()).WithFiler(f)
+	s := newTestServer(t.TempDir()).WithFiler(f)
 	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
 	for _, bad := range []map[string]any{{"project_root": 5}, {"project_root": nil}, {"project_root": "/tmp/x", "project": []string{"a"}}} {
 		args := decisionArgs()
@@ -175,7 +175,7 @@ func TestMCPDefaultFilerIsACardFiler(t *testing.T) {
 		}}
 	}
 	t.Setenv("BB_THREAD_ID", "")
-	s := NewServer(t.TempDir())
+	s := newTestServer(t.TempDir())
 	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
 	resp := callTool(t, s, ctx, "autarch_file_decision", decisionArgs())
 	if resp.Error != nil || !strings.Contains(marshal(resp.Result), "T1") {
@@ -213,7 +213,7 @@ func (b *boundBB) run(_ context.Context, _ []string, args ...string) homeask.BBR
 func TestMCPFileDecisionRefusesAProjectHomeWouldHide(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "")
 	bb := &boundBB{}
-	s := NewServer(t.TempDir()).WithFiler(&homeask.CardFiler{Run: bb.run, LockDir: t.TempDir(), TasksProject: "P1"})
+	s := newTestServer(t.TempDir()).WithFiler(&homeask.CardFiler{Run: bb.run, LockDir: t.TempDir(), TasksProject: "P1"})
 	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
 	args := decisionArgs()
 	args["project"], args["project_root"] = "shadow-workipedia", "/srv/shadow"
@@ -242,7 +242,7 @@ func TestMCPFileDecisionDefaultsTheProjectToTheBoardBinding(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "")
 	root := t.TempDir() + "/Autarch-project-visit"
 	f := &boundDefaultFiler{}
-	s := NewServer(root).WithFiler(f)
+	s := newTestServer(root).WithFiler(f)
 	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
 	resp := callTool(t, s, ctx, "autarch_file_decision", decisionArgs())
 	if resp.Error != nil || f.got.Project != "shadow-work" {

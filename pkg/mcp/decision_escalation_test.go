@@ -66,7 +66,7 @@ func TestMCPSameRequestEscalates(t *testing.T) {
 			t.Setenv("BB_THREAD_ID", "")
 			args := decisionArgs()
 			args["project"] = "autarch"
-			s := NewServer(t.TempDir()).WithFiler(f)
+			s := newTestServer(t.TempDir()).WithFiler(f)
 			ctx := WithCaller(context.Background(), CallerInfo{AgentID: "writer", Scopes: []string{"write"}})
 			response := callTool(t, s, ctx, "autarch_file_decision", args)
 			if !strings.Contains(marshal(response.Result), "queued") {

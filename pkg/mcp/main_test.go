@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/mistakeknot/autarch/pkg/callerlog"
 )
 
 // Isolate all existing tests, including subprocesses, from the user's state.
@@ -25,4 +27,9 @@ func TestMain(m *testing.M) {
 
 	os.RemoveAll(home)
 	os.Exit(code)
+}
+
+// newTestServer explicitly disables audit storage; injected audit tests own their logs.
+func newTestServer(project string) *Server {
+	return NewServer(project).WithCallerLog(callerlog.New(""))
 }

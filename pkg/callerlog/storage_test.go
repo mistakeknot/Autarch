@@ -114,13 +114,13 @@ func TestStorageDropWarnsOnce(t *testing.T) {
 func TestDefaultProductionAuditPath(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	// Resolve caches before giving the child an isolated HOME. Reuse the
-	// dependencies already needed to build this test, including when offline.
-	out, err := exec.CommandContext(ctx, "go", "env", "-json", "GOMODCACHE", "GOCACHE").CombinedOutput()
+	// Resolve caches and Go configuration before isolating the child HOME.
+	// Reuse dependencies already needed to build this test, including offline.
+	out, err := exec.CommandContext(ctx, "go", "env", "-json", "GOMODCACHE", "GOCACHE", "GOENV").CombinedOutput()
 	if err != nil {
 		t.Fatalf("go env: %v %s", err, out)
 	}
-	var caches struct{ GOMODCACHE, GOCACHE string }
+	var caches struct{ GOMODCACHE, GOCACHE, GOENV string }
 	if err := json.Unmarshal(out, &caches); err != nil {
 		t.Fatal(err)
 	}
@@ -144,6 +144,10 @@ func main(){l:=callerlog.Default();l.Record(map[string]any{"probe":"production-d
 	}
 	cmd := exec.CommandContext(ctx, "go", "run", "-mod=readonly", src)
 	cmd.Env = append(os.Environ(), "HOME="+home, "GOMODCACHE="+caches.GOMODCACHE, "GOCACHE="+caches.GOCACHE)
+	// Preserve go env -w settings even though HOME now points at the fixture.
+	if caches.GOENV != "" && caches.GOENV != "off" {
+		cmd.Env = append(cmd.Env, "GOENV="+caches.GOENV)
+	}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("probe: %v %s", err, out)
 	}

@@ -2,12 +2,13 @@ package main
 
 import (
 	"bytes"
+	"github.com/mistakeknot/autarch/pkg/callerlog"
 	"strings"
 	"testing"
 )
 
 func TestMCP_ListsTools(t *testing.T) {
-	cmd := mcpCmd()
+	cmd := mcpCmdWithCallerLog(callerlog.New(""))
 	in := strings.NewReader(
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}` + "\n" +
 			`{"jsonrpc":"2.0","id":2,"method":"tools/list"}` + "\n")
