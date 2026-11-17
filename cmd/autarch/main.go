@@ -388,16 +388,7 @@ func bigendCmd() *cobra.Command {
 				return err
 			}
 
-			// Override with flags
-			if port != 8099 {
-				cfg.Server.Port = port
-			}
-			if host != "0.0.0.0" {
-				cfg.Server.Host = host
-			}
-			if scanRoot != "" {
-				cfg.Discovery.ScanRoots = []string{scanRoot}
-			}
+			applyBigendFlagOverrides(cmd, cfg)
 
 			scanner := discovery.NewScanner(cfg.Discovery)
 
@@ -683,4 +674,18 @@ func printSetupStatus(s setup.Status) {
 	fmt.Printf("  %s Claude Code configured\n", check(s.ClaudeConfigured))
 	fmt.Printf("  %s Codex CLI configured\n", check(s.CodexConfigured))
 	fmt.Printf("  %s tmux available\n", check(s.TmuxAvailable))
+}
+
+// applyBigendFlagOverrides preserves file configuration unless a flag was supplied.
+func applyBigendFlagOverrides(cmd *cobra.Command, cfg *config.Config) {
+	if cmd.Flags().Changed("port") {
+		cfg.Server.Port, _ = cmd.Flags().GetInt("port")
+	}
+	if cmd.Flags().Changed("host") {
+		cfg.Server.Host, _ = cmd.Flags().GetString("host")
+	}
+	if cmd.Flags().Changed("scan-root") {
+		root, _ := cmd.Flags().GetString("scan-root")
+		cfg.Discovery.ScanRoots = []string{root}
+	}
 }
