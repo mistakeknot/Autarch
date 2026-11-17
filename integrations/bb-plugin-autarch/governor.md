@@ -97,3 +97,41 @@ python3 scripts/governor-golden.py "$GOVERNOR_SCRIPT" "$GOVERNOR_TEST_FILE" __te
 
 Tests inject RPC, process and filesystem interfaces or use in-memory SQLite;
 they do not change live policy, concurrency limits, inboxes or throttle files.
+
+## Decision history and account-read timing
+
+Every completed shadow or live decision appends to `quota_governor_history` in
+this plugin's store. The `quotaGovernor` read model exposes `history`, ordered
+oldest first: `time` (Unix milliseconds), `mode`, `level`, `new_level`, `pace`,
+`note`, and `script_level`. The script level is read from its compatibility
+throttle file during that run; missing, unreadable or invalid levels are null.
+Unknown pace is null. `new_level` is the decision's target, including when an
+apply subsequently fails; the existing decision and state fields still report
+failures and the committed level. Holds are recorded too. Each append deletes
+entries older than seven days, retaining the exact boundary. Off mode appends
+and prunes nothing. Runs refused by host/timer checks or failing before a
+decision do not create history entries.
+
+The sanitized `governor-zero-pace.json` fixture records a real dry run from
+November 17, 2026 (bead mk-z0lht.1.6). It contains the two usable accounts and
+loaded sampler points, with placeholder account IDs. The burning account's
+weekly observation was 331 ms after the script's pre-request clock. Its rate
+was excluded as future data, leaving only the flat account and a zero pooled
+rate. The sampler's latest earlier reading already showed the burn; sample
+collection time is not the observation time. The recorded capture completion
+clock admits both accounts and produces pace 1.1672869655111757 instead of zero.
+Both original policy functions reproduce zero on the original inputs.
+
+Capture the decision clock after account retrieval, in both implementations;
+keep future/stale-reading rejection in the decision function. The port's
+regression advances the clock while retrieving exactly those recorded accounts.
+The unchanged golden comparisons pin policy parity, and this offline replay
+checks the script's main function against the same fixture (with no live IO):
+
+```sh
+python3 scripts/governor-replay.py SCRIPT legacy
+python3 scripts/governor-replay.py PATCHED_SCRIPT fixed
+```
+
+The script patch is proposed separately in the bead, for its owning repository.
+Timer retirement still requires a fresh agreement window after both fixes.

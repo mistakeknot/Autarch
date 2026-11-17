@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import Database from "better-sqlite3";
 import { DEFAULTS, choose, applyFloor, readFloor, measurePace, recipients, editOperator } from "../governor-policy.js";
 import { Governor, GovernorStore, setHostLimit, atomicJson, type GovernorIO } from "../governor.js";
+import recorded from "./fixtures/governor-zero-pace.json";
 import type { PluginsLike } from "../tasks.js";
 
 const now = 1_000_000_000_000, H = 3600000;
@@ -59,6 +60,51 @@ describe("governor policy", () => {
   it("refuses incomplete operator files", () => expect(() => editOperator("[executors]\nhost_ceiling = 4", DEFAULTS.levels[1].operator)).toThrow());
 });
 describe("governor service", () => {
+  it("replays a recorded zero caused by a quota refresh during account retrieval", async () => {
+    const { g, io, store, db } = rig();
+    let clock = recorded.now;
+    io.now = () => clock;
+    io.mode = async () => "shadow";
+    io.config = async () => ({ ...DEFAULTS, bb_host: "governed" });
+    io.accounts = async () => { clock = recorded.readCompletedAt; return recorded.accounts; };
+    for (const [id, points] of Object.entries(recorded.samples)) for (const point of points) {
+      db.prepare("INSERT INTO quota_governor_samples VALUES (?,?,?,?)").run(id, ...point);
+    }
+    // Both original decision functions exclude the apparently future reading.
+    expect(measurePace(recorded.accounts, recorded.now, DEFAULTS, recorded.samples as Record<string, [number, number, number][]>)).toEqual(recorded.result);
+    await g.tick();
+    expect(g.view().decision?.pace).toBeCloseTo(recorded.completedResult[0] as number, 12);
+    expect(g.view().decision?.note).toBe(recorded.completedResult[1]);
+    expect(store.get<{ level: number }>("shadow")?.level).toBe(1);
+    expect(g.view().last_run).toBe(recorded.readCompletedAt);
+    db.close();
+  });
+  it("persists every decision with the contemporaneous script level and prunes seven days", async () => {
+    const { g, io, store, db } = rig(); io.mode = async () => "shadow";
+    io.readJson = async path => path.endsWith("throttle.json") ? { level: 2 } : null;
+    await g.tick(); await g.tick();
+    expect(g.view().history).toHaveLength(2);
+    expect(g.view().history?.[0]).toMatchObject({ time: now, mode: "shadow", level: 0, new_level: 1, script_level: 2, pace: 1.2 });
+    expect(g.view().history?.[1]).toMatchObject({ level: 1, new_level: 1 });
+    const restart = new Governor(new GovernorStore(db), io); await restart.tick();
+    expect(restart.view().history).toHaveLength(3);
+    io.now = () => now + 7 * 24 * H; await g.tick();
+    expect(g.view().history).toHaveLength(4); // exact boundary is retained
+    io.now = () => now + 7 * 24 * H + 1; await g.tick();
+    expect(g.view().history).toHaveLength(2);
+    expect(db.prepare("SELECT count(*) AS n FROM quota_governor_history").get()).toEqual({ n: 2 });
+    io.mode = async () => "off"; await g.tick();
+    expect(db.prepare("SELECT count(*) AS n FROM quota_governor_history").get()).toEqual({ n: 2 });
+    expect(store.get("shadow")).not.toBeNull(); db.close();
+  });
+  it("records live unknown pace and an unreadable script level as null", async () => {
+    const { g, io, db } = rig(); io.mode = async () => "live";
+    io.accounts = async () => [];
+    io.readJson = async path => { if (path.endsWith("throttle.json")) throw Error("unavailable"); return null; };
+    await g.tick();
+    expect(g.view().history?.[0]).toMatchObject({ mode: "live", pace: null, script_level: null, level: 0, new_level: 0 });
+    expect(g.view().error).toContain("unavailable"); db.close();
+  });
   it.each(["off", "shadow", "error"])("returns a JSON-clean %s view and publication", async scenario => {
     const { g, io, db } = rig();
     io.mode = async () => scenario === "off" ? "off" : "shadow";
