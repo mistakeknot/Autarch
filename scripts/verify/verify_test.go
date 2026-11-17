@@ -144,7 +144,17 @@ func TestNamespaceCannotReadUnboundHostData(t *testing.T) {
 	if err != nil {
 		t.Skip("INCOMPLETE: node missing")
 	}
-	outside := t.TempDir()
+	// Keep the victim outside the sandbox's temporary-directory mask so an
+	// accidental host-directory bind remains observable.
+	outside, err := os.MkdirTemp("/var/tmp", "autarch-verify-test-")
+	if err != nil {
+		t.Skip("INCOMPLETE: external fixture directory unavailable")
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(outside); err != nil {
+			t.Error(err)
+		}
+	})
 	victim := filepath.Join(outside, "live.db")
 	if err = os.WriteFile(victim, []byte("private"), 0600); err != nil {
 		t.Fatal(err)

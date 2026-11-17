@@ -6,28 +6,48 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+var productionCheckoutWalkStop = checkoutWalkStop
+var productionGitScratchRoot = gitScratchRoot
+
+func TestProductionScratchDefaults(t *testing.T) {
+	if productionCheckoutWalkStop != "" || productionGitScratchRoot != "/tmp" {
+		t.Fatalf("production defaults: checkoutWalkStop=%q gitScratchRoot=%q", productionCheckoutWalkStop, productionGitScratchRoot)
+	}
+}
 
 // Only the test binary sets the boundary; every fixture below TMPDIR remains
 // subject to checkout and symlink checks. No tests mutate it after init.
 func init() {
 	checkoutWalkStop = filepath.Clean(os.TempDir())
+	// A symlinked TMPDIR remains unsupported: bwrap cannot bind onto the
+	// symlink, and the path guard also refuses symlink ancestors. Use a real
+	// directory for TMPDIR when running these tests.
 	gitScratchRoot = checkoutWalkStop
 }
 
 func TestTempAncestorIsolation(t *testing.T) {
-	if os.Getenv("VERIFY_TEMP_ANCESTOR_CHILD") == "1" {
-		return
-	}
 	parent := t.TempDir()
 	if err := os.Mkdir(filepath.Join(parent, ".git"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^(TestExecuteMergeBaseRanges|TestNamespaceSetupFailureReportsIncomplete|TestMissingFakeNeverFallsBack|TestOfflineCacheMissIsIncomplete|TestMachineDirectoryComponents)$", "-test.v")
-	cmd.Env = append(os.Environ(), "TMPDIR="+parent, "VERIFY_TEMP_ANCESTOR_CHILD=1")
-	if out, err := cmd.CombinedOutput(); err != nil {
+	names := []string{"TestExecuteMergeBaseRanges", "TestNamespaceSetupFailureReportsIncomplete", "TestMissingFakeNeverFallsBack", "TestOfflineCacheMissIsIncomplete", "TestMachineDirectoryComponents"}
+	cmd := exec.Command(os.Args[0], "-test.run=^("+strings.Join(names, "|")+")$", "-test.v")
+	cmd.Env = append(os.Environ(), "TMPDIR="+parent)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
 		t.Fatalf("tests below checkout ancestor: %v\n%s", err, out)
+	}
+	if strings.Contains(string(out), "--- SKIP") {
+		t.Fatalf("ancestor-isolation child skipped coverage:\n%s", out)
+	}
+	for _, name := range names {
+		if !strings.Contains(string(out), "--- PASS: "+name+" (") {
+			t.Fatalf("ancestor-isolation child did not pass %s:\n%s", name, out)
+		}
 	}
 }
 
