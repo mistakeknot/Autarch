@@ -134,5 +134,20 @@ func sanitizedStderrTail(t *stderrTail) string {
 			return text
 		}
 	}
-	return sanitizedStderr(t.data)
+	text := sanitizedStderr(t.data)
+	if strings.TrimSpace(text) == "" {
+		// Only replace blank output when frame selection hid visible content.
+		// Preserve streams containing only whitespace or stripped controls.
+		cleaned := stderrANSI.ReplaceAllString(string(t.data), "")
+		cleaned = strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) && r != '\n' && r != '\t' {
+				return -1
+			}
+			return r
+		}, cleaned)
+		if strings.TrimSpace(cleaned) != "" {
+			return fmt.Sprintf("[stderr withheld: %d bytes with no complete line]", len(t.data))
+		}
+	}
+	return text
 }
