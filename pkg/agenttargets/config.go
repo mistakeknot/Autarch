@@ -1,6 +1,7 @@
 package agenttargets
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -135,12 +136,16 @@ func LoadDispatchConfigWithDefaults(projectRoot string, cfg DispatchConfig) Disp
 
 	agentsPath := filepath.Join(configDir, "agents.toml")
 	if _, err := os.Stat(agentsPath); err != nil {
+		if !os.IsNotExist(err) {
+			slog.Warn("dispatch preferences unavailable; using defaults", "path", agentsPath, "error", err)
+		}
 		applyDispatchEnvOverrides(&cfg)
 		return cfg
 	}
 
 	var fileCfg fileConfig
 	if _, err := toml.DecodeFile(agentsPath, &fileCfg); err != nil {
+		slog.Warn("dispatch preferences unavailable; using defaults", "path", agentsPath, "error", err)
 		applyDispatchEnvOverrides(&cfg)
 		return cfg
 	}
@@ -151,6 +156,7 @@ func LoadDispatchConfigWithDefaults(projectRoot string, cfg DispatchConfig) Disp
 	}
 	if d.PreferredAgent != "" {
 		cfg.PreferredAgent = d.PreferredAgent
+		cfg.PreferredAgentSource = agentsPath
 	}
 	if d.Timeout != "" {
 		if dur, err := time.ParseDuration(d.Timeout); err == nil {
@@ -169,5 +175,6 @@ func applyDispatchEnvOverrides(cfg *DispatchConfig) {
 	}
 	if v := os.Getenv("AUTARCH_DISPATCH_AGENT"); v != "" {
 		cfg.PreferredAgent = v
+		cfg.PreferredAgentSource = "AUTARCH_DISPATCH_AGENT"
 	}
 }

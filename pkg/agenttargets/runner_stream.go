@@ -34,6 +34,13 @@ func Dispatch(ctx context.Context, cfg DispatchConfig, workDir, prompt string) (
 		backend := &CodexBackend{}
 		return backend.RunStreaming(ctx, cfg, workDir, prompt)
 	default:
+		if agent != "" {
+			source := cfg.PreferredAgentSource
+			if source == "" {
+				source = "dispatch config"
+			}
+			return nil, fmt.Errorf("unsupported dispatch agent %q from %s (supported: claude, codex)", agent, source)
+		}
 		return nil, fmt.Errorf("no supported agent available (tried claude, codex)")
 	}
 }

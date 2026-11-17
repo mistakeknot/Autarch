@@ -103,10 +103,7 @@ func (a *Agent) Generate(ctx context.Context, req GenerateRequest) (*GenerateRes
 // GenerateWithOutput runs a prompt and streams output to a callback.
 // This dispatches via agenttargets.Dispatch() regardless of agent type.
 func (a *Agent) GenerateWithOutput(ctx context.Context, req GenerateRequest, onOutput OutputCallback) (*GenerateResponse, error) {
-	cfg := agenttargets.DefaultDispatchConfig()
-	cfg.PreferredAgent = string(a.Type)
-	// This path inherits the process working directory.
-	cfg = agenttargets.LoadDispatchConfigWithDefaults(".", cfg)
+	cfg := a.dispatchConfig(".")
 
 	handle, err := agenttargets.Dispatch(ctx, cfg, "", req.Prompt)
 	if err != nil {
@@ -158,4 +155,14 @@ func (a *Agent) String() string {
 		return "none"
 	}
 	return fmt.Sprintf("%s (%s)", a.Type, a.Version)
+}
+
+// dispatchConfig preserves an explicit agent selection over project and environment preferences.
+func (a *Agent) dispatchConfig(projectRoot string) agenttargets.DispatchConfig {
+	cfg := agenttargets.LoadDispatchConfig(projectRoot)
+	if a.Type != "" {
+		cfg.PreferredAgent = string(a.Type)
+		cfg.PreferredAgentSource = "explicit agent selection"
+	}
+	return cfg
 }

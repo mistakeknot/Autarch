@@ -275,6 +275,44 @@ Type `/` in the chat composer to open a fuzzy finder for commands. Use `â†‘`/`â†
 
 ## Environment Variables
 
+### Agent dispatch
+
+Autarch generation and Gurgeh exploration read project preferences from
+`.gurgeh/agents.toml`. They use `.praude/agents.toml` only when `.gurgeh` is absent.
+Autarch generation uses the process working directory; exploration uses its
+supplied project directory. Global agent target files do not supply dispatch preferences.
+
+```toml
+[dispatch]
+preferred_agent = "codex" # claude or codex
+preferred_backend = "subscription-cli"
+timeout = "5m"
+```
+
+| Variable | Effect |
+|----------|--------|
+| `AUTARCH_DISPATCH_AGENT` | Overrides the project's preferred agent (`claude` or `codex`) |
+| `AUTARCH_DISPATCH_BACKEND` | Overrides the project's backend; only `subscription-cli` is supported |
+
+Precedence is explicit agent selection > environment > project > caller default.
+Without an agent preference, exploration detects an available agent, preferring
+Claude. An unknown agent fails with its value and configuration source. The
+backend defaults to `subscription-cli`; `api` and unknown backend values are
+rejected before launch. Dispatch does not start paid API calls.
+
+A valid project `timeout` (Go duration syntax) replaces each site's timeout:
+Autarch generation defaults to 30 minutes; exploration, phase generation,
+phase generation from context, revision and change propagation default to
+10, 5, 3, 5 and 8 minutes respectively. An invalid duration leaves the caller's
+timeout unchanged. Explicit model and session arguments retain precedence;
+this configuration defines no model or session preference or environment override.
+Malformed or unreadable files produce a warning naming the file and fall back to
+caller defaults plus environment overrides. Missing files silently use those defaults.
+
+The Claude chat shim ignores these dispatch environment variables and project
+preferences. Chats remain on Claude with no dispatch deadline, preserving
+Claude-specific flags and session IDs.
+
 ### Bigend
 
 Bigend has no tool-specific environment variables. Configure it with flags (`--port`, default 8099; `--host`; `--config`; `--scan-root`; `--tui`; `--daemon`) and `~/.config/bigend/config.toml`. The shared `INTERMUTE_*` variables below also apply.
