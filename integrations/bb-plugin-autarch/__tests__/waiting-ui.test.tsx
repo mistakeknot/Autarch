@@ -43,6 +43,31 @@ describe("waiting strip", () => {
   });
 });
 
+describe("waiting row layout", () => {
+  it("lets tabs share a row with nonshrinking waiting text", () => {
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} line={W.line} definition={W.definition} />);
+    const tabs = host.querySelector<HTMLElement>('[role="tablist"]')!;
+    expect(tabs.classList.contains("basis-full")).toBe(true);
+    expect(tabs.classList.contains("sm:basis-0")).toBe(true);
+    expect(tabs.classList.contains("flex-1")).toBe(true);
+    expect(host.querySelector("[data-waiting-line]")!.classList.contains("shrink-0")).toBe(true);
+    expect(tabs.nextElementSibling!.classList.contains("shrink-0")).toBe(true);
+  });
+  it.each([null, "5", ""])("omits an empty wrapper for line %s", (line) => {
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} line={line} />);
+    expect(host.querySelector('[role="tablist"]')!.parentElement!.children).toHaveLength(1);
+  });
+  it.each([[W.line, null], [null, W.definition]])("keeps the wrapper when either element exists", (line, definition) => {
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} line={line} definition={definition} />);
+    const row = host.querySelector('[role="tablist"]')!.parentElement!;
+    expect(row.children).toHaveLength(2);
+    expect(row.lastElementChild!.children).toHaveLength(1);
+  });
+});
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("waiting definition popover (mk-thfym)", () => {
@@ -74,6 +99,7 @@ describe("waiting definition popover (mk-thfym)", () => {
     expect(control.textContent?.trim()).toBe("");
     expect(control.tabIndex).toBe(0);
     expect(control.getAttribute("aria-expanded")).toBe("false");
+    expect(control.hasAttribute("aria-controls")).toBe(false);
     await toggle();
     expect(control.getAttribute("aria-expanded")).toBe("true");
     const id = control.getAttribute("aria-controls");
@@ -82,6 +108,7 @@ describe("waiting definition popover (mk-thfym)", () => {
     expect(document.getElementById(id!)?.textContent).toBe(W.definition);
     await toggle();
     expect(control.getAttribute("aria-expanded")).toBe("false");
+    expect(control.hasAttribute("aria-controls")).toBe(false);
     expect(document.getElementById(id!)).toBeNull();
   });
 
@@ -98,6 +125,7 @@ describe("waiting definition popover (mk-thfym)", () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
     expect(control.getAttribute("aria-expanded")).toBe("false");
+    expect(control.hasAttribute("aria-controls")).toBe(false);
     await vi.waitFor(() => expect(document.activeElement).toBe(control));
   });
 

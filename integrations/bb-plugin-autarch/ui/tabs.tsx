@@ -72,7 +72,7 @@ function WaitingDefinition({ definition }: { definition: string }) {
           type="button"
           aria-label="What this counts"
           aria-expanded={open}
-          aria-controls={id}
+          aria-controls={open ? id : undefined}
           aria-describedby={open ? id : undefined}
           data-waiting-definition-toggle
           className="flex min-h-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -110,10 +110,11 @@ function WaitingDefinition({ definition }: { definition: string }) {
 /** The Queue's own tabs: each paradigm gets a tab with its count, so no view makes mk scroll past one to reach another. */
 // Below sm the tabs wrap to a second line rather than scroll, so no tab sits off-screen with no cue; a label never splits.
 export function QueueTabs({ tab, counts, onTab, definition = null, line = null }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; definition?: string | null; line?: string | null }) {
+  const hasLine = Boolean(line && line.includes(" · "));
   return (
     <div className="border-b border-border px-2 sm:px-4">
     <div className="flex flex-wrap items-center gap-x-3">
-    <div role="tablist" aria-label="Queue" style={{ flexBasis: "28rem" }} className="flex min-w-0 flex-1 flex-wrap gap-x-3 sm:flex-nowrap sm:overflow-x-auto" data-queue-tabs>
+    <div role="tablist" aria-label="Queue" className="flex min-w-0 flex-1 basis-full flex-wrap gap-x-3 sm:basis-0 sm:flex-nowrap sm:overflow-x-auto" data-queue-tabs>
       {QUEUE_TABS.map(([id, label]) => (
         <button
           key={id}
@@ -138,10 +139,10 @@ export function QueueTabs({ tab, counts, onTab, definition = null, line = null }
         </button>
       ))}
     </div>
-    <div className="flex items-center">
-      {line && line.includes(" · ") ? <p className="m-0 text-xs text-muted-foreground [overflow-wrap:anywhere]" data-waiting-line>{`Waiting on you: ${line}`}</p> : null}
+    {hasLine || definition ? <div className="flex shrink-0 items-center">
+      {hasLine ? <p className="m-0 shrink-0 text-xs text-muted-foreground [overflow-wrap:anywhere]" data-waiting-line>{`Waiting on you: ${line}`}</p> : null}
       {definition ? <WaitingDefinition definition={definition} /> : null}
-    </div>
+    </div> : null}
     </div>
     </div>
   );
