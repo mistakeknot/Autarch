@@ -95,7 +95,24 @@ func checkRecoverySources(t testing.TB, input string, chunk int, required []reco
 
 func recoveryTableSpans(t testing.TB, c redactCase, base int, finalLF bool) []recoverySpan {
 	t.Helper()
+	// Derive the LF form from the reviewed output, preserving LF for capped
+	// equals/colon/flag values. Only an open quoted JSON value consumes it.
+	jsonToEnd := strings.HasPrefix(c.input, `{"token":"`) && strings.Count(c.input, "\"") == 3
 	hidden := expectedHidden(t, c)
+	if finalLF {
+		c.input += "\n"
+		hidden = append(hidden, jsonToEnd)
+	}
+	_, _, legacy := referenceRegion(t, []byte(c.input), 0)
+	_, mainMask := stderrSourceMask([]byte(c.input), 0)
+	for p := range hidden {
+		if (legacy[p] || mainMask[p] > 0) && !hidden[p] {
+			t.Fatalf("LF-form expectation omits main hidden source %d in %q", p, c.input)
+		}
+	}
+	if finalLF && (hidden[len(hidden)-1] != jsonToEnd || (mainMask[len(hidden)-1] > 0) != jsonToEnd) {
+		t.Fatalf("final LF visibility differs for %q", c.input)
+	}
 	var spans []recoverySpan
 	for p := 0; p < len(hidden); {
 		if !hidden[p] {
@@ -108,15 +125,13 @@ func recoveryTableSpans(t testing.TB, c redactCase, base int, finalLF bool) []re
 		}
 		spans = append(spans, recoverySpan{base + start, base + p})
 	}
-	// Final LF is part of an unterminated multiline quoted value. The
-	// table's single-line equals/colon/flag forms instead stop at LF.
-	if finalLF && strings.HasPrefix(c.input, `{"token":"`) && strings.Count(c.input, "\"") == 3 {
-		spans = append(spans, recoverySpan{base + len(c.input), base + len(c.input) + 1})
-	}
+
 	return spans
 }
 
 func TestRecoveryTableEmbeddings(t *testing.T) {
+	// This is the first recovery test in each package iteration.
+	recoveryEvaluationStart = recoveryEvaluations
 	prefix := strings.Repeat("x", 5000) + " \r"
 	for i, c := range newShapeCases {
 		if got := sanitizedStderr([]byte(c.input)); got != c.want {
@@ -130,13 +145,18 @@ func TestRecoveryTableEmbeddings(t *testing.T) {
 			t.Run(fmt.Sprintf("%d/%q", i, end), func(t *testing.T) {
 				// Interior raw LF explicitly exercises fallback; no positive is dropped.
 				spans := recoveryTableSpans(t, c, len(prefix), end != "")
-				checkRecoverySources(t, input, 7, spans)
+				got := checkRecoverySources(t, input, 7, spans)
+				if end != "" && !strings.Contains(c.input, "\n") && !strings.HasSuffix(got, "\n") {
+					t.Fatal("LF-capped table row lost its visible final LF")
+				}
 			})
 		}
 	}
 	// Here both legacy and multiline JSON rules include the final LF.
 	input := `{"token":"` + strings.Repeat("1", 5000) + "\n"
-	if got := checkRecoverySources(t, input, 7, []recoverySpan{{1, len(input)}}); got != "{[REDACTED]" {
+	jsonCase := redactCase{strings.TrimSuffix(input, "\n"), "{[REDACTED]", 0}
+	jsonSpans := recoveryTableSpans(t, jsonCase, 0, true)
+	if got := checkRecoverySources(t, input, 7, jsonSpans); got != "{[REDACTED]" {
 		t.Fatal(got)
 	}
 	// Independently demonstrate the flag boundary belongs only to W.
