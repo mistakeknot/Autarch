@@ -87,10 +87,22 @@ describe("wireHome", () => {
       } else expect(notice).toContain("using the Archive button");
     } finally { f.disposers.forEach(d => d()); cleanupEnvs(); }
   });
-  it.each([{}, { confirmed: true, by: "waiting-sweep" }])("refuses ambiguous or undeclared RPC callers: %j", async fields => {
-    const r = rig(); const f = fakeBb(); const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve });
+  it.each([
+    {},
+    { confirmed: true, by: "waiting-sweep" },
+    { by: "vizier" },
+    { confirmed: false },
+    { confirmed: true, extra: 1 },
+    { by: "waiting-sweep", extra: 1 },
+  ])("refuses ambiguous or undeclared RPC callers: %j", async fields => {
+    const r = rig(); const { t, g1 } = await opened(r); r.mkPick(g1.id);
+    const f = fakeBb(); const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve });
     try {
-      await expect(home.handlers.bringBack({ task_id: "fixture", decision_id: "decision", ...fields } as never)).resolves.toMatchObject({ ok: false, status: 409 });
+      const decisions = r.gens(t.id);
+      const events = r.svc.store.events();
+      await expect(home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, ...fields } as never)).resolves.toMatchObject({ ok: false, status: 409 });
+      expect(r.gens(t.id)).toEqual(decisions);
+      expect(r.svc.store.events()).toEqual(events);
     } finally { f.disposers.forEach(d => d()); cleanupEnvs(); }
   });
   it("reads stored pilot observations without modifying them", async () => {
