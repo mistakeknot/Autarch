@@ -200,3 +200,17 @@ it.each(["done", "canceled"])("stops offering a brought-back generation after ex
   expect(r.svc.owed().some(d => d.id === out.decision_id)).toBe(false);
   expect(r.svc.isOwed(out.decision_id)).toBe(false);
 });
+
+it("requires explicit Archive confirmation within 60 seconds of a pick", async () => {
+  const r = rig(); const { t, g1 } = await opened(r);
+  expect(r.mkPick(g1.id)).toMatchObject({ ok: true });
+  const pickedAt = Date.parse(r.svc.store.pick(g1.id)!.picked_at);
+  vi.spyOn(Date, "now").mockReturnValue(pickedAt + 27_000);
+  try {
+    expect(r.dele.archiveBringBack(t.id, g1.id, "thr_a", false)).toMatchObject({ ok: false, status: 409 });
+    expect(r.gens(t.id)).toHaveLength(1);
+    expect(r.dele.archiveBringBack(t.id, g1.id, "thr_a", true)).toMatchObject({ ok: true });
+    const notice = r.svc.store.obligationsFor(g1.id).find(o => o.op === `bringback:${g1.id}`)!.payload;
+    expect(notice).toContain("Archive button"); expect(notice).toContain(t.key); expect(notice).toContain(t.title);
+  } finally { vi.restoreAllMocks(); }
+});
