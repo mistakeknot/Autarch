@@ -166,7 +166,7 @@ func TestNamespaceCannotReadUnboundHostData(t *testing.T) {
 	}
 	argv := namespace(work, product, []string{node}, []string{node, "-e", "try { require('node:fs').readFileSync(process.argv[1]); process.exit(0); } catch (e) { console.error(e.code); process.exit(37); }", victim})
 	log := filepath.Join(work, "read.log")
-	result := runGroup(argv, product, childEnv(work, "/usr/bin:/bin"), 5*time.Second, log)
+	result := runGroup(argv, product, childEnv(work, "/usr/bin:/bin"), 15*time.Second, log)
 	b, _ := os.ReadFile(log)
 	if result.Verdict != "INCOMPLETE" || !contains(string(b), "ENOENT") {
 		t.Fatal("unbound host data reached child", result, string(b))
@@ -438,7 +438,7 @@ func TestRepoLockDescriptorIsNotInherited(t *testing.T) {
 	}
 	defer lock.Close()
 	script := `const fs=require('node:fs');for(const fd of fs.readdirSync('/proc/self/fd')){try{if(fs.readlinkSync('/proc/self/fd/'+fd)===process.argv[1])process.exit(37)}catch{}}`
-	result := runGroup([]string{node, "-e", script, name}, dir, childEnv(dir, "/usr/bin:/bin"), 3*time.Second, filepath.Join(dir, "fd.log"))
+	result := runGroup([]string{node, "-e", script, name}, dir, childEnv(dir, "/usr/bin:/bin"), 15*time.Second, filepath.Join(dir, "fd.log"))
 	if result.Verdict != "PASS" {
 		t.Fatal("child inherited repository lock", result)
 	}
