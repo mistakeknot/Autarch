@@ -247,7 +247,7 @@ describe("mk-7okdy runtime owner-comment cutoff", () => {
     const { r, t, g1 } = await participating();
     expect((await r.validatedVizierPick(g1.id)).ok).toBe(true);
     await r.writer.drain();
-    const back = r.dele.bringBack(t.id, g1.id, null, {});
+    const back = r.dele.bringBack(t.id, g1.id, null, {}, undefined, "unknown");
     expect(back.ok).toBe(true); if (!back.ok) return;
     await r.writer.drain(); // Complete the existing relabel write before the fresh Tasks entry read.
     expect((await r.validatedMkPick(back.decision_id)).ok).toBe(true);
@@ -352,7 +352,7 @@ describe("runtime target and binding evidence", () => {
   it("a superseded generation is excluded", async () => {
     const { r, t, g1 } = await participating();
     expect((await r.validatedMkPick(g1.id)).ok).toBe(true);
-    const back = r.dele.bringBack(t.id, g1.id, null, {});
+    const back = r.dele.bringBack(t.id, g1.id, null, {}, undefined, "unknown");
     expect(back.ok).toBe(true);
     expect((await evaluatePickRuntime(sources(r), g1.id))!.evaluation.exclusions.map(x => x.code)).toContain("generation-superseded");
   });

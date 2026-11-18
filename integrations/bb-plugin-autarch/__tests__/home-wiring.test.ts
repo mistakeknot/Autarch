@@ -47,20 +47,21 @@ describe("wireHome", () => {
       const f = fakeBb({ list: async ({ offset }: { offset: number }) => rows.slice(offset), get: async ({ threadId }: { threadId: string }) => rows.find(x => x.id === threadId) });
       const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve, sdk: new FakeSdk() });
       try {
-        expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id })).toMatchObject({ ok: true, replay: false });
+        expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, confirmed: true })).toMatchObject({ ok: true, replay: false });
         expect(r.svc.store.obligationsFor(g1.id).find(o => o.op === `bringback:${g1.id}`)).toMatchObject({ recipient: archived ? "thr_viz" : "thr_a" });
-        expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id })).toMatchObject({ ok: true, replay: true });
+        expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, confirmed: true })).toMatchObject({ ok: true, replay: true });
       } finally { f.disposers.forEach(d => d()); }
     } finally { cleanupEnvs(); }
   });
-  it("guards the Archive RPC against an unconfirmed recent pick", async () => {
+  it.each([undefined, false])("guards the Archive RPC against an old unconfirmed pick: %s", async confirmed => {
     const r = rig(); const { t, g1 } = await opened(r);
     r.mkPick(g1.id);
+    r.env.clock.t = Date.parse(r.svc.store.pick(g1.id)!.picked_at) + 120_000;
     const f = fakeBb();
     const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve, sdk: new FakeSdk() });
-    vi.spyOn(Date, "now").mockReturnValue(Date.parse(r.svc.store.pick(g1.id)!.picked_at) + 27_000);
     try {
-      expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id })).toMatchObject({ ok: false, status: 409 });
+      // @ts-expect-error exercise a malformed RPC client
+      expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, confirmed })).toMatchObject({ ok: false, status: 409 });
       expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, confirmed: true })).toMatchObject({ ok: true });
       const event = r.db.prepare("SELECT detail_json FROM events WHERE type='brought-back'").get() as { detail_json: string };
       expect(JSON.parse(event.detail_json).origin).toBe("archive-button");

@@ -251,7 +251,7 @@ export const pickHandlerScenarios = {
     await pick(f);
     const sdk = new FakeSdk(); let loop = new WakeLoop(f.r.svc, sdk);
     await loop.drain(); await loop.drain(); await f.r.writer.drain();
-    const back = f.r.dele.bringBack(f.task.id, f.g.id, null, {}); assert.equal(back.ok, true);
+    const back = f.r.dele.bringBack(f.task.id, f.g.id, null, {}, undefined, "unknown"); assert.equal(back.ok, true);
     await f.r.writer.drain(); f.r.restart();
     loop = new WakeLoop(f.r.svc, sdk); await loop.drain();
     const view = f.r.svc.readPickAction(query(f));

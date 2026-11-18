@@ -473,16 +473,13 @@ export class Delegation {
    * gets the notice: the asking thread, or the vizier when that thread is archived or gone; the caller
    * resolves it, since the thread list is not the store's to read.
    */
-  /** A second, deliberate Archive confirmation is required for a recently answered question. */
+  /** A second, deliberate Archive confirmation is required for every Archive request. */
   archiveBringBack(taskId: string, decisionId: string, recipient: string | null, confirmed: boolean): OverrideResult {
-    const pick = this.store.pick(decisionId);
-    if (pick && Date.now() - Date.parse(pick.picked_at) < 60_000 && !confirmed) {
-      return refuse(409, "this decision was just picked; confirm Bring back in the Archive");
-    }
-    return this.bringBack(taskId, decisionId, recipient, {});
+    if (confirmed !== true) return refuse(409, "confirm Bring back in the Archive");
+    return this.bringBack(taskId, decisionId, recipient, {}, undefined, "archive-button");
   }
 
-  bringBack(taskId: string, decisionId: string, recipient: string | null, ctx: Ctx, notice?: string[], origin: "archive-button" | "merge-recheck" = "archive-button"): OverrideResult {
+  bringBack(taskId: string, decisionId: string, recipient: string | null, ctx: Ctx, notice: string[] | undefined, origin: "archive-button" | "merge-recheck" | "unknown"): OverrideResult {
     if (ctx.threadId !== undefined) return refuse(403, "bring back comes from the panel");
     // The request is bound to the decision the caller saw, so a delayed retry or a stale tab cannot reopen a newer answer.
     const requestId = `bringback:${decisionId}`;
@@ -501,6 +498,9 @@ export class Delegation {
 
     const ask = readAsk(d.body_json, { request_id: requestId, supersedes: decisionId }, d.source);
     if (!ask) return refuse(UNREADABLE_REFUSAL.status, UNREADABLE_REFUSAL.error);
+    const cardLabel = this.svc.cardNoticeLabel(taskId, d.subject);
+    const broughtBy = origin === "archive-button" ? "mk brought" : "Citadel brought";
+    const source = origin === "archive-button" ? "using the Archive button" : origin === "merge-recheck" ? "by the merge recheck" : "from an unknown caller";
     const n = Number(d.generation) + 1;
     const input: DecisionInput = {
       id: `card-${d.task_id}-g${n}`,
@@ -548,10 +548,10 @@ export class Delegation {
           op: `bringback:${decisionId}`,
           payload: (
             notice ?? (pick ? [
-              `mk brought ${this.svc.cardKey(taskId) ?? taskId}: ${this.svc.cardTitle(taskId) ?? d.subject} (${decisionId}) back using the Archive button. It is open again as ${res.decision_id}, and mk is answering afresh.`,
+              `${broughtBy} ${cardLabel} (${decisionId}) back ${source}. It is open again as ${res.decision_id}, and mk is answering afresh.`,
               `Wait for that answer before acting on the earlier one. If you have already received mk's answer for ${res.decision_id}, that answer stands.`,
             ] : [
-              `mk brought ${this.svc.cardKey(taskId) ?? taskId}: ${this.svc.cardTitle(taskId) ?? d.subject} (${decisionId}) back using the Archive button. It is open again as ${res.decision_id}, and mk is answering afresh.`,
+              `${broughtBy} ${cardLabel} (${decisionId}) back ${source}. It is open again as ${res.decision_id}, and mk is answering afresh.`,
               `No earlier pick was recorded in Citadel. Wait for mk's answer for ${res.decision_id} before acting. If you have already received that answer, it stands.`,
             ])
           ).join("\n"),

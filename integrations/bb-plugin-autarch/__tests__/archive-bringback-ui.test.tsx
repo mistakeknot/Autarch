@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArchiveRow } from "../archive.js";
 import { ArchiveRowView } from "../ui/archive.js";
 
+vi.mock("../components/ui/icon.js", () => ({ Icon: () => null }));
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const row: ArchiveRow = {

@@ -11,7 +11,7 @@ it.each([undefined, false])("requires literal confirmation in the RPC contract: 
 it("refuses unconfirmed Archive reopening even more than a minute after the pick", async () => {
   const r = rig(); const { t, g1 } = await opened(r);
   r.mkPick(g1.id);
-  r.env.clock.t = "2099-01-01T00:00:00.000Z";
+  r.env.clock.t = Date.parse(r.svc.store.pick(g1.id)!.picked_at) + 120_000;
   expect(r.dele.archiveBringBack(t.id, g1.id, "thr_a", false)).toMatchObject({ ok: false, status: 409 });
   expect(r.gens(t.id)).toHaveLength(1);
 });
@@ -25,4 +25,13 @@ it.each(["unknown", "merge-recheck"] as const)("does not attribute %s to the Arc
   expect(notice).not.toContain("Archive button");
   const event = r.db.prepare("SELECT detail_json FROM events WHERE type='brought-back'").get() as { detail_json: string };
   expect(JSON.parse(event.detail_json).origin).toBe(origin);
+});
+
+it("bounds and falls back through card title, decision subject and Untitled card", async () => {
+  const r = rig(); const { t } = await opened(r);
+  r.db.prepare("UPDATE cards SET title = '' WHERE task_id = ?").run(t.id);
+  expect(r.svc.cardNoticeLabel(t.id, "Decision subject")).toBe(`${t.key}: Decision subject`);
+  expect(r.svc.cardNoticeLabel(t.id, "")).toBe(`${t.key}: Untitled card`);
+  r.db.prepare("UPDATE cards SET title = ? WHERE task_id = ?").run("x".repeat(200), t.id);
+  expect(r.svc.cardNoticeLabel(t.id, "subject")).toBe(`${t.key}: ${"x".repeat(120)}`);
 });

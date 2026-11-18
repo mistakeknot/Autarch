@@ -153,7 +153,7 @@ it.each(["fallback", "cancelled", "deadline", "epoch", "note", "generation"])("c
   if (change === "deadline") r.advance(120_001);
   if (change === "epoch") r.db.prepare("UPDATE pick_handler_control SET epoch = epoch + 1 WHERE id = 1").run();
   if (change === "note") r.svc.note({ decision_id: g.id }, "Wait", "new-fence", { deferWake: true });
-  if (change === "generation") expect(r.dele.bringBack(String(g.task_id), g.id, null, {}).ok).toBe(true);
+  if (change === "generation") expect(r.dele.bringBack(String(g.task_id), g.id, null, {}, undefined, "unknown").ok).toBe(true);
   release();
   await done;
   await Promise.resolve();
@@ -320,7 +320,7 @@ it("note task generation selection and fence reservation share the write transac
   const atomic = r.svc.store.atomically.bind(r.svc.store);
   let latest = "";
   vi.spyOn(r.svc.store, "atomically").mockImplementationOnce(fn => {
-    const back = r.dele.bringBack(t.id, g.id, null, {});
+    const back = r.dele.bringBack(t.id, g.id, null, {}, undefined, "unknown");
     if (!back.ok) throw new Error(back.error);
     latest = back.decision_id;
     return atomic(fn);
@@ -333,7 +333,7 @@ it("carried2: note operation identity survives a new generation without acceptin
   const { r, t, g } = await participating();
   expect(r.svc.note({ task_id: t.id }, "Wait", "task-note").ok).toBe(true);
   expect((await ownerPick(r, g)).ok).toBe(true);
-  expect(r.dele.bringBack(t.id, g.id, null, {}).ok).toBe(true);
+  expect(r.dele.bringBack(t.id, g.id, null, {}, undefined, "unknown").ok).toBe(true);
   expect(r.svc.note({ task_id: t.id }, "Changed", "task-note")).toMatchObject({ ok: false, status: 409 });
   expect(r.svc.note({ task_id: t.id }, "Wait", "task-note")).toMatchObject({ ok: true, replay: true });
   expect(r.db.prepare("SELECT COUNT(*) AS n FROM pick_note_fences WHERE note_id = ?").get("task-note")).toEqual({ n: 1 });

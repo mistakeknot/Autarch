@@ -24,7 +24,7 @@ it.each(["original", "bringback", "override"].flatMap(mode => ["title", "project
   let g = r.gens(t.id)[0];
   if (mode !== "original") {
     expect((mode === "override" ? (await r.validatedVizierPick(g.id)) : (await r.validatedMkPick(g.id))).ok).toBe(true);
-    expect((mode === "override" ? r.dele.override(g.id, {}) : r.dele.bringBack(t.id, g.id, null, {})).ok).toBe(true);
+    expect((mode === "override" ? r.dele.override(g.id, {}) : r.dele.bringBack(t.id, g.id, null, {}, undefined, "unknown")).ok).toBe(true);
     g = r.gens(t.id)[1];
   }
   const original = r.svc.pickTargetPresentation(g.id);
@@ -53,13 +53,13 @@ it.each(["bringback", "override"])("participating %s preserves snapshots through
   const t = r.card({ ask: a, blocks: "thread:thr_target" }); await r.poll();
   const g = r.gens(t.id)[0];
   if (mode === "override") expect((await r.validatedVizierPick(g.id)).ok).toBe(true); else expect((await r.validatedMkPick(g.id)).ok).toBe(true);
-  const replacement = mode === "override" ? r.dele.override(g.id, {}) : r.dele.bringBack(t.id, g.id, null, {});
+  const replacement = mode === "override" ? r.dele.override(g.id, {}) : r.dele.bringBack(t.id, g.id, null, {}, undefined, "unknown");
   expect(replacement.ok).toBe(true); if (!replacement.ok) return;
   expect(r.svc.pickTargetPresentation(replacement.decision_id)).toEqual(r.svc.pickTargetPresentation(g.id));
   expect(r.db.prepare("SELECT ref FROM decision_blocks WHERE decision_id = ?").all(replacement.decision_id)).toEqual([{ ref: "thread:thr_target" }]);
   expect(JSON.parse((r.svc.store.decision(replacement.decision_id) as any).body_json).options[0]).toMatchObject(a.options[0]!);
   expect((await r.validatedMkPick(replacement.decision_id, "second-pick")).ok).toBe(true);
-  const third = r.dele.bringBack(t.id, replacement.decision_id, null, {});
+  const third = r.dele.bringBack(t.id, replacement.decision_id, null, {}, undefined, "unknown");
   expect(third.ok).toBe(true); if (!third.ok) return;
   r.restart();
   expect(r.svc.pickTargetPresentation(third.decision_id)).toEqual(r.svc.pickTargetPresentation(g.id));

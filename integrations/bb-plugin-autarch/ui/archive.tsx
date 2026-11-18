@@ -2,6 +2,7 @@
 // Each row with a saved question has a Bring back button that reopens the same card as a fresh round.
 import { useEffect, useId, useRef, useState } from "react";
 import type { ArchiveRow } from "../archive.js";
+import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } from "../components/ui/dialog.js";
 import { ActionButton } from "./buttons.js";
 
 export type ArchiveFilters = { search: string; project: string; from: string; to: string; pick: string };
@@ -17,6 +18,10 @@ export const emptyFilters: ArchiveFilters = { search: "", project: "", from: "",
 
 export function ArchiveRowView({ row, onBringBack, busy, error }: { row: ArchiveRow; onBringBack?: (row: ArchiveRow) => void; busy?: boolean; error?: string | null }) {
   const reasonId = useId();
+  const cancelId = useId();
+  const [confirming, setConfirming] = useState(false);
+  const submitted = useRef(false);
+  useEffect(() => { if (!busy) submitted.current = false; }, [busy, error]);
   const unavailable = !row.decision_id ? "No saved question to reopen."
     : row.no_pick && row.state !== "closed" ? "Only closed cards can be brought back without a pick." : null;
   const blocked = !!busy || unavailable !== null;
@@ -39,7 +44,22 @@ export function ArchiveRowView({ row, onBringBack, busy, error }: { row: Archive
       {error ? <p className="m-0 text-xs text-destructive" role="alert" data-archive-error>Could not bring it back: {error}</p> : null}
       {onBringBack ? (
         <div>
-          <ActionButton aria-disabled={blocked || undefined} aria-describedby={unavailable ? reasonId : undefined} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50" onClick={() => { if (!blocked && window.confirm(`Bring back ${row.card_key}: ${row.title}? This opens a new question and may repeat an earlier action.`)) onBringBack(row); }} data-archive-bringback={row.card_key}>Bring back</ActionButton>
+          <ActionButton aria-disabled={blocked || undefined} aria-describedby={unavailable ? reasonId : undefined} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50" onClick={() => { if (!blocked && !submitted.current) setConfirming(true); }} data-archive-bringback={row.card_key}>Bring back</ActionButton>
+          <Dialog open={confirming} onOpenChange={setConfirming}>
+            <DialogContent onOpenAutoFocus={(e) => { e.preventDefault(); document.getElementById(cancelId)?.focus(); }}>
+              <DialogTitle>Reopen this question?</DialogTitle>
+              <DialogDescription>This opens a new question and may repeat an earlier action. Cancel to keep the saved answer.</DialogDescription>
+              <DialogFooter>
+                <ActionButton id={cancelId} data-archive-cancel onClick={() => setConfirming(false)}>Cancel</ActionButton>
+                <ActionButton data-archive-confirm disabled={blocked} onClick={() => {
+                  if (blocked || submitted.current) return;
+                  submitted.current = true;
+                  setConfirming(false);
+                  onBringBack(row);
+                }}>Bring back {row.card_key}: {row.title}</ActionButton>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           {unavailable ? <p id={reasonId} className="m-0 mt-1 text-xs text-muted-foreground" data-archive-bringback-reason>{unavailable}</p> : null}
         </div>
       ) : null}

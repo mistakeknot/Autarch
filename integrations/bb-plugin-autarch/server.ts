@@ -446,7 +446,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
           const cur = p.svc.currentGeneration(taskId);
           const recipient = cur && cur.thread ? await resolveWakeTarget(taskId, String(cur.thread), true) : null;
           const r = p.dele.bringBack(taskId, decisionId, recipient, {}, [
-            `Citadel brought ${p.svc.cardKey(taskId) ?? taskId}: ${p.svc.cardTitle(taskId) ?? "Untitled card"} (${decisionId}) back on its own: mk picked a merge, and ${pr.url} was still not merged five minutes later.`,
+            `Citadel brought ${p.svc.cardNoticeLabel(taskId, cur?.subject)} (${decisionId}) back on its own: mk picked a merge, and ${pr.url} was still not merged five minutes later.`,
             `The card is open again, so mk will be asked afresh. If the PR merges first, tell mk on the card. If you have already received mk's answer on the new card, that answer stands.`,
           ], "merge-recheck");
           if (r.ok && !r.replay) {
@@ -753,7 +753,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       return r;
     },
     /** Archive tab: reopen a decided card as a new generation. The notice goes to the asking thread, or the vizier when it is gone. */
-    async bringBack(i: { task_id: string; decision_id: string; confirmed?: boolean }) {
+    async bringBack(i: { task_id: string; decision_id: string; confirmed: true }) {
       const p = need();
       const cur = p.svc.currentGeneration(i.task_id);
       const recipient = cur && cur.thread ? await resolveWakeTarget(i.task_id, String(cur.thread), true) : cur ? await resolveWakeTarget(i.task_id, null, true) : null;

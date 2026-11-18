@@ -1719,6 +1719,11 @@ export class Service {
     return r?.title ?? null;
   }
 
+  /** Bounded, readable card identity for bring-back notices from every caller. */
+  cardNoticeLabel(taskId: string, subject: string | null | undefined): string {
+    return `${this.cardKey(taskId) || taskId}: ${(this.cardTitle(taskId) || subject || "Untitled card").slice(0, 120)}`;
+  }
+
   /** Whether this one decision is in `owed()`: the same conditions, one row read, nothing else loaded. */
   isOwed(decisionId: string): boolean {
     return !!this.db

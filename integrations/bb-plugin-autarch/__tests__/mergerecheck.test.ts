@@ -133,7 +133,7 @@ function recheck(r: any, state: () => string, calls: string[]) {
     taskState: (id: string) => tasks.taskState(id),
     clock: () => Date.parse(r.svc.time()),
     bringBack: async (taskId, decisionId) => {
-      const out = r.dele.bringBack(taskId, decisionId, "thr_a", {});
+      const out = r.dele.bringBack(taskId, decisionId, "thr_a", {}, undefined, "unknown");
       return out.ok && !out.replay;
     },
   });
@@ -211,7 +211,7 @@ describe("merge recheck", () => {
       },
       taskState: (id) => new TasksClient(r.fake, { now: () => r.env.clock.t }).taskState(id),
       clock: () => Date.parse(r.svc.time()),
-      bringBack: async (taskId, decisionId) => r.dele.bringBack(taskId, decisionId, null, {}).ok,
+      bringBack: async (taskId, decisionId) => r.dele.bringBack(taskId, decisionId, null, {}, undefined, "unknown").ok,
     });
     await m.pass();
     expect(m.stats.errors).toBe(1);
@@ -270,7 +270,7 @@ describe("merge recheck leaves a card whose task is finished (bead mk-6k39i)", (
         return new TasksClient(r.fake, { now: () => r.env.clock.t }).taskState(id);
       },
       clock: () => Date.parse(r.svc.time()),
-      bringBack: async (taskId, decisionId) => r.dele.bringBack(taskId, decisionId, null, {}).ok,
+      bringBack: async (taskId, decisionId) => r.dele.bringBack(taskId, decisionId, null, {}, undefined, "unknown").ok,
     });
     await twoLooks(r, m);
     expect(m.stats.errors).toBe(1);
@@ -283,7 +283,7 @@ describe("merge recheck leaves a card whose task is finished (bead mk-6k39i)", (
   it("the manual Bring back still reopens a canceled task (the Archive tab's deliberate rule)", async () => {
     const { r, t, g1 } = await pickedMerge();
     r.edit(t, { status: "canceled" });
-    expect(r.dele.bringBack(t.id, g1.id, "thr_a", {})).toMatchObject({ ok: true });
+    expect(r.dele.bringBack(t.id, g1.id, "thr_a", {}, undefined, "unknown")).toMatchObject({ ok: true });
     await pollN(r, 3);
     expect(t.status).toBe("todo");
     expect(r.gens(t.id)).toHaveLength(2);
@@ -410,7 +410,7 @@ describe("merge recheck looks twice before it brings a card back (bead mk-qepye)
       },
       taskState: (id: string) => new TasksClient(r.fake, { now: () => r.env.clock.t }).taskState(id),
       clock: () => Date.parse(r.svc.time()),
-      bringBack: async (taskId, decisionId) => r.dele.bringBack(taskId, decisionId, null, {}).ok,
+      bringBack: async (taskId, decisionId) => r.dele.bringBack(taskId, decisionId, null, {}, undefined, "unknown").ok,
     });
     toAge(r, RECHECK_AFTER_MS + 1000);
     await m.pass(); // first look: open
