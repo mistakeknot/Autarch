@@ -591,7 +591,8 @@ func TestTimeoutKillsGroup(t *testing.T) {
 		t.Skip("INCOMPLETE: node missing")
 	}
 	script := `const child=require('node:child_process').spawn(process.execPath,['-e','setTimeout(()=>{},30000)'],{stdio:'ignore'});require('node:fs').writeFileSync(process.argv[1],String(child.pid));setTimeout(()=>{},30000);`
-	result := runGroup([]string{node, "-e", script, pidFile}, product, childEnv(dir, "/usr/bin:/bin"), 300*time.Millisecond, log)
+	// Allow Node startup and the pid-file write under load before killing the group.
+	result := runGroup([]string{node, "-e", script, pidFile}, product, childEnv(dir, "/usr/bin:/bin"), 3*time.Second, log)
 	if result.Verdict != "INCOMPLETE" || !result.TimedOut {
 		t.Fatal(result)
 	}
