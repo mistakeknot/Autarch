@@ -110,7 +110,7 @@ previous compatibility-file write. A one-row disagreement can therefore
 reflect write timing. Missing, unreadable or invalid levels are null. Unknown
 pace is null. Default RPC input `null` returns only the current mode's last 48
 hours, capped at 288 rows. Input `{ "history": "full" }` returns the full
-retained history across modes: rows from the last seven days plus at least the
+retained history across modes: rows within seven days of the latest decision, plus the
 latest 1,008 decisions, which may include older rows. The full read also works
 while off and creates no tables. History is omitted from the persisted `view`
 row. `new_level` is the decision's target, including when an apply
