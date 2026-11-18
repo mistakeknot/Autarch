@@ -735,7 +735,7 @@ export class Store {
    * `by: vizier` pick. Mode "bringback" also accepts an unpicked closed card,
    * whose predecessor may have been withdrawn when the task closed (mk-5ic33).
    */
-  insertReplacement(d: DecisionInput, mode: "replace" | "override" | "bringback" = "replace", origin?: "archive-button" | "merge-recheck" | "unknown"): ReplacementResult {
+  insertReplacement(d: DecisionInput, mode: "replace" | "override" | "bringback" = "replace", origin?: "archive-button" | "waiting-sweep" | "merge-recheck" | "unknown"): ReplacementResult {
     return this.tx(() => {
       const at = d.at ?? this.now();
       const prevId = d.supersedes;

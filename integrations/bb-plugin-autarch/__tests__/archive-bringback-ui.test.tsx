@@ -111,3 +111,9 @@ it.each(["", "x".repeat(200)])("uses a bounded nonempty title in the confirmatio
   act(() => button!.click());
   expect(document.querySelector("[data-archive-confirm]")!.textContent).toBe(`Bring back ${row.card_key}: ${title ? title.slice(0, 120) : "Untitled card"}`);
 });
+
+it("falls back to the saved decision subject when the card title is empty", () => {
+  const { button } = mount({ title: "", subject: "Saved subject" });
+  act(() => button!.click());
+  expect(document.querySelector("[data-archive-confirm]")!.textContent).toBe(`Bring back ${row.card_key}: Saved subject`);
+});

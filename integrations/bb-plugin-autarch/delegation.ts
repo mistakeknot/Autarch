@@ -467,19 +467,19 @@ export class Delegation {
 
   // ---- bring back (bead mk-gc2xm) --------------------------------------------------
 
-  /**
-   * Reopen an archived card as a new generation of the SAME card; any earlier pick and comments stay visible.
-   * Panel (and the vizier's sweep) only: a thread cannot reopen a card. `recipient` is the live thread that
-   * gets the notice: the asking thread, or the vizier when that thread is archived or gone; the caller
-   * resolves it, since the thread list is not the store's to read.
-   */
   /** A second, deliberate Archive confirmation is required for every Archive request. */
   archiveBringBack(taskId: string, decisionId: string, recipient: string | null, confirmed: boolean): OverrideResult {
     if (confirmed !== true) return refuse(409, "confirm Bring back in the Archive");
     return this.bringBack(taskId, decisionId, recipient, {}, undefined, "archive-button");
   }
 
-  bringBack(taskId: string, decisionId: string, recipient: string | null, ctx: Ctx, notice: string[] | undefined, origin: "archive-button" | "merge-recheck" | "unknown"): OverrideResult {
+  /**
+   * Reopen an archived card as a new generation of the SAME card; any earlier pick and comments stay visible.
+   * Declared Archive, waiting-sweep or merge-recheck caller; a thread cannot reopen a card. `recipient` is the live thread that
+   * gets the notice: the asking thread, or the vizier when that thread is archived or gone; the caller
+   * resolves it, since the thread list is not the store's to read.
+   */
+  bringBack(taskId: string, decisionId: string, recipient: string | null, ctx: Ctx, notice: string[] | undefined, origin: "archive-button" | "waiting-sweep" | "merge-recheck" | "unknown"): OverrideResult {
     if (ctx.threadId !== undefined) return refuse(403, "bring back comes from the panel");
     // The request is bound to the decision the caller saw, so a delayed retry or a stale tab cannot reopen a newer answer.
     const requestId = `bringback:${decisionId}`;
@@ -499,8 +499,8 @@ export class Delegation {
     const ask = readAsk(d.body_json, { request_id: requestId, supersedes: decisionId }, d.source);
     if (!ask) return refuse(UNREADABLE_REFUSAL.status, UNREADABLE_REFUSAL.error);
     const cardLabel = this.svc.cardNoticeLabel(taskId, d.subject);
-    const broughtBy = origin === "archive-button" ? "mk brought" : "Citadel brought";
-    const source = origin === "archive-button" ? "using the Archive button" : origin === "merge-recheck" ? "by the merge recheck" : "from an unknown caller";
+    const broughtBy = origin === "archive-button" ? "mk brought" : origin === "waiting-sweep" ? "The waiting sweep brought" : "Citadel brought";
+    const source = origin === "archive-button" ? "using the Archive button" : origin === "waiting-sweep" ? "because the script it asked for has no completion evidence" : origin === "merge-recheck" ? "by the merge recheck" : "from an unknown caller";
     const n = Number(d.generation) + 1;
     const input: DecisionInput = {
       id: `card-${d.task_id}-g${n}`,

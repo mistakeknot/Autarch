@@ -1,3 +1,4 @@
+import { formatCardLabel } from "./cardlabel.js";
 import { recordPilotPick } from "./pilotmetrics.js";
 import type { WakeAttribution } from "./wake-attribution.js";
 // The Home decision service: file, pick once, reconcile the ruling file, wake and feed.
@@ -1721,7 +1722,7 @@ export class Service {
 
   /** Bounded, readable card identity for bring-back notices from every caller. */
   cardNoticeLabel(taskId: string, subject: string | null | undefined): string {
-    return `${this.cardKey(taskId) || taskId}: ${(this.cardTitle(taskId) || subject || "Untitled card").slice(0, 120)}`;
+    return formatCardLabel(this.cardKey(taskId), taskId, this.cardTitle(taskId), subject);
   }
 
   /** Whether this one decision is in `owed()`: the same conditions, one row read, nothing else loaded. */

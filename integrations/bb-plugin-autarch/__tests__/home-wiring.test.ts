@@ -69,7 +69,9 @@ describe("wireHome", () => {
   });
   it.each(["archive-button", "waiting-sweep"])("attributes the declared RPC caller: %s", async origin => {
     const r = rig(); const { t, g1 } = await opened(r); r.mkPick(g1.id);
-    const f = fakeBb(); const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve, sdk: new FakeSdk() });
+    const asking = { id: "thr_a", title: "Asking thread", pinnedAt: null, archivedAt: null, deletedAt: null };
+    const f = fakeBb({ list: async ({ offset }: { offset: number }) => [asking].slice(offset), get: async () => asking });
+    const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve, sdk: new FakeSdk() });
     const payload = { task_id: t.id, decision_id: g1.id, ...(origin === "archive-button" ? { confirmed: true } : { by: "waiting-sweep" }) };
     try {
       const result = await home.handlers.bringBack(payload as never);

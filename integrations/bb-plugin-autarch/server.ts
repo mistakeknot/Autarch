@@ -752,12 +752,17 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       if (r.ok) need().caches.invalidate();
       return r;
     },
-    /** Archive tab: reopen a decided card as a new generation. The notice goes to the asking thread, or the vizier when it is gone. */
-    async bringBack(i: { task_id: string; decision_id: string; confirmed: true }) {
+    /** Declared Archive or waiting-sweep request; notify the asker, or the vizier when it is gone. */
+    async bringBack(input: { task_id: string; decision_id: string } & ({ confirmed: true } | { by: "waiting-sweep" })) {
+      const parsed = homeMethods.bringBack.input.safeParse(input);
+      if (!parsed.success) return { ok: false as const, status: 409, error: "declare either Archive confirmation or waiting-sweep origin" };
+      const i = parsed.data;
       const p = need();
       const cur = p.svc.currentGeneration(i.task_id);
       const recipient = cur && cur.thread ? await resolveWakeTarget(i.task_id, String(cur.thread), true) : cur ? await resolveWakeTarget(i.task_id, null, true) : null;
-      const r = p.dele.archiveBringBack(i.task_id, i.decision_id, recipient, i.confirmed === true);
+      const r = "by" in i
+        ? p.dele.bringBack(i.task_id, i.decision_id, recipient, {}, undefined, "waiting-sweep")
+        : p.dele.archiveBringBack(i.task_id, i.decision_id, recipient, i.confirmed);
       if (r.ok) p.caches.invalidate();
       return r;
     },

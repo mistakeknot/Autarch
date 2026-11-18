@@ -18,6 +18,7 @@ export type ArchiveRow = {
   task_id: string;
   card_key: string;
   title: string;
+  subject?: string | null;
   project: string;
   state: string;
   decided_at: string;
@@ -89,7 +90,7 @@ export function archiveView(db: Database.Database, q: ArchiveQuery): ArchiveView
   const total = (db.prepare(`SELECT COUNT(*) AS n ${from}`).get(args) as { n: number }).n;
   const raw = db
     .prepare(
-      `SELECT c.task_id, c.card_key, c.title, c.state, COALESCE(p.picked_at, c.updated_at) AS decided_at,
+      `SELECT c.task_id, c.card_key, c.title, d.subject, c.state, COALESCE(p.picked_at, c.updated_at) AS decided_at,
               p.option_id, p."by" AS by, p.reason, d.generation, d.id AS decision_id, d.body_json
        ${from} ORDER BY decided_at DESC, c.card_key DESC LIMIT @limit OFFSET @offset`,
     )
@@ -98,6 +99,7 @@ export function archiveView(db: Database.Database, q: ArchiveQuery): ArchiveView
     task_id: String(r.task_id),
     card_key: String(r.card_key),
     title: String(r.title ?? ""),
+    subject: r.subject == null ? null : String(r.subject),
     project: String(r.card_key).split("-")[0] ?? "",
     state: String(r.state),
     decided_at: String(r.decided_at ?? ""),

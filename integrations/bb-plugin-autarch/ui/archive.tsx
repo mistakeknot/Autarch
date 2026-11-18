@@ -1,6 +1,7 @@
 // The Archive tab (bead mk-gc2xm): decided cards, newest first, with search and project / date / pick filters.
 // Each row with a saved question has a Bring back button that reopens the same card as a fresh round.
 import { useEffect, useId, useRef, useState } from "react";
+import { formatCardLabel } from "../cardlabel.js";
 import type { ArchiveRow } from "../archive.js";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } from "../components/ui/dialog.js";
 import { ActionButton } from "./buttons.js";
@@ -46,6 +47,7 @@ export function ArchiveRowView({ row, onBringBack, busy, error }: { row: Archive
         <div>
           <ActionButton aria-disabled={blocked || undefined} aria-describedby={unavailable ? reasonId : undefined} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50" onClick={() => { if (!blocked && !submitted.current) setConfirming(true); }} data-archive-bringback={row.card_key}>Bring back</ActionButton>
           <Dialog open={confirming} onOpenChange={setConfirming}>
+            {/* Desktop focuses Cancel; the compact drawer focuses its panel. */}
             <DialogContent onOpenAutoFocus={(e) => { e.preventDefault(); document.getElementById(cancelId)?.focus(); }}>
               <DialogTitle>Reopen this question?</DialogTitle>
               <DialogDescription>This opens a new question and may repeat an earlier action. Cancel to keep the saved answer.</DialogDescription>
@@ -56,7 +58,7 @@ export function ArchiveRowView({ row, onBringBack, busy, error }: { row: Archive
                   submitted.current = true;
                   setConfirming(false);
                   onBringBack(row);
-                }}>Bring back {row.card_key}: {row.title}</ActionButton>
+                }}>Bring back {formatCardLabel(row.card_key, row.task_id, row.title, row.subject)}</ActionButton>
               </DialogFooter>
             </DialogContent>
           </Dialog>
