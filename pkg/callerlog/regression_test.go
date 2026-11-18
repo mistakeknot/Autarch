@@ -1,6 +1,7 @@
 package callerlog
 
 import (
+	"bytes"
 	"net"
 	"os"
 	"path/filepath"
@@ -31,7 +32,7 @@ func TestRejectUnsafeLogTargets(t *testing.T) {
 		}
 	})
 }
-func TestDefaultNeverWritesInTests(t *testing.T) {
+func TestDefaultUsesCachedDropOnlyLogger(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	// Inject the process default for this isolated HOME, just as consumers inject
@@ -86,6 +87,15 @@ func TestPeerRealLoopback(t *testing.T) {
 	}
 	p, ok := got.(map[string]any)
 	if !ok || p["pid"] != os.Getpid() {
+		if table, err := os.ReadFile("/proc/net/tcp"); err != nil {
+			t.Logf("read /proc/net/tcp: %v", err)
+		} else {
+			lines := bytes.Count(table, []byte{'\n'})
+			if len(table) > 0 && table[len(table)-1] != '\n' {
+				lines++
+			}
+			t.Logf("/proc/net/tcp line count: %d (resolver limit: 4096)", lines)
+		}
 		t.Fatalf("peer = %v", got)
 	}
 }

@@ -177,6 +177,8 @@ func requireOracleControl(t *testing.T, root string, fixtures oracleFixtures) st
 
 // Log diagnostics before TempDir cleanup so failed CI runs keep useful evidence
 // without requiring an opt-in or leaving scratch directories behind.
+const oracleLogTailBytes = 8 * 1024
+
 func oracleEvidenceDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -198,6 +200,10 @@ func oracleEvidenceDir(t *testing.T) string {
 			if err != nil {
 				t.Logf("read %s: %v", entry.Name(), err)
 				continue
+			}
+			if len(data) > oracleLogTailBytes {
+				t.Logf("%s: output truncated; showing last %d bytes of %d", entry.Name(), oracleLogTailBytes, len(data))
+				data = data[len(data)-oracleLogTailBytes:]
 			}
 			t.Logf("%s:\n%s", entry.Name(), data)
 		}
