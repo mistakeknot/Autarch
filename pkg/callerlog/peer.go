@@ -14,6 +14,9 @@ import (
 	"time"
 )
 
+// peerTableLineLimit bounds the scan of each procfs TCP table.
+const peerTableLineLimit = 4096
+
 // resolvePeer runs only on the single audit worker, with bounded entries and time.
 // A departed connection, inaccessible procfs or exhausted budget is unknown.
 func resolvePeer(remote string) any {
@@ -40,7 +43,7 @@ func resolvePeerAt(root, remote string) any {
 			continue
 		}
 		sc := bufio.NewScanner(f)
-		for n := 0; n < 4096 && time.Now().Before(deadline) && sc.Scan(); n++ {
+		for n := 0; n < peerTableLineLimit && time.Now().Before(deadline) && sc.Scan(); n++ {
 			fields := strings.Fields(sc.Text())
 			if len(fields) < 10 {
 				continue

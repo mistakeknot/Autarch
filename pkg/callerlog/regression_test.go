@@ -94,7 +94,7 @@ func TestPeerRealLoopback(t *testing.T) {
 			if len(table) > 0 && table[len(table)-1] != '\n' {
 				lines++
 			}
-			t.Logf("/proc/net/tcp line count: %d (resolver limit: 4096)", lines)
+			t.Logf("/proc/net/tcp line count: %d (resolver limit: %d)", lines, peerTableLineLimit)
 		}
 		t.Fatalf("peer = %v", got)
 	}
