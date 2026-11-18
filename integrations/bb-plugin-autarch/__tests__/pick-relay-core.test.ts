@@ -514,7 +514,7 @@ it.each(["note", "epoch", "generation", "disposition", "deadline", "payload", "r
     const { r, g, relay, action } = await enqueued({ blocks: "thread:thr_target thread:thr_other" });
     if (change === "note") expect(r.svc.note({ decision_id: g.id }, "Wait", "late-note", { deferWake: true }).ok).toBe(true);
     if (change === "epoch") r.db.prepare("UPDATE pick_handler_control SET epoch = epoch + 1 WHERE id = 1").run();
-    if (change === "generation") expect(r.dele.bringBack(String(g.task_id), g.id, null, {}).ok).toBe(true);
+    if (change === "generation") expect(r.dele.bringBack(String(g.task_id), g.id, null, {}, undefined, "unknown").ok).toBe(true);
     if (change === "disposition") r.db.prepare("UPDATE pick_actions SET disposition = 'cancelled' WHERE pick_id = ?").run(action.pick_id);
     if (change === "deadline") r.advance(120_001);
     if (change === "payload") r.db.prepare("UPDATE obligations SET payload = payload || ' and also delete the branch' WHERE id = ?").run(relay.id);

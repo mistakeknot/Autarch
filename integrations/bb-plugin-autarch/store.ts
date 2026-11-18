@@ -735,7 +735,7 @@ export class Store {
    * `by: vizier` pick. Mode "bringback" also accepts an unpicked closed card,
    * whose predecessor may have been withdrawn when the task closed (mk-5ic33).
    */
-  insertReplacement(d: DecisionInput, mode: "replace" | "override" | "bringback" = "replace"): ReplacementResult {
+  insertReplacement(d: DecisionInput, mode: "replace" | "override" | "bringback" = "replace", origin?: "archive-button" | "waiting-sweep" | "merge-recheck" | "unknown"): ReplacementResult {
     return this.tx(() => {
       const at = d.at ?? this.now();
       const prevId = d.supersedes;
@@ -808,7 +808,7 @@ export class Store {
              SELECT ?, thread, request_id, at FROM mentions WHERE decision_id = ?`,
           )
           .run(d.id, prevId);
-        this.event(mode === "replace" ? "replaced" : mode === "bringback" ? "brought-back" : "overridden", d.id, { supersedes: prevId });
+        this.event(mode === "replace" ? "replaced" : mode === "bringback" ? "brought-back" : "overridden", d.id, { supersedes: prevId, ...(origin ? { origin } : {}) });
         return { ok: true, decision_id: d.id } as const;
       }
       // Refused: undo the registry row, then say why, in this same transaction.

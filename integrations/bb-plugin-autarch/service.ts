@@ -1,3 +1,4 @@
+import { formatCardLabel } from "./cardlabel.js";
 import { recordPilotPick } from "./pilotmetrics.js";
 import type { WakeAttribution } from "./wake-attribution.js";
 // The Home decision service: file, pick once, reconcile the ruling file, wake and feed.
@@ -1719,6 +1720,11 @@ export class Service {
     return r?.title ?? null;
   }
 
+  /** Bounded, readable card identity for bring-back notices from every caller. */
+  cardNoticeLabel(taskId: string, subject: string | null | undefined): string {
+    return formatCardLabel(this.cardKey(taskId), taskId, this.cardTitle(taskId), subject);
+  }
+
   /** Whether this one decision is in `owed()`: the same conditions, one row read, nothing else loaded. */
   isOwed(decisionId: string): boolean {
     return !!this.db
@@ -1726,7 +1732,8 @@ export class Service {
         `SELECT 1 FROM decisions d
          WHERE d.id = ? AND d.kind = 'decide' AND d.withdrawn_at IS NULL AND d.resolved_at IS NULL
            AND NOT EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = d.id)
-           AND NOT EXISTS (SELECT 1 FROM decisions r WHERE r.supersedes = d.id)`,
+           AND NOT EXISTS (SELECT 1 FROM decisions r WHERE r.supersedes = d.id)
+           AND NOT EXISTS (SELECT 1 FROM cards c WHERE c.task_id = d.task_id AND c.state = 'closed')`,
       )
       .get(decisionId);
   }
@@ -1739,6 +1746,7 @@ export class Service {
          WHERE d.kind = 'decide' AND d.withdrawn_at IS NULL AND d.resolved_at IS NULL
            AND NOT EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = d.id)
            AND NOT EXISTS (SELECT 1 FROM decisions r WHERE r.supersedes = d.id)
+           AND NOT EXISTS (SELECT 1 FROM cards c WHERE c.task_id = d.task_id AND c.state = 'closed')
          ORDER BY d.filed_at, d.id`,
       )
       .all() as Row[];

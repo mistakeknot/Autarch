@@ -281,7 +281,7 @@ it("normal Ruled writer unlabels/completes despite a pending relay, and bring-ba
   expect(fake.comments[0]!.body).toContain("Ruled:");
   expect(fake.comments[0]!.body).not.toContain("home-pick-status:");
   const frozen = svc.readPickAction({ pick_id: "original-pick" });
-  const back = new Delegation(svc).bringBack("task", "original", null, {});
+  const back = new Delegation(svc).bringBack("task", "original", null, {}, undefined, "unknown");
   expect(back.ok).toBe(true);
   expect(svc.readPickAction({ decision_id: "original", generation: 1 })).toEqual(frozen);
   expect(svc.readPickAction({ decision_id: "original", generation: 2 })).toMatchObject({ kind: "unavailable" });

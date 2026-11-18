@@ -467,13 +467,19 @@ export class Delegation {
 
   // ---- bring back (bead mk-gc2xm) --------------------------------------------------
 
+  /** A second, deliberate Archive confirmation is required for every Archive request. */
+  archiveBringBack(taskId: string, decisionId: string, recipient: string | null, confirmed: boolean): OverrideResult {
+    if (confirmed !== true) return refuse(409, "confirm Bring back in the Archive");
+    return this.bringBack(taskId, decisionId, recipient, {}, undefined, "archive-button");
+  }
+
   /**
    * Reopen an archived card as a new generation of the SAME card; any earlier pick and comments stay visible.
-   * Panel (and the vizier's sweep) only: a thread cannot reopen a card. `recipient` is the live thread that
+   * Declared Archive, waiting-sweep or merge-recheck caller; a thread cannot reopen a card. `recipient` is the live thread that
    * gets the notice: the asking thread, or the vizier when that thread is archived or gone; the caller
    * resolves it, since the thread list is not the store's to read.
    */
-  bringBack(taskId: string, decisionId: string, recipient: string | null, ctx: Ctx, notice?: string[]): OverrideResult {
+  bringBack(taskId: string, decisionId: string, recipient: string | null, ctx: Ctx, notice: string[] | undefined, origin: "archive-button" | "waiting-sweep" | "merge-recheck" | "unknown"): OverrideResult {
     if (ctx.threadId !== undefined) return refuse(403, "bring back comes from the panel");
     // The request is bound to the decision the caller saw, so a delayed retry or a stale tab cannot reopen a newer answer.
     const requestId = `bringback:${decisionId}`;
@@ -492,6 +498,9 @@ export class Delegation {
 
     const ask = readAsk(d.body_json, { request_id: requestId, supersedes: decisionId }, d.source);
     if (!ask) return refuse(UNREADABLE_REFUSAL.status, UNREADABLE_REFUSAL.error);
+    const cardLabel = this.svc.cardNoticeLabel(taskId, d.subject);
+    const broughtBy = origin === "archive-button" ? "mk brought" : origin === "waiting-sweep" ? "The waiting sweep brought" : "Citadel brought";
+    const source = origin === "archive-button" ? "using the Archive button" : origin === "waiting-sweep" ? "because the script it asked for has no completion evidence" : origin === "merge-recheck" ? "by the merge recheck" : "from an unknown caller";
     const n = Number(d.generation) + 1;
     const input: DecisionInput = {
       id: `card-${d.task_id}-g${n}`,
@@ -520,7 +529,7 @@ export class Delegation {
       card_fp: d.card_fp,
     };
     const run = this.db.transaction((): OverrideResult => {
-      const res = this.store.insertReplacement(input, "bringback");
+      const res = this.store.insertReplacement(input, "bringback", origin);
       if (!res.ok) {
         if ("existing" in res) return { ok: true, decision_id: res.existing.decision_id, replay: true };
         return refuse(409, res.reason === "already-superseded" ? "already brought back" : "this card cannot be brought back");
@@ -539,10 +548,10 @@ export class Delegation {
           op: `bringback:${decisionId}`,
           payload: (
             notice ?? (pick ? [
-              `mk brought the decision ${decisionId} back. It is open again as ${res.decision_id}, and mk is answering afresh.`,
+              `${broughtBy} ${cardLabel} (${decisionId}) back ${source}. It is open again as ${res.decision_id}, and mk is answering afresh.`,
               `Wait for that answer before acting on the earlier one. If you have already received mk's answer for ${res.decision_id}, that answer stands.`,
             ] : [
-              `mk brought the card ${decisionId} back. It is open again as ${res.decision_id}, and mk is answering afresh.`,
+              `${broughtBy} ${cardLabel} (${decisionId}) back ${source}. It is open again as ${res.decision_id}, and mk is answering afresh.`,
               `No earlier pick was recorded in Citadel. Wait for mk's answer for ${res.decision_id} before acting. If you have already received that answer, it stands.`,
             ])
           ).join("\n"),

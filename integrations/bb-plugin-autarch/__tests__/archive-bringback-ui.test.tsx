@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArchiveRow } from "../archive.js";
 import { ArchiveRowView } from "../ui/archive.js";
 
+vi.mock("../components/ui/icon.js", () => ({ Icon: () => null }));
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const row: ArchiveRow = {
@@ -17,7 +19,7 @@ let root: Root;
 beforeEach(() => {
   host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); });
+afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
 function mount(over: Partial<ArchiveRow> = {}, busy = false) {
   const current = { ...row, ...over }; const onBringBack = vi.fn();
@@ -60,16 +62,58 @@ describe("Archive Bring back eligibility (mk-bzi8s.14)", () => {
   it("submits the closed no-pick row from the actual button", () => {
     const { button, current, onBringBack } = mount();
     expect(button).not.toBeNull(); expect(button!.disabled).toBe(false); expect(button!.textContent).toBe("Bring back");
-    act(() => button!.click()); expect(onBringBack).toHaveBeenCalledExactlyOnceWith(current);
+    act(() => button!.click());
+    expect(onBringBack).not.toHaveBeenCalled();
+    act(() => document.querySelector<HTMLButtonElement>("[data-archive-confirm]")!.click());
+    expect(onBringBack).toHaveBeenCalledExactlyOnceWith(current);
   });
   it("keeps picked rows available and disables them while busy", () => {
     const picked = { state: "ruled", no_pick: false, option_id: "a", by: "mk" };
     const { button, current, onBringBack } = mount(picked);
     expect(button!.disabled).toBe(false);
-    act(() => button!.click()); expect(onBringBack).toHaveBeenCalledExactlyOnceWith(current);
+    act(() => button!.click());
+    expect(onBringBack).not.toHaveBeenCalled();
+    act(() => document.querySelector<HTMLButtonElement>("[data-archive-confirm]")!.click());
+    expect(onBringBack).toHaveBeenCalledExactlyOnceWith(current);
     const busy = mount(picked, true); expect(busy.button!.disabled).toBe(false);
     expect(busy.button!.getAttribute("aria-disabled")).toBe("true");
     act(() => busy.button!.focus()); expect(document.activeElement).toBe(busy.button);
     act(() => busy.button!.click()); expect(busy.onBringBack).not.toHaveBeenCalled();
   });
+});
+
+it("opens an in-UI dialog, cancels without sending, and confirms only once while busy", () => {
+  const { button, onBringBack, current } = mount({ no_pick: false, state: "ruled", option_id: "a", by: "mk" });
+  act(() => { button!.click(); button!.click(); });
+  expect(onBringBack).not.toHaveBeenCalled();
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  act(() => document.querySelector<HTMLButtonElement>("[data-archive-cancel]")!.click());
+  expect(onBringBack).not.toHaveBeenCalled();
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  act(() => button!.click());
+  const confirm = document.querySelector<HTMLButtonElement>("[data-archive-confirm]")!;
+  expect(confirm.textContent).toBe(`Bring back ${row.card_key}: ${row.title}`);
+  act(() => { confirm.click(); confirm.click(); });
+  expect(onBringBack).toHaveBeenCalledExactlyOnceWith(current);
+  // Reopen a fresh dialog after a retry, then make that live dialog busy.
+  act(() => root.render(<ArchiveRowView row={current} onBringBack={onBringBack} error="retry" />));
+  act(() => button!.click());
+  act(() => root.render(<ArchiveRowView row={current} onBringBack={onBringBack} busy />));
+  const liveConfirm = document.querySelector<HTMLButtonElement>("[data-archive-confirm]")!;
+  expect(liveConfirm).not.toBeNull(); expect(liveConfirm.isConnected).toBe(true);
+  expect(liveConfirm.disabled).toBe(true);
+  act(() => liveConfirm.click());
+  expect(onBringBack).toHaveBeenCalledTimes(1);
+});
+
+it.each(["", "x".repeat(200)])("uses a bounded nonempty title in the confirmation: %s", title => {
+  const { button } = mount({ title });
+  act(() => button!.click());
+  expect(document.querySelector("[data-archive-confirm]")!.textContent).toBe(`Bring back ${row.card_key}: ${title ? title.slice(0, 120) : "Untitled card"}`);
+});
+
+it("falls back to the saved decision subject when the card title is empty", () => {
+  const { button } = mount({ title: "", subject: "Saved subject" });
+  act(() => button!.click());
+  expect(document.querySelector("[data-archive-confirm]")!.textContent).toBe(`Bring back ${row.card_key}: Saved subject`);
 });

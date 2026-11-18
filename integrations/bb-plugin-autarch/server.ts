@@ -446,9 +446,9 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
           const cur = p.svc.currentGeneration(taskId);
           const recipient = cur && cur.thread ? await resolveWakeTarget(taskId, String(cur.thread), true) : null;
           const r = p.dele.bringBack(taskId, decisionId, recipient, {}, [
-            `Citadel brought the decision ${decisionId} back on its own: mk picked a merge, and ${pr.url} was still not merged five minutes later.`,
+            `Citadel brought ${p.svc.cardNoticeLabel(taskId, cur?.subject)} (${decisionId}) back on its own: mk picked a merge, and ${pr.url} was still not merged five minutes later.`,
             `The card is open again, so mk will be asked afresh. If the PR merges first, tell mk on the card. If you have already received mk's answer on the new card, that answer stands.`,
-          ]);
+          ], "merge-recheck");
           if (r.ok && !r.replay) {
             p.caches.invalidate();
             bb.realtime.publish("home-queue-changed", {});
@@ -752,12 +752,17 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       if (r.ok) need().caches.invalidate();
       return r;
     },
-    /** Archive tab: reopen a decided card as a new generation. The notice goes to the asking thread, or the vizier when it is gone. */
-    async bringBack(i: { task_id: string; decision_id: string }) {
+    /** Declared Archive or waiting-sweep request; notify the asker, or the vizier when it is gone. */
+    async bringBack(input: { task_id: string; decision_id: string } & ({ confirmed: true } | { by: "waiting-sweep" })) {
+      const parsed = homeMethods.bringBack.input.safeParse(input);
+      if (!parsed.success) return { ok: false as const, status: 409, error: "declare either Archive confirmation or waiting-sweep origin" };
+      const i = parsed.data;
       const p = need();
       const cur = p.svc.currentGeneration(i.task_id);
       const recipient = cur && cur.thread ? await resolveWakeTarget(i.task_id, String(cur.thread), true) : cur ? await resolveWakeTarget(i.task_id, null, true) : null;
-      const r = p.dele.bringBack(i.task_id, i.decision_id, recipient, {});
+      const r = "by" in i
+        ? p.dele.bringBack(i.task_id, i.decision_id, recipient, {}, undefined, "waiting-sweep")
+        : p.dele.archiveBringBack(i.task_id, i.decision_id, recipient, i.confirmed);
       if (r.ok) p.caches.invalidate();
       return r;
     },

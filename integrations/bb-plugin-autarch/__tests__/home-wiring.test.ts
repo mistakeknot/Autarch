@@ -47,11 +47,51 @@ describe("wireHome", () => {
       const f = fakeBb({ list: async ({ offset }: { offset: number }) => rows.slice(offset), get: async ({ threadId }: { threadId: string }) => rows.find(x => x.id === threadId) });
       const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve, sdk: new FakeSdk() });
       try {
-        expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id })).toMatchObject({ ok: true, replay: false });
+        expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, confirmed: true })).toMatchObject({ ok: true, replay: false });
         expect(r.svc.store.obligationsFor(g1.id).find(o => o.op === `bringback:${g1.id}`)).toMatchObject({ recipient: archived ? "thr_viz" : "thr_a" });
-        expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id })).toMatchObject({ ok: true, replay: true });
+        expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, confirmed: true })).toMatchObject({ ok: true, replay: true });
       } finally { f.disposers.forEach(d => d()); }
     } finally { cleanupEnvs(); }
+  });
+  it.each([undefined, false])("guards the Archive RPC against an old unconfirmed pick: %s", async confirmed => {
+    const r = rig(); const { t, g1 } = await opened(r);
+    r.mkPick(g1.id);
+    r.env.clock.t = Date.parse(r.svc.store.pick(g1.id)!.picked_at) + 120_000;
+    const f = fakeBb();
+    const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve, sdk: new FakeSdk() });
+    try {
+      // @ts-expect-error exercise a malformed RPC client
+      expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, confirmed })).toMatchObject({ ok: false, status: 409 });
+      expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, confirmed: true })).toMatchObject({ ok: true });
+      const event = r.db.prepare("SELECT detail_json FROM events WHERE type='brought-back'").get() as { detail_json: string };
+      expect(JSON.parse(event.detail_json).origin).toBe("archive-button");
+    } finally { vi.restoreAllMocks(); f.disposers.forEach(d => d()); cleanupEnvs(); }
+  });
+  it.each(["archive-button", "waiting-sweep"])("attributes the declared RPC caller: %s", async origin => {
+    const r = rig(); const { t, g1 } = await opened(r); r.mkPick(g1.id);
+    const asking = { id: "thr_a", title: "Asking thread", pinnedAt: null, archivedAt: null, deletedAt: null };
+    const f = fakeBb({ list: async ({ offset }: { offset: number }) => [asking].slice(offset), get: async () => asking });
+    const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve, sdk: new FakeSdk() });
+    const payload = { task_id: t.id, decision_id: g1.id, ...(origin === "archive-button" ? { confirmed: true } : { by: "waiting-sweep" }) };
+    try {
+      const result = await home.handlers.bringBack(payload as never);
+      expect(result).toMatchObject({ ok: true });
+      const event = r.db.prepare("SELECT detail_json FROM events WHERE type='brought-back'").get() as { detail_json: string };
+      expect(JSON.parse(event.detail_json).origin).toBe(origin);
+      const notice = r.svc.store.obligationsFor(g1.id).find(o => o.op === `bringback:${g1.id}`)!.payload;
+      expect(notice).toContain(r.svc.cardNoticeLabel(t.id, g1.subject));
+      if (origin === "waiting-sweep") {
+        expect(notice).toContain("The waiting sweep brought");
+        expect(notice).toContain("no completion evidence");
+        expect(notice).not.toContain("mk brought"); expect(notice).not.toContain("Archive button");
+      } else expect(notice).toContain("using the Archive button");
+    } finally { f.disposers.forEach(d => d()); cleanupEnvs(); }
+  });
+  it.each([{}, { confirmed: true, by: "waiting-sweep" }])("refuses ambiguous or undeclared RPC callers: %j", async fields => {
+    const r = rig(); const f = fakeBb(); const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve });
+    try {
+      await expect(home.handlers.bringBack({ task_id: "fixture", decision_id: "decision", ...fields } as never)).resolves.toMatchObject({ ok: false, status: 409 });
+    } finally { f.disposers.forEach(d => d()); cleanupEnvs(); }
   });
   it("reads stored pilot observations without modifying them", async () => {
     const db = new Database(":memory:"); const f = fakeBb(); const handle = createStoreHandle(() => db, {});
