@@ -15,7 +15,6 @@ const row: ArchiveRow = {
 let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
@@ -61,13 +60,19 @@ describe("Archive Bring back eligibility (mk-bzi8s.14)", () => {
   it("submits the closed no-pick row from the actual button", () => {
     const { button, current, onBringBack } = mount();
     expect(button).not.toBeNull(); expect(button!.disabled).toBe(false); expect(button!.textContent).toBe("Bring back");
-    act(() => button!.click()); expect(onBringBack).toHaveBeenCalledExactlyOnceWith(current);
+    act(() => button!.click());
+    expect(onBringBack).not.toHaveBeenCalled();
+    act(() => document.querySelector<HTMLButtonElement>("[data-archive-confirm]")!.click());
+    expect(onBringBack).toHaveBeenCalledExactlyOnceWith(current);
   });
   it("keeps picked rows available and disables them while busy", () => {
     const picked = { state: "ruled", no_pick: false, option_id: "a", by: "mk" };
     const { button, current, onBringBack } = mount(picked);
     expect(button!.disabled).toBe(false);
-    act(() => button!.click()); expect(onBringBack).toHaveBeenCalledExactlyOnceWith(current);
+    act(() => button!.click());
+    expect(onBringBack).not.toHaveBeenCalled();
+    act(() => document.querySelector<HTMLButtonElement>("[data-archive-confirm]")!.click());
+    expect(onBringBack).toHaveBeenCalledExactlyOnceWith(current);
     const busy = mount(picked, true); expect(busy.button!.disabled).toBe(false);
     expect(busy.button!.getAttribute("aria-disabled")).toBe("true");
     act(() => busy.button!.focus()); expect(document.activeElement).toBe(busy.button);
@@ -75,10 +80,20 @@ describe("Archive Bring back eligibility (mk-bzi8s.14)", () => {
   });
 });
 
-it("requires deliberate confirmation after a stray or repeated Archive activation", () => {
-  vi.mocked(window.confirm).mockReturnValue(false);
-  const { button, onBringBack } = mount({ no_pick: false, state: "ruled", option_id: "a", by: "mk" });
+it("opens an in-UI dialog, cancels without sending, and confirms only once while busy", () => {
+  const { button, onBringBack, current } = mount({ no_pick: false, state: "ruled", option_id: "a", by: "mk" });
   act(() => { button!.click(); button!.click(); });
   expect(onBringBack).not.toHaveBeenCalled();
-  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining(row.title));
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  act(() => document.querySelector<HTMLButtonElement>("[data-archive-cancel]")!.click());
+  expect(onBringBack).not.toHaveBeenCalled();
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  act(() => button!.click());
+  const confirm = document.querySelector<HTMLButtonElement>("[data-archive-confirm]")!;
+  expect(confirm.textContent).toBe(`Bring back ${row.card_key}: ${row.title}`);
+  act(() => { confirm.click(); confirm.click(); });
+  expect(onBringBack).toHaveBeenCalledExactlyOnceWith(current);
+  act(() => root.render(<ArchiveRowView row={current} onBringBack={onBringBack} busy />));
+  act(() => { button!.click(); confirm.click(); });
+  expect(onBringBack).toHaveBeenCalledTimes(1);
 });
