@@ -32,7 +32,7 @@ func TestRejectUnsafeLogTargets(t *testing.T) {
 		}
 	})
 }
-func TestDefaultNeverWritesInTests(t *testing.T) {
+func TestDefaultUsesCachedDropOnlyLogger(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	// Inject the process default for this isolated HOME, just as consumers inject
