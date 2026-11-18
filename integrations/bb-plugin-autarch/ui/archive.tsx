@@ -9,7 +9,7 @@ export type ArchivePage = { rows: ArchiveRow[]; total: number; projects: string[
 export type ArchiveApi = {
   load: (f: ArchiveFilters, offset: number, limit: number) => Promise<ArchivePage>;
   /** Resolves with an error text when the card could not be brought back, null on success. */
-  bringBack: (taskId: string, decisionId: string) => Promise<string | null>;
+  bringBack: (taskId: string, decisionId: string, confirmed: true) => Promise<string | null>;
 };
 
 const PAGE = 50;
@@ -39,7 +39,7 @@ export function ArchiveRowView({ row, onBringBack, busy, error }: { row: Archive
       {error ? <p className="m-0 text-xs text-destructive" role="alert" data-archive-error>Could not bring it back: {error}</p> : null}
       {onBringBack ? (
         <div>
-          <ActionButton aria-disabled={blocked || undefined} aria-describedby={unavailable ? reasonId : undefined} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50" onClick={() => { if (!blocked) onBringBack(row); }} data-archive-bringback={row.card_key}>Bring back</ActionButton>
+          <ActionButton aria-disabled={blocked || undefined} aria-describedby={unavailable ? reasonId : undefined} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50" onClick={() => { if (!blocked && window.confirm(`Bring back ${row.card_key}: ${row.title}? This opens a new question and may repeat an earlier action.`)) onBringBack(row); }} data-archive-bringback={row.card_key}>Bring back</ActionButton>
           {unavailable ? <p id={reasonId} className="m-0 mt-1 text-xs text-muted-foreground" data-archive-bringback-reason>{unavailable}</p> : null}
         </div>
       ) : null}
@@ -79,7 +79,7 @@ export function ArchivePanel({ api }: { api: ArchiveApi }) {
   const [rowErr, setRowErr] = useState<Record<string, string>>({});
   const bringBack = ({ task_id: taskId, decision_id }: ArchiveRow) => {
     setWorking(taskId);
-    api.bringBack(taskId, decision_id ?? "").then(
+    api.bringBack(taskId, decision_id ?? "", true).then(
       (e) => {
         if (e) setRowErr((o) => ({ ...o, [taskId]: e }));
         else {

@@ -53,6 +53,19 @@ describe("wireHome", () => {
       } finally { f.disposers.forEach(d => d()); }
     } finally { cleanupEnvs(); }
   });
+  it("guards the Archive RPC against an unconfirmed recent pick", async () => {
+    const r = rig(); const { t, g1 } = await opened(r);
+    r.mkPick(g1.id);
+    const f = fakeBb();
+    const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve, sdk: new FakeSdk() });
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse(r.svc.store.pick(g1.id)!.picked_at) + 27_000);
+    try {
+      expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id })).toMatchObject({ ok: false, status: 409 });
+      expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, confirmed: true })).toMatchObject({ ok: true });
+      const event = r.db.prepare("SELECT detail_json FROM events WHERE type='brought-back'").get() as { detail_json: string };
+      expect(JSON.parse(event.detail_json).origin).toBe("archive-button");
+    } finally { vi.restoreAllMocks(); f.disposers.forEach(d => d()); cleanupEnvs(); }
+  });
   it("reads stored pilot observations without modifying them", async () => {
     const db = new Database(":memory:"); const f = fakeBb(); const handle = createStoreHandle(() => db, {});
     const home = wireHome(f.bb, handle, cfg, { serve });

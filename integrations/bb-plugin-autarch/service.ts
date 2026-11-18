@@ -1726,7 +1726,8 @@ export class Service {
         `SELECT 1 FROM decisions d
          WHERE d.id = ? AND d.kind = 'decide' AND d.withdrawn_at IS NULL AND d.resolved_at IS NULL
            AND NOT EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = d.id)
-           AND NOT EXISTS (SELECT 1 FROM decisions r WHERE r.supersedes = d.id)`,
+           AND NOT EXISTS (SELECT 1 FROM decisions r WHERE r.supersedes = d.id)
+           AND NOT EXISTS (SELECT 1 FROM cards c WHERE c.task_id = d.task_id AND c.state = 'closed')`,
       )
       .get(decisionId);
   }
@@ -1739,6 +1740,7 @@ export class Service {
          WHERE d.kind = 'decide' AND d.withdrawn_at IS NULL AND d.resolved_at IS NULL
            AND NOT EXISTS (SELECT 1 FROM picks k WHERE k.decision_id = d.id)
            AND NOT EXISTS (SELECT 1 FROM decisions r WHERE r.supersedes = d.id)
+           AND NOT EXISTS (SELECT 1 FROM cards c WHERE c.task_id = d.task_id AND c.state = 'closed')
          ORDER BY d.filed_at, d.id`,
       )
       .all() as Row[];
