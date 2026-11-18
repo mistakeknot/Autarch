@@ -188,3 +188,15 @@ describe("Archive row button", () => {
     expect(noPick).toMatch(/<button\b[^>]*data-archive-bringback=[^>]*>Bring back<\/button>/);
   });
 });
+
+it.each(["done", "canceled"])("stops offering a brought-back generation after external task closure: %s", async status => {
+  const { r, t, g1 } = await ruled();
+  const out = r.dele.bringBack(t.id, g1.id, "thr_a", {});
+  if (!out.ok) throw new Error(out.error);
+  await pollN(r, 5);
+  expect(r.svc.isOwed(out.decision_id)).toBe(true);
+  r.edit(t, { status });
+  await pollN(r, 3);
+  expect(r.svc.owed().some(d => d.id === out.decision_id)).toBe(false);
+  expect(r.svc.isOwed(out.decision_id)).toBe(false);
+});

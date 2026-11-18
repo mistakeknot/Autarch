@@ -15,9 +15,10 @@ const row: ArchiveRow = {
 let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
+  vi.spyOn(window, "confirm").mockReturnValue(true);
   host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); });
+afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
 function mount(over: Partial<ArchiveRow> = {}, busy = false) {
   const current = { ...row, ...over }; const onBringBack = vi.fn();
@@ -72,4 +73,12 @@ describe("Archive Bring back eligibility (mk-bzi8s.14)", () => {
     act(() => busy.button!.focus()); expect(document.activeElement).toBe(busy.button);
     act(() => busy.button!.click()); expect(busy.onBringBack).not.toHaveBeenCalled();
   });
+});
+
+it("requires deliberate confirmation after a stray or repeated Archive activation", () => {
+  vi.mocked(window.confirm).mockReturnValue(false);
+  const { button, onBringBack } = mount({ no_pick: false, state: "ruled", option_id: "a", by: "mk" });
+  act(() => { button!.click(); button!.click(); });
+  expect(onBringBack).not.toHaveBeenCalled();
+  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining(row.title));
 });
