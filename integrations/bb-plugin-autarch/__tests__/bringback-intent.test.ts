@@ -35,3 +35,10 @@ it("bounds and falls back through card title, decision subject and Untitled card
   r.db.prepare("UPDATE cards SET title = ? WHERE task_id = ?").run("x".repeat(200), t.id);
   expect(r.svc.cardNoticeLabel(t.id, "subject")).toBe(`${t.key}: ${"x".repeat(120)}`);
 });
+
+it.each([{ confirmed: true }, { by: "waiting-sweep" }])("accepts a declared RPC caller: %j", caller => {
+  expect(homeMethods.bringBack.input.safeParse({ task_id: "fixture", decision_id: "decision", ...caller }).success).toBe(true);
+});
+it("refuses a payload declaring both callers", () => {
+  expect(homeMethods.bringBack.input.safeParse({ task_id: "fixture", decision_id: "decision", confirmed: true, by: "waiting-sweep" }).success).toBe(false);
+});

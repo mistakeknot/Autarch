@@ -95,7 +95,19 @@ it("opens an in-UI dialog, cancels without sending, and confirms only once while
   expect(confirm.textContent).toBe(`Bring back ${row.card_key}: ${row.title}`);
   act(() => { confirm.click(); confirm.click(); });
   expect(onBringBack).toHaveBeenCalledExactlyOnceWith(current);
+  // Reopen a fresh dialog after a retry, then make that live dialog busy.
+  act(() => root.render(<ArchiveRowView row={current} onBringBack={onBringBack} error="retry" />));
+  act(() => button!.click());
   act(() => root.render(<ArchiveRowView row={current} onBringBack={onBringBack} busy />));
-  act(() => { button!.click(); confirm.click(); });
+  const liveConfirm = document.querySelector<HTMLButtonElement>("[data-archive-confirm]")!;
+  expect(liveConfirm).not.toBeNull(); expect(liveConfirm.isConnected).toBe(true);
+  expect(liveConfirm.disabled).toBe(true);
+  act(() => liveConfirm.click());
   expect(onBringBack).toHaveBeenCalledTimes(1);
+});
+
+it.each(["", "x".repeat(200)])("uses a bounded nonempty title in the confirmation: %s", title => {
+  const { button } = mount({ title });
+  act(() => button!.click());
+  expect(document.querySelector("[data-archive-confirm]")!.textContent).toBe(`Bring back ${row.card_key}: ${title ? title.slice(0, 120) : "Untitled card"}`);
 });

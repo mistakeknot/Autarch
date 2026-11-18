@@ -67,6 +67,30 @@ describe("wireHome", () => {
       expect(JSON.parse(event.detail_json).origin).toBe("archive-button");
     } finally { vi.restoreAllMocks(); f.disposers.forEach(d => d()); cleanupEnvs(); }
   });
+  it.each(["archive-button", "waiting-sweep"])("attributes the declared RPC caller: %s", async origin => {
+    const r = rig(); const { t, g1 } = await opened(r); r.mkPick(g1.id);
+    const f = fakeBb(); const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve, sdk: new FakeSdk() });
+    const payload = { task_id: t.id, decision_id: g1.id, ...(origin === "archive-button" ? { confirmed: true } : { by: "waiting-sweep" }) };
+    try {
+      const result = await home.handlers.bringBack(payload as never);
+      expect(result).toMatchObject({ ok: true });
+      const event = r.db.prepare("SELECT detail_json FROM events WHERE type='brought-back'").get() as { detail_json: string };
+      expect(JSON.parse(event.detail_json).origin).toBe(origin);
+      const notice = r.svc.store.obligationsFor(g1.id).find(o => o.op === `bringback:${g1.id}`)!.payload;
+      expect(notice).toContain(r.svc.cardNoticeLabel(t.id, g1.subject));
+      if (origin === "waiting-sweep") {
+        expect(notice).toContain("The waiting sweep brought");
+        expect(notice).toContain("no completion evidence");
+        expect(notice).not.toContain("mk brought"); expect(notice).not.toContain("Archive button");
+      } else expect(notice).toContain("using the Archive button");
+    } finally { f.disposers.forEach(d => d()); cleanupEnvs(); }
+  });
+  it.each([{}, { confirmed: true, by: "waiting-sweep" }])("refuses ambiguous or undeclared RPC callers: %j", async fields => {
+    const r = rig(); const f = fakeBb(); const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve });
+    try {
+      await expect(home.handlers.bringBack({ task_id: "fixture", decision_id: "decision", ...fields } as never)).resolves.toMatchObject({ ok: false, status: 409 });
+    } finally { f.disposers.forEach(d => d()); cleanupEnvs(); }
+  });
   it("reads stored pilot observations without modifying them", async () => {
     const db = new Database(":memory:"); const f = fakeBb(); const handle = createStoreHandle(() => db, {});
     const home = wireHome(f.bb, handle, cfg, { serve });
