@@ -175,10 +175,11 @@ func requireOracleControl(t *testing.T, root string, fixtures oracleFixtures) st
 	return hash(scenario)
 }
 
-// Log diagnostics before TempDir cleanup so failed CI runs keep useful evidence
-// without requiring an opt-in or leaving scratch directories behind.
+// oracleLogTailBytes bounds each evidence log's diagnostic output.
 const oracleLogTailBytes = 8 * 1024
 
+// Log diagnostics before TempDir cleanup so failed CI runs keep useful evidence
+// without requiring an opt-in or leaving scratch directories behind.
 func oracleEvidenceDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
