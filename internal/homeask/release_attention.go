@@ -21,6 +21,9 @@ func (f *CardFiler) recordOwnerAttentionState(key, attention string, clearAttemp
 	}
 	defer done()
 	v, ok := s[key]
+	// The caller's proof used an earlier snapshot. A fresh creation, update or
+	// delivery marker must prevent clearing the reservation under this lock.
+	clearAttempt = clearAttempt && !v.Update && v.CreationKey == "" && v.DeliveredCard == "" && v.DeliveredAt == "" && v.DeliveryPendingAt == ""
 	if !ok || (v.OwnerAttention == attention && (!clearAttempt || !v.Attempted)) {
 		return nil
 	}
