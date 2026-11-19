@@ -553,6 +553,9 @@ deploy)
   CLI_SWAPPED=1
   cli_atomic_copy "$CLI_STAGE" || die "CLI atomic install failed"
   cli_postcheck || die "CLI post-check failed"
+  # Finish stamping and reporting a verified deploy before honoring an interruption.
+  DEPLOY_SIGNAL_DEFERRED=0
+  trap 'DEPLOY_SIGNAL_DEFERRED=1' INT TERM
   PLUGIN_TOUCHED=0 CLI_SWAPPED=0
 # CLI transaction: end
   # installed.sha write: begin (mk-zq345.8)
@@ -580,6 +583,12 @@ deploy)
   fi
   # installed.sha write: end
   echo "deployed $COMMIT; Home is running"
+# CLI transaction: begin
+  if [ "$DEPLOY_SIGNAL_DEFERRED" = 1 ]; then
+    rollback_cmd "$BK"
+    exit 130
+  fi
+# CLI transaction: end
   echo "$(rollback_cmd "$BK")" ;;
 
 preview)
