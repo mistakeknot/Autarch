@@ -23,6 +23,9 @@ if [ "$1" = version ]; then echo 'revision ${rev} modified=false sha256 sample';
 [ "${rev}" != "${sha}" ] || [ "$MODE" != postfail ] || exit 1
 echo '{"counts":0}'
 `;
+  const filings = join(root, "filer/filings.json");
+  mkdirSync(join(root, "filer"));
+  writeFileSync(filings, '{"sample":{"held_revisions":[{}],"owner_attention":true,"replaced_by":"sample"}}\n');
   writeFileSync(bin, binary(old)); chmodSync(bin, 0o755);
   writeFileSync(join(root, "new"), binary(mode === "wrong" ? old : mode === "unstamped" ? "" : sha));
   const script = readFileSync(SCRIPT, "utf8");
@@ -32,13 +35,23 @@ echo '{"counts":0}'
 set -euo pipefail
 MKHOME=$HOME; REPO=$HOME; BUILDS=$HOME/builds; PLUGIN_REL=plugin; COMMIT=${sha}
 BB=true; PLUGIN_CODE=0; PATH_ARG=; RESTORE_DATA=0
-ST=$HOME/state; mkdir -p "$ST" "$BUILDS/build-${sha.slice(0, 12)}/plugin" "$HOME/backup" "$HOME/previous"
+ST=$HOME/state; mkdir -p "$ST" "$BUILDS/build-${sha.slice(0, 12)}/plugin" "$HOME/backup" "$HOME/previous/plugin"
 die() { echo "$*" >&2; exit 1; }
 stamp_warning() { echo "$*"; }
-git() { case "$*" in *status*) [ "$MODE" != dirty ] || echo "?? stray"; [ "$MODE" != vcsfail ];; *'rev-parse HEAD'*) echo "$COMMIT";; *--show-toplevel*) echo "$BUILDS/build-${sha.slice(0, 12)}";; esac; }
+clear_rollback_stamp() { rm -f "$1/installed.sha" "$1/status.json"; }
+cp() {
+  local src=$1; [ "$1" != -- ] || src=$2
+  if [ "$src" = "$AUTARCH_CARD_STATE_DIR/filings.json" ]; then
+    [ "\${STATE_COPY_FAIL:-}" != 1 ] || return 1
+    echo snapshot >> "$HOME/order"
+  fi
+  case "$1" in *autarch.prev-*) echo restore >> "$HOME/order";; esac
+  command cp "$@"
+}
+git() { case "$*" in *status*) [ "$MODE" != dirty ] || echo "?? stray"; [ "$MODE" != vcsfail ];; *'rev-parse HEAD'*) if [ "$2" = "$HOME/previous/plugin" ]; then echo ${old}; else echo "$COMMIT"; fi;; *--show-toplevel*) if [ "$2" = "$HOME/previous/plugin" ]; then echo "$HOME/previous"; else echo "$BUILDS/build-${sha.slice(0, 12)}"; fi;; esac; }
 npm() { :; }
 go() { printf '%s\\n' "$*" > "$HOME/go-args"; [ "$MODE" != buildfail ] || return 1; cp "$HOME/new" "$6"; chmod +x "$6"; }
-fixture_systemctl() { echo "$*" >> "$HOME/unit"; if [ "$MODE" = queryfail ] && grep -q "revision ${sha}" "$HOME/.local/bin/autarch"; then return 1; fi; if [ "$2" = restart ] && [ "$MODE" = restartfail ] && grep -q "revision ${sha}" "$HOME/.local/bin/autarch"; then return 1; fi; [ "$MODE" != missing ] || { echo not-found; return; }; if [ "$2" = restart ]; then
+fixture_systemctl() { echo "$*" >> "$HOME/unit"; if [ "$MODE" = restorefail ] && grep -q "revision ${old}" "$HOME/.local/bin/autarch"; then return 1; fi; if [ "$MODE" = queryfail ] && grep -q "revision ${sha}" "$HOME/.local/bin/autarch"; then return 1; fi; if [ "$2" = restart ] && [ "$MODE" = restartfail ] && grep -q "revision ${sha}" "$HOME/.local/bin/autarch"; then return 1; fi; [ "$MODE" != missing ] && [ "\${UNIT_MISSING:-}" != 1 ] || { echo not-found; return; }; if [ "$2" = restart ]; then
     if [ "$MODE" != stale ] || ! grep -q "revision ${sha}" "$HOME/.local/bin/autarch"; then
       local pid; pid=$(cat "$HOME/pid"); pid=$((pid+1)); echo "$pid" > "$HOME/pid"
       local target="$HOME/.local/bin/autarch"
@@ -49,8 +62,12 @@ fixture_systemctl() { echo "$*" >> "$HOME/unit"; if [ "$MODE" = queryfail ] && g
   if [ "$2" = show ]; then case "$*" in *MainPID*) cat "$HOME/pid";; *) echo loaded;; esac; fi; }
 curl() { if [ "$MODE" = healthfail ] && grep -q "revision ${sha}" "$HOME/.local/bin/autarch"; then return 1; fi; echo '{"status":"ok"}'; }
 gate_ui_only() { :; }
-backup() { echo "$HOME/previous" > "$HOME/backup/previous-source.txt"; touch "$HOME/backup/data.db"; echo "$HOME/backup"; }
-install_build() { echo "$1" >> "$HOME/plugin-log"; }
+backup() { echo "$HOME/previous/plugin" > "$HOME/backup/previous-source.txt"; touch "$HOME/backup/data.db"; echo "$HOME/backup"; }
+install_build() {
+  echo "$1" >> "$HOME/plugin-log"
+  if [ "$1" = "$HOME/previous/plugin" ]; then [ "\${RESTORE_DIE:-}" != 1 ] || die "plugin disable failed";
+  elif [ -n "\${DEPLOY_SIGNAL:-}" ]; then kill -s "$DEPLOY_SIGNAL" "$$"; fi
+}
 rollback_cmd() { echo "rollback $1"; }
 [ -f "$HOME/pid" ] || echo 10 > "$HOME/pid"
 mkdir -p "$HOME/proc/10"
@@ -62,8 +79,8 @@ source '${CLI_HELPER}'
 SUB=$1; BACKUP_ARG=$HOME/backup
 ${body}
 `);
-  const run = (sub = "deploy") => spawnSync("bash", [harness, sub], { env: { ...process.env, HOME: root, MODE: mode, HOME_UI_WAIT: "1" }, encoding: "utf8" });
-  return { root, bin, sha, old, run, version: () => spawnSync(bin, ["version"], { encoding: "utf8" }).stdout };
+  const run = (sub = "deploy", extra: Record<string, string> = {}) => spawnSync("bash", [harness, sub], { env: { ...process.env, HOME: root, MODE: mode, HOME_UI_WAIT: "1", HOME_UI_STATE_DIR: join(root, "state"), AUTARCH_CARD_STATE_DIR: join(root, "filer"), XDG_STATE_HOME: join(root, "xdg"), ...extra }, encoding: "utf8" });
+  return { root, bin, sha, old, filings, run, version: () => spawnSync(bin, ["version"], { encoding: "utf8" }).stdout };
 }
 
 describe("Home CLI deploy transaction", () => {
@@ -108,6 +125,88 @@ describe("Home CLI deploy transaction", () => {
     expect(r.version()).toContain(r.old);
     expect(out.stderr).toContain("restoring CLI anyway");
     expect(readFileSync(join(r.root, "unit"), "utf8")).toContain("restart");
+  });
+  for (const signal of ["INT", "TERM"]) it(`restores after ${signal} during plugin installation`, () => {
+    const r = cliRig(), out = r.run("deploy", { DEPLOY_SIGNAL: signal });
+    expect(out.status, out.stderr).toBe(5);
+    expect(r.version()).toContain(r.old);
+    expect(readFileSync(join(r.root, "plugin-log"), "utf8")).toContain("previous/plugin");
+    expect(out.stdout).toContain(`rollback ${r.root}/backup`);
+  });
+  it("prints the mismatch warning and rollback command when plugin restore exits internally", () => {
+    const r = cliRig("postfail"), out = r.run("deploy", { RESTORE_DIE: "1" });
+    expect(out.status).toBe(5);
+    expect(out.stderr).toContain("plugin and CLI may differ");
+    expect(out.stdout.trim().split("\n").at(-1)).toBe(`rollback ${r.root}/backup`);
+  });
+  for (const valid of [false, true]) it(`reconciles installed.sha despite a CLI rollback failure (valid=${valid})`, () => {
+    const r = cliRig();
+    expect(r.run().status).toBe(0);
+    const stamp = join(r.root, "state/installed.sha"), status = join(r.root, "state/status.json");
+    writeFileSync(stamp, r.sha); writeFileSync(status, "{}");
+    if (valid) writeFileSync(join(r.root, "backup/previous-commit.txt"), r.old);
+    const out = r.run("rollback", { MODE: "restorefail" });
+    expect(out.status, out.stderr).toBe(5);
+    if (valid) expect(readFileSync(stamp, "utf8").trim()).toBe(r.old);
+    else { expect(existsSync(stamp)).toBe(false); expect(existsSync(status)).toBe(false); }
+  });
+  it("automatically restores an absent CLI without inventing a previous binary", () => {
+    const r = cliRig("postfail"); rmSync(r.bin);
+    const out = r.run("deploy", { UNIT_MISSING: "1" });
+    expect(out.status).toBe(5);
+    expect(existsSync(r.bin)).toBe(false);
+    expect(readFileSync(join(r.root, "plugin-log"), "utf8")).toContain("previous/plugin");
+    expect(out.stderr).not.toContain("rollback incomplete");
+  });
+  for (const dangling of [false, true]) it(`refuses a symlinked live CLI (dangling=${dangling})`, () => {
+    const r = cliRig(), other = join(r.root, "other");
+    if (!dangling) writeFileSync(other, readFileSync(r.bin));
+    rmSync(r.bin); symlinkSync(other, r.bin);
+    expect(r.run().status).not.toBe(0);
+    expect(existsSync(join(r.root, "plugin-log"))).toBe(false);
+  });
+  for (const automatic of [true, false]) it(`saves identical filer state before CLI restoration (automatic=${automatic})`, () => {
+    const r = cliRig(automatic ? "postfail" : "ok");
+    let out = r.run();
+    if (!automatic) { expect(out.status).toBe(0); out = r.run("rollback"); }
+    expect(out.status, out.stderr).toBe(automatic ? 5 : 0);
+    const copies = readdirSync(join(r.root, "backup")).filter(p => /^filings-\d{8}T/.test(p));
+    expect(copies).toHaveLength(1);
+    const saved = join(r.root, "backup", copies[0]);
+    expect(readFileSync(saved)).toEqual(readFileSync(r.filings));
+    expect(out.stdout).toContain(saved);
+    expect(readFileSync(join(r.root, "order"), "utf8").trim().split("\n")).toEqual(["snapshot", "restore"]);
+  });
+  for (const automatic of [true, false]) it(`refuses CLI rollback when filer backup fails but restores the plugin (automatic=${automatic})`, () => {
+    const r = cliRig(automatic ? "postfail" : "ok");
+    let out;
+    if (automatic) out = r.run("deploy", { STATE_COPY_FAIL: "1" });
+    else { expect(r.run().status).toBe(0); out = r.run("rollback", { STATE_COPY_FAIL: "1" }); }
+    expect(out.status).toBe(5);
+    expect(r.version()).toContain(r.sha);
+    expect(out.stderr).toContain("refusing CLI rollback");
+    expect(out.stderr).toMatch(/may differ/);
+    expect(readFileSync(join(r.root, "plugin-log"), "utf8")).toContain("previous/plugin");
+  });
+  for (const xdg of [true, false]) it(`preserves state from the CLI fallback path (XDG=${xdg})`, () => {
+    const r = cliRig("postfail");
+    const stateDir = xdg ? join(r.root, "xdg/autarch/needsmk") : join(r.root, ".local/state/autarch/needsmk");
+    mkdirSync(stateDir, { recursive: true });
+    const contents = readFileSync(r.filings); writeFileSync(join(stateDir, "filings.json"), contents);
+    const out = r.run("deploy", { AUTARCH_CARD_STATE_DIR: "", XDG_STATE_HOME: xdg ? join(r.root, "xdg") : "" });
+    expect(out.status).toBe(5);
+    const saved = readdirSync(join(r.root, "backup")).find(p => /^filings-\d{8}T/.test(p))!;
+    expect(readFileSync(join(r.root, "backup", saved))).toEqual(contents);
+  });
+  it("keeps protected system commands ahead of appended Go directories", () => {
+    const r = cliRig(), goDir = join(r.root, ".local/go/bin");
+    mkdirSync(goDir, { recursive: true });
+    writeFileSync(join(goDir, "git"), "#!/bin/sh\nexit 99\n"); chmodSync(join(goDir, "git"), 0o755);
+    const script = readFileSync(SCRIPT, "utf8");
+    const prologue = script.slice(script.indexOf("set -euo pipefail"), script.indexOf("umask 077"));
+    const out = spawnSync("bash", ["-c", `${prologue}\ncommand -v git`], { env: { ...process.env, HOME: r.root }, encoding: "utf8" });
+    expect(out.status).toBe(0);
+    expect(out.stdout).not.toContain(goDir);
   });
   it("skips an absent user unit with a message", () => {
     const r = cliRig("missing"), out = r.run();

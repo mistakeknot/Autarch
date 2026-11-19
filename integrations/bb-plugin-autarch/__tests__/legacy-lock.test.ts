@@ -121,7 +121,7 @@ function deployRig(noState = false) {
   const script = join(repo, "scripts", "home-ui.sh");
   mkdirSync(resolve(script, "..")); writeFileSync(script, readFileSync(HUI));
   // These tests isolate the historic plugin/stamp flow; CLI transactions have their own failure rig.
-  writeFileSync(join(repo, "scripts/home-cli.sh"), `cli_capture_pid() { :; }; cli_prepare() { :; }; cli_backup() { :; }; cli_atomic_copy() { :; }; cli_postcheck() { :; }; cli_restore() { :; }; cli_deploy_exit() { :; }; CLI_STAGE=; CLI_SWAPPED=0`);
+  writeFileSync(join(repo, "scripts/home-cli.sh"), `cli_capture_pid() { :; }; cli_prepare() { :; }; cli_backup() { :; }; cli_atomic_copy() { :; }; cli_postcheck() { :; }; cli_restore() { :; }; cli_deploy_exit() { :; }; CLI_STAGE=; CLI_SWAPPED=0; PLUGIN_TOUCHED=0`);
   const builds = join(r.root, "builds"); const target = join(builds, `build-${commit.slice(0, 12)}`, "integrations", "bb-plugin-autarch");
   const current = join(r.root, "installed-source"); const npmLog = join(r.root, "npm-log");
   writeFileSync(join(r.root, "bb"), `#!/bin/sh
@@ -593,6 +593,7 @@ describe("the legacy scripts differ from the b05ebaf baseline only by the lock w
       if (file === "home-ui.sh") expect(now.match(/^\s*stamp_warning\(\)/gm)).toHaveLength(1);
       const rest = strip(strip(strip(strip(strip(strip(strip(strip(now, "shared destination lock"), "installed.sha write"), "--engine tool"), "disabled-plugin export"), "install-error recheck"), "redundant-enable skip"), "find status"), "rollback commit record");
       const normalized = strip(rest, "CLI transaction")
+        .replace('( install_build "$(cat "$BK/previous-source.txt")" )', 'install_build "$(cat "$BK/previous-source.txt")"')
         .replace("#                                                             build/stamp CLI, backup, install plugin + CLI, restart serve, verify, print rollback.", "#                                                             backup, install that merged-main commit, verify, print the rollback.")
         .replace("#   scripts/home-ui.sh rollback BACKUP_DIR [--restore-data]   restore plugin + CLI recorded in backup (data restore only if asked)", "#   scripts/home-ui.sh rollback BACKUP_DIR [--restore-data]   reinstall the build the backup recorded (data restore only if asked)");
       expect(normalized).toBe(readFileSync(join(FIXTURES, file), "utf8"));

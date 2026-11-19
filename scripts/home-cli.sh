@@ -3,6 +3,7 @@
 CLI_LIVE=$MKHOME/.local/bin/autarch
 CLI_STAGE=
 CLI_SWAPPED=0
+PLUGIN_TOUCHED=0
 CLI_SYSTEMCTL=${HOME_UI_SYSTEMCTL:-systemctl}
 CLI_PROC_ROOT=${HOME_UI_PROC_ROOT:-/proc}
 CLI_BEFORE_PID=
@@ -42,6 +43,7 @@ cli_prepare() { # build outside the worktree so the output cannot dirty its VCS 
 
 cli_backup() {
   local bk=$1 rev sum prev
+  [ ! -L "$CLI_LIVE" ] || { echo "home-ui: live CLI is a symlink; refusing backup" >&2; return 1; }
   if [ -e "$CLI_LIVE" ] || [ -L "$CLI_LIVE" ]; then
     [ -f "$CLI_LIVE" ] || return 1
     rev=$(cli_revision "$CLI_LIVE") || rev=
@@ -112,12 +114,40 @@ cli_postcheck() {
   return 0
 }
 
+cli_save_filer_state() {
+  local bk=$1 dir src saved
+  # Matches CardFiler.stateDir for the CLI (which sets neither StateDir nor LockDir).
+  dir=${AUTARCH_CARD_STATE_DIR:-${XDG_STATE_HOME:-$MKHOME/.local/state}/autarch/needsmk}
+  src=$dir/filings.json
+  if [ ! -e "$src" ] && [ ! -L "$src" ]; then
+    echo "home-ui: no filer state at $src to preserve"
+    return 0
+  fi
+  saved=$(mktemp "$bk/filings-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX.json") || {
+    echo "home-ui: cannot create filer state backup; refusing CLI rollback" >&2; return 1;
+  }
+  if ! cp -- "$src" "$saved" || ! cmp -s "$src" "$saved"; then
+    rm -f "$saved"
+    echo "home-ui: cannot copy and verify filer state $src; refusing CLI rollback" >&2
+    return 1
+  fi
+  echo "home-ui: filer state saved before CLI rollback: $saved"
+}
+
 cli_restore() {
   local bk=$1 prev sum
   [ -f "$bk/previous-cli.txt" ] || { echo "home-ui: old backup has no CLI record; CLI unchanged"; return 0; }
+  cli_save_filer_state "$bk" || return 1
+  echo "home-ui: WARNING: an older CLI may reinstate filing limits and drop held_revisions, replaced_by and owner_attention from filings.json on its next save; held or replaced cards could return. See docs/home-deploy.md for recovery." >&2
   prev=$(cat "$bk/previous-cli.txt") || return 1
   if [ -z "$prev" ]; then
     rm -f "$CLI_LIVE" || return 1
+    local state
+    state=$("$CLI_SYSTEMCTL" --user show autarch-serve.service --property=LoadState --value) || return 1
+    if [ "$state" = not-found ]; then
+      echo "home-ui: previous CLI was absent; removed installed CLI; service unit does not exist"
+      return 0
+    fi
     echo "home-ui: previous CLI was absent; removed installed CLI; service cannot be restored" >&2
     return 1
   fi
@@ -133,11 +163,13 @@ cli_restore() {
 
 cli_deploy_exit() {
   local rc=$? failed=0
+  local BB=${HOME_UI_BB_REAL:-$BB}
   trap - EXIT INT TERM
-  if [ "$CLI_SWAPPED" = 1 ]; then
-    echo "home-ui: deploy failed after CLI swap; restoring previous CLI and plugin" >&2
-    cli_restore "$BK" || failed=1
-    install_build "$(cat "$BK/previous-source.txt")" || failed=1
+  if [ "$CLI_SWAPPED" = 1 ] || [ "$PLUGIN_TOUCHED" = 1 ]; then
+    echo "home-ui: deploy failed during installation; restoring previous CLI and plugin" >&2
+    if [ "$CLI_SWAPPED" = 1 ]; then ( cli_restore "$BK" ) || failed=1; fi
+    # install_build may call die; contain its exit so the warning and rollback command always print.
+    ( install_build "$(cat "$BK/previous-source.txt")" ) || failed=1
     [ "$failed" = 0 ] || echo "home-ui: automatic rollback incomplete; plugin and CLI may differ; run rollback" >&2
     rollback_cmd "$BK"
     rc=5

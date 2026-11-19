@@ -29,7 +29,7 @@
 set -euo pipefail
 export PATH=/usr/local/bin:/usr/bin:/bin
 # CLI transaction: begin
-export PATH="${HOME:?}/.local/go/bin:/usr/local/go/bin:$PATH"
+export PATH="$PATH:${HOME:?}/.local/go/bin:/usr/local/go/bin"
 # CLI transaction: end
 umask 077
 
@@ -539,10 +539,14 @@ deploy)
 # CLI transaction: begin
   cli_backup "$BK" || die "cannot back up CLI; nothing installed"
   cli_capture_pid || die "cannot read serve PID before swap; nothing installed"
+  PLUGIN_TOUCHED=1
 # CLI transaction: end
   if ! install_build "$B/$PLUGIN_REL"; then
     echo "home-ui: deploy failed; reinstalling the previous build" >&2
-    install_build "$(cat "$BK/previous-source.txt")" || echo "home-ui: automatic rollback failed; run the rollback command above" >&2
+    ( install_build "$(cat "$BK/previous-source.txt")" ) || echo "home-ui: automatic rollback failed; run the rollback command above" >&2
+# CLI transaction: begin
+    PLUGIN_TOUCHED=0
+# CLI transaction: end
     exit 5
   fi
 # CLI transaction: begin
@@ -575,7 +579,7 @@ deploy)
   fi
   # installed.sha write: end
 # CLI transaction: begin
-  CLI_SWAPPED=0
+  PLUGIN_TOUCHED=0 CLI_SWAPPED=0
 # CLI transaction: end
   echo "deployed $COMMIT; Home is running"
   echo "$(rollback_cmd "$BK")" ;;
@@ -618,7 +622,8 @@ rollback)
   fi
   install_build "$PREV" || exit 5
 # CLI transaction: begin
-  cli_restore "$BACKUP_ARG" || die "CLI rollback failed; plugin restored but CLI/service may differ; retry rollback" 5
+  CLI_ROLLBACK_FAILED=0
+  ( cli_restore "$BACKUP_ARG" ) || CLI_ROLLBACK_FAILED=1
 # CLI transaction: end
   # installed.sha write: begin (mk-zq345.5)
   # Record a checkout matching its backup-time commit atomically. When that cannot be established, clear both the stamp
@@ -657,6 +662,13 @@ rollback)
     stamp_warning "no state dir $ST; installed.sha was not updated"
   fi
   # installed.sha write: end
+# CLI transaction: begin
+  if [ "$CLI_ROLLBACK_FAILED" = 1 ]; then
+    echo "home-ui: CLI rollback failed; plugin restored but plugin and CLI/service may differ; retry rollback" >&2
+    rollback_cmd "$BACKUP_ARG"
+    exit 5
+  fi
+# CLI transaction: end
   echo "rolled back to $PREV" ;;
 
 migrate-check)
