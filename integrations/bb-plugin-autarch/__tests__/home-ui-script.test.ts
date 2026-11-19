@@ -95,8 +95,9 @@ HOME_UI_SYSTEMCTL=fixture_systemctl
 systemctl() { echo "unexpected ambient systemctl" >&2; return 99; }
 source '${CLI_HELPER}'
 SUB=$1; BACKUP_ARG=$HOME/backup
-trap 'if [[ $BASH_COMMAND == "PLUGIN_TOUCHED=0 CLI_SWAPPED=0" ]] && [ "\${STAMP_PHASE:-}" = clear ]; then kill -s "$STAMP_SIGNAL" "$$"; fi' DEBUG
+trap 'if [[ $BASH_COMMAND == "PLUGIN_TOUCHED=0 CLI_SWAPPED=0" ]] && [ "\${STAMP_PHASE:-}" = clear ]; then kill -s "$STAMP_SIGNAL" "$$"; elif [[ $BASH_COMMAND == echo*rollback_cmd* ]] && [ -n "\${REPORT_SIGNAL:-}" ] && [ -f "$HOME/state/installed.sha" ]; then kill -s "$REPORT_SIGNAL" "$$"; fi' DEBUG
 ${body}
+if [ -n "\${REPORT_AFTER_SIGNAL:-}" ]; then kill -s "$REPORT_AFTER_SIGNAL" "$$"; fi
 `);
   // A separate session keeps process-group signals inside this temporary rig.
   const run = (sub = "deploy", extra: Record<string, string> = {}) => spawnSync("setsid", ["bash", harness, sub], { env: { ...process.env, HOME: root, MODE: mode, HOME_UI_WAIT: "1", HOME_UI_STATE_DIR: join(root, "state"), AUTARCH_CARD_STATE_DIR: join(root, "filer"), XDG_STATE_HOME: join(root, "xdg"), ...extra }, encoding: "utf8", timeout: 10000, killSignal: "SIGKILL" });
@@ -301,9 +302,10 @@ describe("Home CLI deploy transaction", () => {
     expect(out.stdout.trim().split("\n").at(-1)).toBe(`rollback ${r.root}/backup`);
     expect(readFileSync(join(r.root, "plugin-log"), "utf8")).not.toContain("previous");
   });
-  for (const [signal, status] of [["INT", 130], ["TERM", 143]] as const) it(`restores the ${signal} handler after stamping (exit ${status})`, () => {
-    const r = cliRig(), out = r.run("deploy", { REPORT_SIGNAL: signal });
-    expect(out.status, out.stderr).toBe(status);
+  for (const [signal, status] of [["INT", 130], ["TERM", 143]] as const) for (const phase of ["REPORT_SIGNAL", "REPORT_AFTER_SIGNAL"]) it(`finishes reporting before restoring ${signal} handling (${phase})`, () => {
+    const r = cliRig(), out = r.run("deploy", { [phase]: signal });
+    expect(out.stdout.trim().split("\n").at(-1)).toBe(`rollback ${r.root}/backup`);
+    expect(out.status, out.stderr).toBe(phase === "REPORT_SIGNAL" ? 0 : status);
     expect(readFileSync(join(r.root, "state/installed.sha"), "utf8").trim()).toBe(r.sha);
     expect(out.stdout).toContain(`deployed ${r.sha}; Home is running`);
     expect(readFileSync(join(r.root, "plugin-log"), "utf8")).not.toContain("previous");

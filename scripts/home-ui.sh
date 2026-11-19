@@ -584,10 +584,6 @@ deploy)
   fi
   # installed.sha write: end
   echo "deployed $COMMIT; Home is running"
-# CLI transaction: begin
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-# CLI transaction: end
   echo "$(rollback_cmd "$BK")" ;;
 
 preview)
@@ -701,3 +697,9 @@ migrate-check)
   ' "$T/copy.db" ) || die "migration failed on the COPY (live untouched)"
   echo "migration ran on a copy of $BK; live was not touched" ;;
 esac
+# CLI transaction: begin
+if [ "$SUB" = deploy ]; then
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+fi
+# CLI transaction: end
