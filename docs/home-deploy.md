@@ -29,10 +29,11 @@ An absent unit is explicitly skipped; failure to query systemd is an error.
 A failure after the swap automatically restores both CLI and plugin, restarts
 and checks the restored service, exits nonzero, and prints the rollback command.
 An incomplete restoration explicitly warns that the components may differ.
-Once both components pass verification, the command announces that INT/TERM
-stay ignored until the command exits. Stamp children inherit that protection
-while the deploy stamp and outcome are written. Ignored signals do not change
-the exit status.
+Once both components pass verification, the command announces that it is
+ignoring INT/TERM. The stamp and outcome are written with that protection,
+inherited by children. INT/TERM stay ignored for the rest of the run except a
+brief window just before exit, after stamping, when INT can end the command
+with 130 and TERM with 143. Signals received while ignored are discarded.
 `rollback BACKUP_DIR` restores both components; old backups without CLI records
 leave the CLI alone and say so. Data restoration remains opt-in.
 
