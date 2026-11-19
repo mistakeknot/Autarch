@@ -27,6 +27,9 @@ func TestNeedsMkBudgetNamesPacificPeriod(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatal(err)
 	}
+	if _, ok := status["limit"]; ok {
+		t.Fatal("report retains limit", out.String())
+	}
 	if status["week_start"] != "2026-10-29T12:00:00-07:00" || status["week_end"] != "2026-11-05T12:00:00-08:00" || status["time_zone"] != "America/Los_Angeles" {
 		t.Fatal(out.String())
 	}

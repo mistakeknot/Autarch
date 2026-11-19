@@ -284,7 +284,7 @@ func TestReviewReleaseUsesPilotSnapshot(t *testing.T) {
 		return time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	}
 	groups, e := f.Release(context.Background())
-	if e != nil || len(groups["other"]) != 1 {
+	if e != nil || len(groups["other"]) != 2 {
 		t.Fatalf("release reread mutable pilots mid-sort/run: %v %v", groups, e)
 	}
 }

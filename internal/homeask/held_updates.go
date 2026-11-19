@@ -172,7 +172,7 @@ func retryHeld(e filingEntry) *heldRequestRetry {
 }
 
 func (e filingEntry) canPromote(r CardRequest, coalesce bool) bool {
-	return e.Held && !e.Refunded && ordinary(e.Request) && !r.NonBlocking && !coalesce && (!ordinary(r) || e.HeldReason == "weekday-window")
+	return e.Held && !e.Refunded && ordinary(e.Request) && !r.NonBlocking && !coalesce && (!ordinary(r) || e.HeldReason == "weekday-window" || e.HeldReason == "daily-cap" || e.HeldReason == "weekly-budget" || e.HeldReason == "budget")
 }
 
 func (e filingEntry) matchesHeldRequest(r CardRequest, identity string) error {

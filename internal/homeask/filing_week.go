@@ -32,8 +32,8 @@ func weeklyHold(at time.Time, r CardRequest) bool {
 }
 
 // reservationWeeks reads both Pacific start-date keys and legacy ISO keys.
-// Timestamped legacy rows map exactly. Without a timestamp, conservatively count
-// the reservation in both overlapping Pacific periods; it ages out after the
+// Timestamped legacy rows map exactly. Without a timestamp, report
+// the record in both overlapping Pacific periods; it ages out after the
 // last overlapping period. Reading or releasing never rewrites the old key.
 func reservationWeeks(e filingEntry) []budgetWeek {
 	if day, err := time.ParseInLocation("2006-01-02", e.Week, pacific); err == nil && day.Weekday() == time.Thursday {
@@ -61,14 +61,4 @@ func reservedInWeek(e filingEntry, week budgetWeek) bool {
 		}
 	}
 	return false
-}
-
-func ordinaryReservations(state filingState, project string, week budgetWeek) int {
-	n := 0
-	for _, e := range state {
-		if e.Project == project && reservedInWeek(e, week) && !e.Uncharged && !e.Refunded && !e.Request.Urgent && e.Request.KeepList == "" {
-			n++
-		}
-	}
-	return n
 }

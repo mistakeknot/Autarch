@@ -162,8 +162,8 @@ func TestConcurrentBudgetReservations(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	if accepted != 3 {
-		t.Fatalf("accepted %d, want 3", accepted)
+	if accepted != 12 {
+		t.Fatalf("accepted %d, want 12", accepted)
 	}
 }
 
@@ -209,8 +209,8 @@ func TestBudgetQueueAndRelease(t *testing.T) {
 	}
 	second := testReq()
 	second.Key = "second"
-	if _, err = f.FileCard(ctx, second); err == nil {
-		t.Fatal("budget was not enforced")
+	if _, err = f.FileCard(ctx, second); err != nil {
+		t.Fatal(err)
 	}
 	groups, err := f.Release(ctx)
 	if err != nil || len(groups["other"]) != 1 {
@@ -247,22 +247,5 @@ func TestCancelHeldRefunds(t *testing.T) {
 	r.Key = "replacement"
 	if _, err := f.FileCard(ctx, r); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// TestDefaultWeeklyBudgetIs50 pins the default ordinary weekly budget (mk-bzi8s)
-// and keeps the environment and field overrides working.
-func TestDefaultWeeklyBudgetIs50(t *testing.T) {
-	t.Setenv(EnvCardWeeklyBudget, "")
-	n, err := (&CardFiler{}).budget()
-	if err != nil || n != 50 {
-		t.Fatalf("default budget = %d, %v; want 50", n, err)
-	}
-	t.Setenv(EnvCardWeeklyBudget, "7")
-	if n, err := (&CardFiler{}).budget(); err != nil || n != 7 {
-		t.Fatalf("env budget = %d, %v; want 7", n, err)
-	}
-	if n, err := (&CardFiler{WeeklyBudget: 3}).budget(); err != nil || n != 3 {
-		t.Fatalf("field budget = %d, %v; want 3", n, err)
 	}
 }

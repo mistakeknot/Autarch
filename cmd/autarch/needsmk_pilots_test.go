@@ -40,7 +40,7 @@ func TestPilotCLIPrintsDailyCapReason(t *testing.T) {
 		t.Fatal(e)
 	}
 	out, warn, e := execute("second")
-	if exitCode(e) != 6 || !strings.Contains(out, `"queued":true`) || !strings.Contains(warn, "daily-cap") {
+	if e != nil || strings.Contains(out, `"queued":true`) || warn != "" {
 		t.Fatalf("out=%s warning=%s err=%v", out, warn, e)
 	}
 	raw, _ := os.ReadFile(filepath.Join(f.StateDir, "filings.json"))

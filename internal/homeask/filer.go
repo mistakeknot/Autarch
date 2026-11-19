@@ -36,8 +36,6 @@ func (e *HeldError) Error() string {
 	switch e.Reason {
 	case "weekday-window":
 		message = "is queued for the Thursday batch"
-	case "daily-cap":
-		message = "is queued because the daily card cap was reached"
 	case "non-blocking":
 		message = "is queued by --non-blocking until needs-mk release"
 	}

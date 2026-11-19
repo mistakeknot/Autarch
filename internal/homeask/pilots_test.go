@@ -165,8 +165,8 @@ func TestPilotDaycapHolds(t *testing.T) {
 	}
 	r.Key = "second"
 	res, e := f.FileCard(context.Background(), r)
-	if e != nil || !res.Queued {
-		t.Fatalf("second delivery must be held: %+v %v", res, e)
+	if e != nil || res.Queued {
+		t.Fatalf("second delivery must file: %+v %v", res, e)
 	}
 }
 func TestPilotDaycapReleaseRankAndDay(t *testing.T) {
@@ -191,12 +191,12 @@ func TestPilotDaycapReleaseRankAndDay(t *testing.T) {
 		t.Fatal(e)
 	}
 	groups, e := f.Release(context.Background())
-	if e != nil || len(groups["other"]) != 1 || groups["other"][0].Key != b.Key {
+	if e != nil || len(groups["other"]) != 2 || groups["other"][0].Key != a.Key {
 		t.Fatal(groups, e)
 	}
 	now = now.Add(2 * time.Minute)
 	groups, e = f.Release(context.Background())
-	if e != nil || len(groups["other"]) != 1 || groups["other"][0].Key != a.Key {
+	if e != nil || len(groups["other"]) != 0 {
 		t.Fatal(groups, e)
 	}
 }
@@ -210,7 +210,7 @@ func TestPilotDaycapExemptAndWeeklyFirst(t *testing.T) {
 		t.Fatal(e)
 	}
 	r.Key = "over-week"
-	if _, e := f.FileCard(context.Background(), r); e == nil || !strings.Contains(e.Error(), "weekly") {
+	if _, e := f.FileCard(context.Background(), r); e != nil {
 		t.Fatal(e)
 	}
 	r.Key = "urgent"
@@ -239,7 +239,7 @@ func TestPilotLinkcheckDeadAtFiling(t *testing.T) {
 }
 func TestPilotMetricsHeld(t *testing.T) {
 	f := newFake(t, registryOnCreate).filer()
-	enablePilot(t, f, "daycap")
+	enablePilot(t, f, "linkcheck")
 	r := testReq()
 	r.NonBlocking = true
 	if _, e := f.FileCard(context.Background(), r); e != nil {
@@ -296,13 +296,13 @@ func TestPilotDaycapConcurrent(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	if delivered != 3 || held != 5 {
+	if delivered != 8 || held != 0 {
 		t.Fatal(delivered, held)
 	}
 }
 func TestPilotReportPacificAndPrivacy(t *testing.T) {
 	f := newFake(t, registryOnCreate).filer()
-	enablePilot(t, f, "daycap")
+	enablePilot(t, f, "linkcheck")
 	r := testReq()
 	r.NonBlocking = true
 	f.Now = func() time.Time { return time.Date(2026, 11, 2, 7, 59, 0, 0, time.UTC) }

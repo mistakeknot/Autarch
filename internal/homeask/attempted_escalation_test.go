@@ -15,7 +15,7 @@ func TestUrgentAttemptedHeldReconcilesBeforeEscalating(t *testing.T) {
 			bb := newFake(t, registryOnCreate)
 			f := bb.filer()
 			f.Now = func() time.Time { return pacificTestTime(t, "2026-11-16 10:00:00") }
-			enablePilot(t, f, "daycap")
+			enablePilot(t, f, "linkcheck")
 			r := testReq()
 			r.Key = "uncertain"
 			if result, err := f.FileCard(context.Background(), r); err != nil || !result.Queued {
@@ -105,7 +105,7 @@ func TestUrgentAttemptedHeldReconcilesBeforeEscalating(t *testing.T) {
 				t.Fatal("reconciliation lost the recorded delivery time")
 			}
 			full, capErr := f.dailyFull(state, r)
-			if capErr != nil || full != (outcome != "absent") {
+			if capErr != nil || full {
 				t.Fatalf("wrong recovered delivery cap: %v %v", full, capErr)
 			}
 

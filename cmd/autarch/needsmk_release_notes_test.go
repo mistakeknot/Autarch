@@ -35,17 +35,10 @@ func releaseNotesFixture(t *testing.T) (*homeask.CardFiler, *stubBB) {
 	return f, bb
 }
 func TestReleaseNotesBatchFaultsFail(t *testing.T) {
-	for _, kind := range []string{"bad-cap", "bad-weekly", "entry-lock", "home-down", "outcome-unknown"} {
+	for _, kind := range []string{"entry-lock", "home-down", "outcome-unknown"} {
 		t.Run(kind, func(t *testing.T) {
 			f, bb := releaseNotesFixture(t)
 			switch kind {
-			case "bad-cap":
-				if e := f.SetPilot("daycap", true); e != nil {
-					t.Fatal(e)
-				}
-				t.Setenv(homeask.EnvCardDailyCap, "invalid")
-			case "bad-weekly":
-				t.Setenv(homeask.EnvCardWeeklyBudget, "invalid")
 			case "entry-lock":
 				if e := os.Remove(filepath.Join(f.StateDir, "delivery-held.lock")); e != nil {
 					t.Fatal(e)
