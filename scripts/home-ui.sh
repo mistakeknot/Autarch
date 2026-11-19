@@ -2,18 +2,19 @@
 # Home UI deploy and live preview, for changes that do not touch the database schema.
 #   scripts/home-ui.sh check    [--commit SHA | --path DIR] [--plugin-code]   gates only; changes nothing
 #   scripts/home-ui.sh deploy   --commit <40-hex sha> [--plugin-code]
-#                                                             backup, install that merged-main commit, verify, print the rollback.
+#                                                             build/stamp CLI, backup, install plugin + CLI, restart serve, verify, print rollback.
 #                                                             --plugin-code also allows plugin code changes outside ui/ (not package.json,
 #                                                             package-lock.json or migrations.ts, and never a schema change)
 #   scripts/home-ui.sh preview  [--path DIR]                  backup, run DIR (default: this checkout) as Home with hot reload on the
 #                                                             live data; Ctrl+C restores the previous build
-#   scripts/home-ui.sh rollback BACKUP_DIR [--restore-data]   reinstall the build the backup recorded (data restore only if asked)
+#   scripts/home-ui.sh rollback BACKUP_DIR [--restore-data]   restore plugin + CLI recorded in backup (data restore only if asked)
 #   scripts/home-ui.sh migrate-check [--path DIR]             run DIR's migrations on a COPY of a fresh backup; never touches live
 # Run as mk (refused as root). Not for schema changes: those still go to mk as scripts (install-home-your-move.sh).
 # --engine tool: begin (mk-zq345.7)
 # --engine legacy|tool (check, deploy and preview only; default legacy, which is everything below). --engine tool hands the work to the
 # deploy tool of the INSTALLED build (tools/bb-plugin-deploy), after verifying that build's control closure, and fails closed with
 # "use --engine legacy" otherwise. It needs --commit (deploy and check; preview takes --commit or --path) and takes --expect-tree TREE.
+# Tool deploy refuses: use --engine legacy for the CLI transaction.
 # It refuses --plugin-code (the tool gates by class) and --restore-data. rollback and migrate-check never call the tool.
 # --engine tool: end
 #
@@ -27,6 +28,9 @@
 # Env overrides (tests, other installs): HOME_BB_BIN, HOME_BB_DATA, HOME_UI_BUILDS (where deploy builds go).
 set -euo pipefail
 export PATH=/usr/local/bin:/usr/bin:/bin
+# CLI transaction: begin
+export PATH="$PATH:${HOME:?}/.local/go/bin:/usr/local/go/bin"
+# CLI transaction: end
 umask 077
 
 die() { echo "home-ui: $*" >&2; exit "${2:-1}"; }
@@ -57,6 +61,10 @@ BBDATA=$HOME_BB_DATA
 DB=$BBDATA/plugins/autarch/data.db
 BUILDS=${HOME_UI_BUILDS:-$MKHOME/bb-coordinator-evidence/autarch}
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+# CLI transaction: begin
+# shellcheck source=scripts/home-cli.sh
+source "$REPO/scripts/home-cli.sh"
+# CLI transaction: end
 PLUGIN_REL=integrations/bb-plugin-autarch
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 
@@ -475,6 +483,7 @@ tool_engine() {   # check, deploy or preview through the installed build's tool;
   command -v node >/dev/null 2>&1 || tdie "node is not on the PATH"
   command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || tdie "git and jq are needed to verify the installed tool"
   verify_closure "$root" || tdie "installed deploy tooling does not match its commit ($CLOSURE_REASON)"
+  [ "$SUB" != deploy ] || tdie "CLI transactions require --engine legacy; tool deploy cannot restore the CLI"
   args=("$cli" "$SUB" --plugin-file "$pf" --bb-data "$BBDATA" --state-dir "$st")
   case $SUB in
     check)   args+=(--commit "$COMMIT" --class plugin-deploy) ;;
@@ -490,9 +499,21 @@ tool_engine() {   # check, deploy or preview through the installed build's tool;
 # --engine tool: end
 case $SUB in
 check)
+# CLI transaction: begin
+  echo "home-ui: live CLI revision: $(cli_revision "$CLI_LIVE" || true) (target ${COMMIT:-working tree})"
+# CLI transaction: end
   if [ -n "$COMMIT" ]; then
     git -C "$REPO" fetch -q origin main || die "fetch failed"
     git -C "$REPO" merge-base --is-ancestor "$COMMIT" origin/main || die "$COMMIT is not on origin/main"
+# CLI transaction: begin
+    B=$BUILDS/build-${COMMIT:0:12}
+    if [ -d "$B" ] && [ "$(git -C "$B" rev-parse HEAD)" = "$COMMIT" ]; then
+      trap cli_deploy_exit EXIT
+      cli_prepare "$B" "$COMMIT" || die "CLI stamp check failed"
+    else
+      echo "home-ui: CLI stamp unknown: target worktree does not exist; deploy will build and verify it"
+    fi
+# CLI transaction: end
     echo "commit is on origin/main; the schema gate runs after the build exists (deploy)"
   else
     gate_collect "${PATH_ARG:-$REPO/$PLUGIN_REL}"
@@ -503,17 +524,37 @@ deploy)
   git -C "$REPO" merge-base --is-ancestor "$COMMIT" origin/main || die "$COMMIT is not on origin/main; deploy takes only merged commits"
   B=$BUILDS/build-${COMMIT:0:12}
   [ -d "$B" ] || git -C "$REPO" worktree add -q --detach "$B" "$COMMIT" || die "worktree add failed"
+# CLI transaction: begin
+  trap cli_deploy_exit EXIT
+  trap 'exit 130' INT TERM
+  [ "$(git -C "$B" rev-parse HEAD)" = "$COMMIT" ] || die "$B is not at $COMMIT"
+  cli_prepare "$B" "$COMMIT" || die "CLI build gate failed; nothing installed"
+# CLI transaction: end
   ( cd "$B/$PLUGIN_REL" && npm ci --no-audit --no-fund ) || die "npm ci failed in $B; nothing was changed"
   [ "$(git -C "$B" rev-parse HEAD)" = "$COMMIT" ] || die "$B is not at $COMMIT"
   [ -z "$(git -C "$B" status --porcelain --untracked-files=no)" ] || die "$B has modified tracked files"
   gate_ui_only "$B/$PLUGIN_REL"
   BK=$(backup); echo "backup: $BK"
   echo "$(rollback_cmd "$BK")"
+# CLI transaction: begin
+  cli_backup "$BK" || die "cannot back up CLI; nothing installed"
+  cli_capture_pid || die "cannot read serve PID before swap; nothing installed"
+  PLUGIN_TOUCHED=1
+# CLI transaction: end
   if ! install_build "$B/$PLUGIN_REL"; then
     echo "home-ui: deploy failed; reinstalling the previous build" >&2
-    install_build "$(cat "$BK/previous-source.txt")" || echo "home-ui: automatic rollback failed; run the rollback command above" >&2
+    ( install_build "$(cat "$BK/previous-source.txt")" ) || echo "home-ui: automatic rollback failed; run the rollback command above" >&2
+# CLI transaction: begin
+    PLUGIN_TOUCHED=0
+# CLI transaction: end
     exit 5
   fi
+# CLI transaction: begin
+  CLI_SWAPPED=1
+  cli_atomic_copy "$CLI_STAGE" || die "CLI atomic install failed"
+  cli_postcheck || die "CLI post-check failed"
+  PLUGIN_TOUCHED=0 CLI_SWAPPED=0
+# CLI transaction: end
   # installed.sha write: begin (mk-zq345.8)
   # As on rollback, record the verified installed checkout atomically only when the state directory exists; otherwise warn.
   ST=${HOME_UI_STATE_DIR:-$MKHOME/.local/state/autarch-home-update}
@@ -577,7 +618,15 @@ rollback)
     rm -f "$DB-wal" "$DB-shm"; mv -f "$DB.restore" "$DB" || die "data restore failed at the final move; Home stays disabled"
     echo "data restored from $BACKUP_ARG (everything written after it is lost)"
   fi
-  install_build "$PREV" || exit 5
+# CLI transaction: begin
+  PLUGIN_ROLLBACK_FAILED=0
+# CLI transaction: end
+  ( install_build "$PREV" ) || PLUGIN_ROLLBACK_FAILED=1
+# CLI transaction: begin
+  CLI_ROLLBACK_FAILED=0
+  ( cli_restore "$BACKUP_ARG" ) || CLI_ROLLBACK_FAILED=1
+  if [ "$PLUGIN_ROLLBACK_FAILED" = 0 ]; then
+# CLI transaction: end
   # installed.sha write: begin (mk-zq345.5)
   # Record a checkout matching its backup-time commit atomically. When that cannot be established, clear both the stamp
   # and cached update status so neither the runner nor Home advertises the removed build. Cleanup failures only warn.
@@ -615,6 +664,16 @@ rollback)
     stamp_warning "no state dir $ST; installed.sha was not updated"
   fi
   # installed.sha write: end
+# CLI transaction: begin
+  fi
+  if [ "$PLUGIN_ROLLBACK_FAILED" = 1 ] || [ "$CLI_ROLLBACK_FAILED" = 1 ]; then
+    PLUGIN_OUTCOME=restored; [ "$PLUGIN_ROLLBACK_FAILED" = 0 ] || PLUGIN_OUTCOME=failed
+    CLI_OUTCOME=restored; [ "$CLI_ROLLBACK_FAILED" = 0 ] || CLI_OUTCOME=failed
+    echo "home-ui: rollback incomplete: plugin=$PLUGIN_OUTCOME; CLI=$CLI_OUTCOME; components may differ; retry rollback" >&2
+    rollback_cmd "$BACKUP_ARG"
+    exit 5
+  fi
+# CLI transaction: end
   echo "rolled back to $PREV" ;;
 
 migrate-check)

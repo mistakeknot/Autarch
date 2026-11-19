@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
+import { homeUiSafety } from "./home-ui-safety";
 
 const REPO_ROOT = resolve(__dirname, "../../..");
 const UI_SCRIPT = join(REPO_ROOT, "scripts/home-ui.sh");
@@ -100,7 +101,7 @@ function stubBb(root: string, installed: string) {
   return bb;
 }
 function sh(script: string, args: string[], env: Record<string, string> = {}) {
-  return spawnSync("bash", [script, ...args], { env: { PATH: process.env.PATH!, ...env }, encoding: "utf8" });
+  return spawnSync("bash", [script, ...args], { env: { PATH: process.env.PATH!, ...env, ...(script === UI_SCRIPT ? homeUiSafety(env.HOME) : {}) }, encoding: "utf8" });
 }
 const legacy = (b: Built, data: string, target: string, flags: string[] = []) =>
   sh(UI_SCRIPT, ["check", "--path", target, ...flags], { HOME: b.root, HOME_BB_BIN: stubBb(b.root, b.installed), HOME_BB_DATA: data, HOME_UI_WAIT: "2" });
@@ -111,7 +112,7 @@ const gatesGate = (b: Built, data: string, target: string, cls = "plugin-deploy"
 
 // Failure text is compared with the script name and the final summary line normalised; everything else must match line for line.
 // home-ui.sh's die() prints all its arguments, so its refusals end in a stray " 3" (the exit code); home-gates.sh prints the message only.
-const normalise = (s: string) => s.replace(/^home-(ui|gates): /gm, "home: ").replace(/ 3$/gm, "").split("\n").filter((l) => !/^home: check found \d+ failed gate/.test(l)).join("\n");
+const normalise = (s: string) => s.replace(/^home-(ui|gates): /gm, "home: ").replace(/ 3$/gm, "").split("\n").filter((l) => !/^home: check found \d+ failed gate/.test(l) && !/^home: live CLI revision:/.test(l)).join("\n");
 
 const names = Object.keys(FIXTURES);
 const expectedLegacy: Record<string, { ui: number; code: number }> = {
@@ -465,6 +466,7 @@ describe("deploy.json", () => {
   });
 
   it("every control path names something the repo has (or a glob that can match later)", () => {
+    expect(load().controlPaths).toContain("scripts/home-cli.sh");
     for (const p of load().controlPaths as string[]) if (!p.includes("*")) expect(existsSync(join(REPO_ROOT, p)), p).toBe(true);
   });
 
