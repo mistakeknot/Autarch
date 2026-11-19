@@ -99,7 +99,7 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	errLog := filepath.Join(dir, "door-err.log")
 	// HOME is the sandbox: the visit stamp and the transcript lookup must
 	// never touch the real one from a test.
-	doorCmd := fmt.Sprintf("env 'PATH=%s' HOME=%s AUTARCH_CARD_CHECK=%s FOUNDATION_CLIPBOARD=%s %s 2>%s; sleep 60",
+	doorCmd := fmt.Sprintf("env 'PATH=%s' HOME=%s AUTARCH_CARD_CHECK=%s FOUNDATION_CLIPBOARD=%s %s 2>%s; sleep 120",
 		stubs+":"+os.Getenv("PATH"), dir, cardStub, clipboardPath, bin, errLog)
 	run("new-session", "-d", "-s", "door", "-c", dir, "-x", "120", "-y", "30", doorCmd)
 
@@ -173,8 +173,21 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	}
 	run("send-keys", "-t", "door", "s")
 	waitFor("explicit resume with original ID", func() bool { b, e := os.ReadFile(resumeArgs); return e == nil && string(b) == "--resume\n"+id+"\n" })
+	// The args file precedes ExecProcess returning control to Bubble Tea.
+	// Wait for its completion status to be rendered, then for each Escape's
+	// effect so adjacent escape bytes cannot be read as an Alt sequence.
+	waitFor("door to redraw after resume", func() bool {
+		return strings.Contains(run("capture-pane", "-p", "-t", "door"), "Returned from the conversation")
+	})
 	run("send-keys", "-t", "door", "Escape")
+	waitFor("question list after leaving evidence", func() bool {
+		return strings.Contains(run("capture-pane", "-p", "-t", "door"), "Questions · select one to read its evidence")
+	})
 	run("send-keys", "-t", "door", "Escape")
+	waitFor("briefing after leaving questions", func() bool {
+		cap := run("capture-pane", "-p", "-t", "door")
+		return strings.Contains(cap, "since ") && !strings.Contains(cap, "Questions · select one to read its evidence")
+	})
 	run("send-keys", "-t", "door", "Tab")
 
 	// The rendered door proves clauses (a) and (c) against a live server:
