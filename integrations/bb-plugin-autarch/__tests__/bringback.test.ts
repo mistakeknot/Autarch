@@ -26,7 +26,7 @@ describe("bring back", () => {
     const r = rig();
     vi.stubEnv("AUTARCH_CARD_STATE_DIR", r.env.dir);
     vi.stubEnv("AUTARCH_NEEDSMK_PILOTS_OFF", "");
-    writeFileSync(join(r.env.dir, "pilots.json"), JSON.stringify({ daycap: { enabled: true, until: "2099-01-01T00:00:00Z" } }));
+    writeFileSync(join(r.env.dir, "pilots.json"), JSON.stringify({ coldread: { enabled: true, until: "2099-01-01T00:00:00Z" } }));
     const { t, g1 } = await opened(r);
     if (earlierPick) expect(r.mkPick(g1.id, "earlier-answer")).toMatchObject({ ok: true });
     r.edit(t, { status: "done" });

@@ -18,7 +18,8 @@ export function recordPilotPick(input: PilotPickMetric, store: Pick<Store, "reco
   const dir = env.AUTARCH_CARD_STATE_DIR || join(env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "autarch", "needsmk");
   let pilots: Record<string, { enabled?: boolean; until?: string }>;
   try { pilots = JSON.parse(readFileSync(join(dir, "pilots.json"), "utf8")); } catch { return; }
-  if (!["coldread", "daycap", "linkcheck"].some(name => pilots?.[name]?.enabled === true && Date.now() < Date.parse(pilots[name].until || ""))) return;
+  // daycap is retired (inert since card filing limits were removed); retain its historical metrics.
+  if (!["coldread", "linkcheck"].some(name => pilots?.[name]?.enabled === true && Date.now() < Date.parse(pilots[name].until || ""))) return;
   let state: Record<string, { Request?: { Type?: string; Urgent?: boolean; KeepList?: string; RootRun?: unknown } }> = {};
   try { state = JSON.parse(readFileSync(join(dir, "filings.json"), "utf8")); } catch { /* metadata can be unavailable */ }
   const request = state[input.requestKey]?.Request;
