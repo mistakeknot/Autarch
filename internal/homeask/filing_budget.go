@@ -610,6 +610,9 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		if owner == "" {
 			owner = r.Thread
 		}
+		if owner == "" {
+			owner = "unowned request"
+		}
 		return &releaseOwnerError{owner: owner, cause: err, remediation: "run needs-mk cancel-held " + key + ", then file the corrected ask against a live project"}
 	}
 	if r.Owner != "" {
