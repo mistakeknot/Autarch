@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
+import { homeUiSafety } from "./home-ui-safety";
 
 const HUI = resolve(__dirname, "../../../scripts/home-ui.sh");
 const PLUGIN_REL = "integrations/bb-plugin-autarch";
@@ -84,7 +85,7 @@ esac
 `);
   chmodSync(bb, 0o755);
   const env = (extra: Record<string, string> = {}): Record<string, string> => ({
-    PATH: process.env.PATH!, HOME: root, HOME_BB_BIN: bb, HOME_BB_DATA: data, HOME_UI_WAIT: "2", HOME_UI_RECHECK_WAIT: "1", HOME_UI_RECHECK_INTERVAL: "1", HOME_UI_STATE_DIR: st, FAKE_OUT: out, ...extra,
+    PATH: process.env.PATH!, HOME: root, HOME_BB_BIN: bb, HOME_BB_DATA: data, HOME_UI_WAIT: "2", HOME_UI_RECHECK_WAIT: "1", HOME_UI_RECHECK_INTERVAL: "1", HOME_UI_STATE_DIR: st, FAKE_OUT: out, ...homeUiSafety(root), ...extra,
   });
   const log = () => (existsSync(calls) ? readFileSync(calls, "utf8") : "");
   const seen = (): any[] => (existsSync(out) ? readFileSync(out, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
@@ -117,6 +118,13 @@ function legacyPlugin(r: Rig, name: string) {
 }
 
 describe("home-ui.sh --engine: the legacy path", () => {
+  it("blocks accidental CLI service access with an explicit failing hook", () => {
+    const r = rig();
+    const out = spawnSync("bash", ["-c", 'MKHOME=$HOME; source "$1"; cli_unit', "test", resolve(__dirname, "../../../scripts/home-cli.sh")], { env: r.env(), encoding: "utf8" });
+    expect(out.status).toBe(1);
+    expect(out.stderr).toContain("TEST: forbidden systemctl hook reached");
+  });
+
   it("with no flag, check still runs the legacy gates, never reads the installed tool and takes no lock", async () => {
     const r = rig();
     const n = legacyPlugin(r, "new");

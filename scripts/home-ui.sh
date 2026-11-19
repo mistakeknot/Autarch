@@ -553,6 +553,7 @@ deploy)
   CLI_SWAPPED=1
   cli_atomic_copy "$CLI_STAGE" || die "CLI atomic install failed"
   cli_postcheck || die "CLI post-check failed"
+  PLUGIN_TOUCHED=0 CLI_SWAPPED=0
 # CLI transaction: end
   # installed.sha write: begin (mk-zq345.8)
   # As on rollback, record the verified installed checkout atomically only when the state directory exists; otherwise warn.
@@ -578,9 +579,6 @@ deploy)
     stamp_warning "no state dir $ST; installed.sha was not updated"
   fi
   # installed.sha write: end
-# CLI transaction: begin
-  PLUGIN_TOUCHED=0 CLI_SWAPPED=0
-# CLI transaction: end
   echo "deployed $COMMIT; Home is running"
   echo "$(rollback_cmd "$BK")" ;;
 
@@ -620,10 +618,14 @@ rollback)
     rm -f "$DB-wal" "$DB-shm"; mv -f "$DB.restore" "$DB" || die "data restore failed at the final move; Home stays disabled"
     echo "data restored from $BACKUP_ARG (everything written after it is lost)"
   fi
-  install_build "$PREV" || exit 5
+# CLI transaction: begin
+  PLUGIN_ROLLBACK_FAILED=0
+# CLI transaction: end
+  ( install_build "$PREV" ) || PLUGIN_ROLLBACK_FAILED=1
 # CLI transaction: begin
   CLI_ROLLBACK_FAILED=0
   ( cli_restore "$BACKUP_ARG" ) || CLI_ROLLBACK_FAILED=1
+  if [ "$PLUGIN_ROLLBACK_FAILED" = 0 ]; then
 # CLI transaction: end
   # installed.sha write: begin (mk-zq345.5)
   # Record a checkout matching its backup-time commit atomically. When that cannot be established, clear both the stamp
@@ -663,8 +665,11 @@ rollback)
   fi
   # installed.sha write: end
 # CLI transaction: begin
-  if [ "$CLI_ROLLBACK_FAILED" = 1 ]; then
-    echo "home-ui: CLI rollback failed; plugin restored but plugin and CLI/service may differ; retry rollback" >&2
+  fi
+  if [ "$PLUGIN_ROLLBACK_FAILED" = 1 ] || [ "$CLI_ROLLBACK_FAILED" = 1 ]; then
+    PLUGIN_OUTCOME=restored; [ "$PLUGIN_ROLLBACK_FAILED" = 0 ] || PLUGIN_OUTCOME=failed
+    CLI_OUTCOME=restored; [ "$CLI_ROLLBACK_FAILED" = 0 ] || CLI_OUTCOME=failed
+    echo "home-ui: rollback incomplete: plugin=$PLUGIN_OUTCOME; CLI=$CLI_OUTCOME; components may differ; retry rollback" >&2
     rollback_cmd "$BACKUP_ARG"
     exit 5
   fi

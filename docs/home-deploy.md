@@ -35,6 +35,8 @@ leave the CLI alone and say so. Data restoration remains opt-in.
 Before every CLI rollback, the command copies the current filer state to
 `filings-<timestamp>-<unique suffix>.json` in that deploy's backup directory and
 prints its path. This happens before restoring or restarting the old binary.
+The copy holds the filer's existing exclusive `filing.lock` through verification.
+Keep filers quiet during rollback to avoid new entries after that lock is released.
 If the copy or its verification fails, CLI rollback is refused; plugin rollback
 still proceeds, and the command warns that the components may differ. If no
 filer state exists, the command reports that there is nothing to preserve.

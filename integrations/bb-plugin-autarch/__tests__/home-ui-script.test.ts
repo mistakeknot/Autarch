@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
+import { homeUiSafety } from "./home-ui-safety";
 
 const SCRIPT = resolve(__dirname, "../../../scripts/home-ui.sh");
 const dirs: string[] = [];
@@ -42,6 +43,9 @@ clear_rollback_stamp() { rm -f "$1/installed.sha" "$1/status.json"; }
 cp() {
   local src=$1; [ "$1" != -- ] || src=$2
   if [ "$src" = "$AUTARCH_CARD_STATE_DIR/filings.json" ]; then
+    if [ "\${REQUIRE_FILER_LOCK:-}" = 1 ]; then
+      if flock -n "$AUTARCH_CARD_STATE_DIR/filing.lock" true; then echo "snapshot was not locked" >&2; return 98; fi
+    fi
     [ "\${STATE_COPY_FAIL:-}" != 1 ] || return 1
     echo snapshot >> "$HOME/order"
   fi
@@ -50,6 +54,7 @@ cp() {
 }
 git() { case "$*" in *status*) [ "$MODE" != dirty ] || echo "?? stray"; [ "$MODE" != vcsfail ];; *'rev-parse HEAD'*) if [ "$2" = "$HOME/previous/plugin" ]; then echo ${old}; else echo "$COMMIT"; fi;; *--show-toplevel*) if [ "$2" = "$HOME/previous/plugin" ]; then echo "$HOME/previous"; else echo "$BUILDS/build-${sha.slice(0, 12)}"; fi;; esac; }
 npm() { :; }
+mv() { command mv "$@" || return; if [ "\${STAMP_SIGNAL:-}" = 1 ] && [ "\${3:-}" = "$HOME/state/installed.sha" ]; then kill -s TERM "$$"; fi; }
 go() { printf '%s\\n' "$*" > "$HOME/go-args"; [ "$MODE" != buildfail ] || return 1; cp "$HOME/new" "$6"; chmod +x "$6"; }
 fixture_systemctl() { echo "$*" >> "$HOME/unit"; if [ "$MODE" = restorefail ] && grep -q "revision ${old}" "$HOME/.local/bin/autarch"; then return 1; fi; if [ "$MODE" = queryfail ] && grep -q "revision ${sha}" "$HOME/.local/bin/autarch"; then return 1; fi; if [ "$2" = restart ] && [ "$MODE" = restartfail ] && grep -q "revision ${sha}" "$HOME/.local/bin/autarch"; then return 1; fi; [ "$MODE" != missing ] && [ "\${UNIT_MISSING:-}" != 1 ] || { echo not-found; return; }; if [ "$2" = restart ]; then
     if [ "$MODE" != stale ] || ! grep -q "revision ${sha}" "$HOME/.local/bin/autarch"; then
@@ -66,6 +71,7 @@ backup() { echo "$HOME/previous/plugin" > "$HOME/backup/previous-source.txt"; to
 install_build() {
   echo "$1" >> "$HOME/plugin-log"
   if [ "$1" = "$HOME/previous/plugin" ]; then [ "\${RESTORE_DIE:-}" != 1 ] || die "plugin disable failed";
+    if [ -n "\${RESTORE_SIGNAL:-}" ]; then kill -s "$RESTORE_SIGNAL" "$$"; fi;
   elif [ -n "\${DEPLOY_SIGNAL:-}" ]; then kill -s "$DEPLOY_SIGNAL" "$$"; fi
 }
 rollback_cmd() { echo "rollback $1"; }
@@ -208,6 +214,39 @@ describe("Home CLI deploy transaction", () => {
     expect(out.status).toBe(0);
     expect(out.stdout).not.toContain(goDir);
   });
+  it("attempts CLI rollback after plugin restoration exits and reports both outcomes", () => {
+    const r = cliRig(); expect(r.run().status).toBe(0);
+    writeFileSync(join(r.root, "state/status.json"), "{}");
+    const out = r.run("rollback", { RESTORE_DIE: "1" });
+    expect(out.status).toBe(5);
+    expect(r.version()).toContain(r.old);
+    expect(out.stderr).toContain("plugin=failed; CLI=restored");
+    expect(readFileSync(join(r.root, "state/installed.sha"), "utf8").trim()).toBe(r.sha);
+    expect(existsSync(join(r.root, "state/status.json"))).toBe(true);
+    expect(readdirSync(join(r.root, "backup")).some(p => p.startsWith("filings-"))).toBe(true);
+  });
+  for (const automatic of [true, false]) it(`takes the filer's own lock for the rollback snapshot (automatic=${automatic})`, () => {
+    const r = cliRig(automatic ? "postfail" : "ok");
+    let out;
+    if (automatic) out = r.run("deploy", { REQUIRE_FILER_LOCK: "1" });
+    else { expect(r.run().status).toBe(0); out = r.run("rollback", { REQUIRE_FILER_LOCK: "1" }); }
+    expect(out.status, out.stderr).toBe(automatic ? 5 : 0);
+    expect(r.version()).toContain(r.old);
+    expect(spawnSync("flock", ["-n", join(r.root, "filer/filing.lock"), "true"]).status).toBe(0);
+  });
+  it("keeps a completed deploy and its stamp when interrupted after the stamp rename", () => {
+    const r = cliRig(), out = r.run("deploy", { STAMP_SIGNAL: "1" });
+    expect(out.status).not.toBe(0);
+    expect(r.version()).toContain(r.sha);
+    expect(readFileSync(join(r.root, "state/installed.sha"), "utf8").trim()).toBe(r.sha);
+    expect(readFileSync(join(r.root, "plugin-log"), "utf8")).not.toContain("previous");
+  });
+  for (const signal of ["INT", "TERM"]) it(`ignores a second ${signal} during automatic restoration`, () => {
+    const r = cliRig("postfail"), out = r.run("deploy", { RESTORE_SIGNAL: signal });
+    expect(out.status).toBe(5);
+    expect(r.version()).toContain(r.old);
+    expect(out.stdout.trim().split("\n").at(-1)).toBe(`rollback ${r.root}/backup`);
+  });
   it("skips an absent user unit with a message", () => {
     const r = cliRig("missing"), out = r.run();
     expect(out.status).toBe(0);
@@ -248,7 +287,7 @@ case "$1 $2" in
 esac
 `);
   chmodSync(bb, 0o755);
-  const run = (args: string[]) => spawnSync("bash", [SCRIPT, ...args], { env: { PATH: process.env.PATH!, HUI_FAIL_AFTER: failAfter, HOME: root, HOME_BB_BIN: bb, HOME_BB_DATA: data, HOME_UI_WAIT: "2", HOME_UI_RECHECK_WAIT: "1", HOME_UI_RECHECK_INTERVAL: "1" }, encoding: "utf8" });
+  const run = (args: string[]) => spawnSync("bash", [SCRIPT, ...args], { env: { PATH: process.env.PATH!, HUI_FAIL_AFTER: failAfter, HOME: root, HOME_BB_BIN: bb, HOME_BB_DATA: data, HOME_UI_WAIT: "2", HOME_UI_RECHECK_WAIT: "1", HOME_UI_RECHECK_INTERVAL: "1", ...homeUiSafety(root) }, encoding: "utf8" });
   const log = () => (existsSync(calls) ? readFileSync(calls, "utf8") : "");
   const backups = () => { try { return readdirSync(join(data, "home-backups")); } catch { return []; } };
   return { root, data, cur, run, log, backups };
@@ -372,7 +411,7 @@ describe("home-ui.sh gates", () => {
     const n = plugin(r.root, "new", 3);
     const home = join(r.root, "h");
     mkdirSync(home);
-    const env = { PATH: process.env.PATH!, HOME: home, HOME_BB_BIN: join(r.root, "bb"), HOME_UI_WAIT: "2" };
+    const env = { PATH: process.env.PATH!, HOME: home, HOME_BB_BIN: join(r.root, "bb"), HOME_UI_WAIT: "2", ...homeUiSafety(r.root) };
     expect(spawnSync("bash", [SCRIPT, "check", "--path", n], { env, encoding: "utf8" }).stderr).toContain("found 0");
     for (const x of ["x", "y"]) { mkdirSync(join(home, x, "plugins", "autarch"), { recursive: true }); writeFileSync(join(home, x, "plugins", "autarch", "data.db"), ""); }
     expect(spawnSync("bash", [SCRIPT, "check", "--path", n], { env, encoding: "utf8" }).stderr).toContain("found 2");
@@ -384,7 +423,7 @@ describe("home-ui.sh gates", () => {
     const deep = join(r.root, "a", "b", "c", "data");
     mkdirSync(join(deep, "plugins", "autarch"), { recursive: true });
     writeFileSync(join(deep, "plugins", "autarch", "data.db"), "");
-    const env = { PATH: process.env.PATH!, HOME: join(r.root, "a"), HOME_BB_BIN: join(r.root, "bb"), HOME_UI_WAIT: "2" };
+    const env = { PATH: process.env.PATH!, HOME: join(r.root, "a"), HOME_BB_BIN: join(r.root, "bb"), HOME_UI_WAIT: "2", ...homeUiSafety(r.root) };
     const out = spawnSync("bash", [SCRIPT, "check", "--path", n], { env, encoding: "utf8" });
     expect(out.stderr).not.toContain("cannot pick one Home database");
   });
@@ -447,7 +486,8 @@ describe("home-ui.sh preview and rollback", () => {
 
   it("refuses to run as root", () => {
     if (process.getuid?.() !== 0) return;
-    expect(spawnSync("bash", [SCRIPT, "check"], { encoding: "utf8" }).status).toBe(64);
+    const r = rig();
+    expect(spawnSync("bash", [SCRIPT, "check"], { env: { HOME: r.root, PATH: process.env.PATH!, ...homeUiSafety(r.root) }, encoding: "utf8" }).status).toBe(64);
   });
   // R5: check lists every failed gate in one run; deploy and preview stay fail-fast.
   describe("accumulation", () => {

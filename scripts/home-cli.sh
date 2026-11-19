@@ -114,14 +114,19 @@ cli_postcheck() {
   return 0
 }
 
-cli_save_filer_state() {
-  local bk=$1 dir src saved
+cli_save_filer_state() (
+  local bk=$1 dir src saved filer_lock
   # Matches CardFiler.stateDir for the CLI (which sets neither StateDir nor LockDir).
   dir=${AUTARCH_CARD_STATE_DIR:-${XDG_STATE_HOME:-$MKHOME/.local/state}/autarch/needsmk}
   src=$dir/filings.json
   if [ ! -e "$src" ] && [ ! -L "$src" ]; then
     echo "home-ui: no filer state at $src to preserve"
     return 0
+  fi
+  # Same exclusive flock used by internal/homeask/flock_unix.go; the subshell releases it on every return.
+  if ! { exec {filer_lock}>>"$dir/filing.lock" && flock -x "$filer_lock"; }; then
+    echo "home-ui: cannot lock filer state; refusing CLI rollback" >&2
+    return 1
   fi
   saved=$(mktemp "$bk/filings-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX.json") || {
     echo "home-ui: cannot create filer state backup; refusing CLI rollback" >&2; return 1;
@@ -132,7 +137,7 @@ cli_save_filer_state() {
     return 1
   fi
   echo "home-ui: filer state saved before CLI rollback: $saved"
-}
+)
 
 cli_restore() {
   local bk=$1 prev sum
@@ -164,7 +169,8 @@ cli_restore() {
 cli_deploy_exit() {
   local rc=$? failed=0
   local BB=${HOME_UI_BB_REAL:-$BB}
-  trap - EXIT INT TERM
+  trap - EXIT
+  trap '' INT TERM
   if [ "$CLI_SWAPPED" = 1 ] || [ "$PLUGIN_TOUCHED" = 1 ]; then
     echo "home-ui: deploy failed during installation; restoring previous CLI and plugin" >&2
     if [ "$CLI_SWAPPED" = 1 ]; then ( cli_restore "$BK" ) || failed=1; fi

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
+import { homeUiSafety } from "./home-ui-safety";
 
 const REPO_ROOT = resolve(__dirname, "../../..");
 const UI_SCRIPT = join(REPO_ROOT, "scripts/home-ui.sh");
@@ -100,7 +101,7 @@ function stubBb(root: string, installed: string) {
   return bb;
 }
 function sh(script: string, args: string[], env: Record<string, string> = {}) {
-  return spawnSync("bash", [script, ...args], { env: { PATH: process.env.PATH!, ...env }, encoding: "utf8" });
+  return spawnSync("bash", [script, ...args], { env: { PATH: process.env.PATH!, ...env, ...(script === UI_SCRIPT ? homeUiSafety(env.HOME) : {}) }, encoding: "utf8" });
 }
 const legacy = (b: Built, data: string, target: string, flags: string[] = []) =>
   sh(UI_SCRIPT, ["check", "--path", target, ...flags], { HOME: b.root, HOME_BB_BIN: stubBb(b.root, b.installed), HOME_BB_DATA: data, HOME_UI_WAIT: "2" });

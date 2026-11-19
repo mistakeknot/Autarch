@@ -6,6 +6,7 @@ import { tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
+import { homeUiSafety } from "./home-ui-safety";
 import { updateInfo } from "../updates";
 
 const HUI = resolve(__dirname, "../../../scripts/home-ui.sh");
@@ -64,7 +65,7 @@ esac
   chmodSync(bb, 0o755);
   const env = (extra: Record<string, string> = {}): Record<string, string> => ({
     PATH: process.env.PATH!, HOME: root, HOME_BB_BIN: bb, HOME_BB_DATA: data, HOME_UI_WAIT: "2", HOME_UI_RECHECK_WAIT: "1", HOME_UI_RECHECK_INTERVAL: "1", HOME_UI_STATE_DIR: st,
-    HOME_YOUR_MOVE_OUT_DIR: root, ...extra,
+    HOME_YOUR_MOVE_OUT_DIR: root, ...homeUiSafety(root), ...extra,
   });
   const log = () => (existsSync(calls) ? readFileSync(calls, "utf8") : "");
   const sha = () => (existsSync(join(st, "installed.sha")) ? readFileSync(join(st, "installed.sha"), "utf8").trim() : null);
@@ -593,6 +594,7 @@ describe("the legacy scripts differ from the b05ebaf baseline only by the lock w
       if (file === "home-ui.sh") expect(now.match(/^\s*stamp_warning\(\)/gm)).toHaveLength(1);
       const rest = strip(strip(strip(strip(strip(strip(strip(strip(now, "shared destination lock"), "installed.sha write"), "--engine tool"), "disabled-plugin export"), "install-error recheck"), "redundant-enable skip"), "find status"), "rollback commit record");
       const normalized = strip(rest, "CLI transaction")
+        .replace('( install_build "$PREV" ) || PLUGIN_ROLLBACK_FAILED=1', 'install_build "$PREV" || exit 5')
         .replace('( install_build "$(cat "$BK/previous-source.txt")" )', 'install_build "$(cat "$BK/previous-source.txt")"')
         .replace("#                                                             build/stamp CLI, backup, install plugin + CLI, restart serve, verify, print rollback.", "#                                                             backup, install that merged-main commit, verify, print the rollback.")
         .replace("#   scripts/home-ui.sh rollback BACKUP_DIR [--restore-data]   restore plugin + CLI recorded in backup (data restore only if asked)", "#   scripts/home-ui.sh rollback BACKUP_DIR [--restore-data]   reinstall the build the backup recorded (data restore only if asked)");
