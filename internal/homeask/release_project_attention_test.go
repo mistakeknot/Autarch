@@ -111,13 +111,13 @@ func testMissingProjectReservation(t *testing.T, kind string) {
 		if len(args) >= 3 && strings.Join(args[:3], " ") == "tasks label list" {
 			return BBResult{Code: 1, Stderr: []byte("project not found: P1")}
 		}
+		if len(args) >= 2 && strings.Join(args[:2], " ") == "tasks list" {
+			return BBResult{Code: 1, Stderr: []byte("connection refused")}
+		}
 		return bb.run(ctx, env, args...)
 	}
 	report, err := f.ReleaseDetailed(context.Background())
-	want := "ask the vizier to check whether the card exists"
-	if kind == "update" {
-		want = "ask the vizier to check the existing card and pending update"
-	}
+	want := "run needs-mk release once bb is reachable"
 	if err == nil || !strings.Contains(report.OwnerAttention[r.Key], want) || strings.Contains(report.OwnerAttention[r.Key], "cancel-held") {
 		t.Fatalf("report=%+v err=%v", report, err)
 	}
