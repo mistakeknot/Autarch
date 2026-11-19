@@ -63,7 +63,7 @@ func (f *CardFiler) PrintReleaseOwnerAttention(w io.Writer) error {
 }
 
 // DismissReleaseOwnerAttention acknowledges a notice without cancelling a request
-// or changing its delivery, ownership, terminal state or budget reservation.
+// or changing its delivery, ownership, terminal state or reporting record.
 func (f *CardFiler) DismissReleaseOwnerAttention(key string) error {
 	if err := CheckRequestKey(key); err != nil {
 		return err

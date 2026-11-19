@@ -498,7 +498,7 @@ type ReleaseReport struct {
 }
 
 // Release sends held cards in type order. Terminal refusals are recorded and
-// refunded after an absence proof; uncertain deliveries remain held for retry.
+// retired after an absence proof; uncertain deliveries remain held for retry.
 func (f *CardFiler) Release(ctx context.Context) (map[string][]CardResult, error) {
 	report, err := f.ReleaseDetailed(ctx)
 	return report.Groups, err
@@ -714,7 +714,7 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	return result, typ, err
 }
 
-// CancelHeld cancels an unsent card and refunds its reserved slot.
+// CancelHeld cancels an unsent card and excludes it from reporting.
 func (f *CardFiler) CancelHeld(key string) error {
 	if err := CheckRequestKey(key); err != nil {
 		return err
@@ -747,7 +747,7 @@ func (f *CardFiler) CancelHeld(key string) error {
 	return saveFilingState(path, state)
 }
 
-// resolveTerminal completes a known delivery, or refunds a proven absent one.
+// resolveTerminal completes a known delivery, or retires a proven absent one.
 // Finding the card supersedes a refusal based on stale project or ruling state.
 func (f *CardFiler) resolveTerminal(ctx context.Context, key string, reason error) (CardResult, error) {
 	current, _, done, readErr := f.openState()
@@ -823,7 +823,7 @@ func (f *CardFiler) chargeCreation(r CardRequest, creationKey string) error {
 	defer unlock()
 	entry, ok := state[r.Key]
 	if !ok {
-		return fmt.Errorf("%w: missing creation reservation", ErrInvalid)
+		return fmt.Errorf("%w: missing filing record", ErrInvalid)
 	}
 	entry.CreationKey = creationKey
 	if f.anyPilot() && entry.DeliveredAt == "" {

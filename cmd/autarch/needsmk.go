@@ -238,14 +238,14 @@ func needsMkFileCmd() *cobra.Command {
 		Long: `Run inside the asking thread ($BB_THREAD_ID is required): the filer posts the
 routing comment from it. Legacy card count environment settings are ignored.
 The reporting week starts Thursday 12:00 America/Los_Angeles; needs-mk budget shows
-the current Pacific start and end. Legacy ISO reservations still count conservatively
-in overlapping weeks when their filing time is unknown.
+the current Pacific start and end. Legacy ISO records appear in reports for both
+overlapping weeks when their filing time is unknown.
 AUTARCH_CARD_STATE_DIR overrides the local XDG state directory.
 --non-blocking queues a card until needs-mk release.
 Ordinary cards filed Monday 00:00 through Thursday before 12:00 Pacific are also
 held for the Thursday batch. Urgent, keep-list, merge and root-run cards bypass
 this weekday hold. Release inside that window leaves ordinary cards queued;
-schedule release at Thursday noon or later. Counted slots stay in their filing week.
+schedule release at Thursday noon or later. Reporting retains each request’s filing week.
 --urgent and --keep-list add labels. Exit 0 means filed: JSON has a non-empty card_key.
 Held cards exit 6, with queued:true, the request key and no card_key on stdout
 (--json is also accepted). Treat exit 6 as queued, not as a filed card or an uncertain write.
