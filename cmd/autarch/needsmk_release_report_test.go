@@ -7,11 +7,18 @@ import (
 	"github.com/mistakeknot/autarch/internal/homeask"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
 
 func TestReleaseUnknownProjectReportsFailureAndContinues(t *testing.T) {
+	for _, owner := range []string{"", "thr_owner"} {
+		t.Run("owner="+owner, func(t *testing.T) { testReleaseUnknownProject(t, owner) })
+	}
+}
+
+func testReleaseUnknownProject(t *testing.T, owner string) {
 	t.Setenv("BB_THREAD_ID", "thr_x")
 	s := &stubBB{}
 	f := &homeask.CardFiler{Now: filingTestNow, Run: s.run, StateDir: t.TempDir(), LockDir: t.TempDir()}
@@ -28,11 +35,27 @@ func TestReleaseUnknownProjectReportsFailureAndContinues(t *testing.T) {
 		if key == "bad" {
 			project = "missing-project"
 		}
-		r := homeask.CardRequest{Project: project, Title: "Choose?", Ask: ask, Key: key, Thread: "thr_x", NonBlocking: true}
+		r := homeask.CardRequest{Project: project, Title: "Choose?", Ask: ask, Key: key, Thread: "thr_x", Owner: owner, NonBlocking: true}
 		if _, err := f.FileCard(context.Background(), r); err != nil {
 			t.Fatal(err)
 		}
 	}
+	readEntry := func() map[string]any {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(f.StateDir, "filings.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var state map[string]map[string]any
+		if err := json.Unmarshal(b, &state); err != nil {
+			t.Fatal(err)
+		}
+		if state["bad"] == nil {
+			t.Fatal("missing held entry")
+		}
+		return state["bad"]
+	}
+	before := readEntry()
 	// The missing board remains unavailable while the other request can release.
 	f.Run = func(ctx context.Context, env []string, args ...string) homeask.BBResult {
 		if len(args) >= 5 && strings.Join(args[:3], " ") == "tasks label list" && args[4] == "missing-project" {
@@ -52,8 +75,9 @@ func TestReleaseUnknownProjectReportsFailureAndContinues(t *testing.T) {
 		t.Fatalf("missing project must be a reported request fault: %v; %s", err, &out)
 	}
 	var report struct {
-		Groups   map[string][]homeask.CardResult `json:"groups"`
-		Failures map[string]string               `json:"failures"`
+		Groups         map[string][]homeask.CardResult `json:"groups"`
+		Failures       map[string]string               `json:"failures"`
+		OwnerAttention map[string]string               `json:"owner_attention"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatal(err)
@@ -61,19 +85,42 @@ func TestReleaseUnknownProjectReportsFailureAndContinues(t *testing.T) {
 	if len(report.Groups["other"]) != 1 || !strings.Contains(report.Failures["bad"], "missing-project") || !strings.Contains(report.Failures["bad"], "no longer exists in bb") || strings.Contains(report.Failures["bad"], "home is down") {
 		t.Fatal(out.String())
 	}
-	raw, err = os.ReadFile(filepath.Join(f.StateDir, "filings.json"))
-	if err != nil {
+	target := owner
+	if target == "" {
+		target = "thr_x"
+	}
+	attention := report.OwnerAttention["bad"]
+	if !strings.Contains(attention, "owner "+target+" needs attention") || !strings.Contains(attention, "run needs-mk cancel-held bad, then file the corrected ask against a live project") {
+		t.Fatalf("missing owner attention: %s", &out)
+	}
+	after := readEntry()
+	if after["owner_attention"] != attention {
+		t.Fatalf("attention not persisted: %#v", after)
+	}
+	delete(before, "attempted")
+	delete(after, "attempted")
+	delete(after, "owner_attention")
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("held entry changed: before=%#v after=%#v", before, after)
+	}
+	var footer bytes.Buffer
+	if err := f.PrintReleaseOwnerAttention(&footer); err != nil || !strings.Contains(footer.String(), attention) {
+		t.Fatalf("footer=%s err=%v", &footer, err)
+	}
+	second := needsMkReleaseCmd()
+	out.Reset()
+	second.SetOut(&out)
+	second.SetErr(&bytes.Buffer{})
+	if err := second.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	var state map[string]struct {
-		Held bool `json:"held"`
-	}
-	if err := json.Unmarshal(raw, &state); err != nil {
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatal(err)
 	}
-	if entry, ok := state["bad"]; !ok || !entry.Held {
-		t.Fatalf("lost held request: %s", raw)
+	if report.OwnerAttention["bad"] != attention || readEntry()["owner_attention"] != attention {
+		t.Fatal("attention changed on retry")
 	}
+
 }
 
 func TestReleasePrintsDeliveredGroupsAndKeyedFailures(t *testing.T) {

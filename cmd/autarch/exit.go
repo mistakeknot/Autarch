@@ -14,7 +14,7 @@ func (e *usageError) Error() string { return e.msg }
 // exitCode maps an error to the process exit status: 2 validation,
 // 3 Home down or not filed, 4 outcome
 // unknown (re-run the same command), 5 already ruled, 6 accepted but held,
-// 1 anything else.
+// 1 anything else, including a missing project for file, adopt and update.
 func exitCode(err error) int {
 	var ue *usageError
 	var held *homeask.HeldError

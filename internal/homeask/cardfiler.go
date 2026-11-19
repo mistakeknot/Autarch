@@ -526,8 +526,10 @@ func (f *CardFiler) callEnv(ctx context.Context, env []string, out any, args ...
 		if r.Err == nil && !r.TimedOut && len(args) >= 5 &&
 			strings.Join(args[:3], " ") == "tasks label list" && args[3] == "--project" {
 			text := strings.TrimPrefix(strings.ToLower(r.text()), "error: ")
+			// This depends on bb's exact "project not found: <p>" wording.
+			// Anything else deliberately falls back to ErrHomeDown.
 			if text == "project not found: "+strings.ToLower(args[4]) {
-				return fmt.Errorf("%w: project %q no longer exists in bb", ErrProjectNotFound, args[4])
+				return fmt.Errorf("%w: %q", ErrProjectNotFound, args[4])
 			}
 		}
 		return fmt.Errorf("%w: bb %s: %s", ErrHomeDown, strings.Join(args[:min(len(args), 3)], " "), r.text())
