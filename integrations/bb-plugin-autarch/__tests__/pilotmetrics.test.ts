@@ -10,8 +10,8 @@ describe("pilot pick metrics", () => {
   it.each([
     { name: "coldread only", pilots: { coldread: { enabled: true, until: "2099-01-01T00:00:00Z" } } },
     { name: "linkcheck only", pilots: { linkcheck: { enabled: true, until: "2099-01-01T00:00:00Z" } } },
-    { name: "coldread with stale daycap", pilots: {
-      daycap: { enabled: true, until: "2000-01-01T00:00:00Z" },
+    { name: "coldread with enabled leftover daycap", pilots: {
+      daycap: { enabled: true, until: "2099-01-01T00:00:00Z" },
       coldread: { enabled: true, until: "2099-01-01T00:00:00Z" },
     } },
   ])("$name logs facts only, includes needs-context and deduplicates retry", ({ pilots }) => {
