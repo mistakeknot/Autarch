@@ -111,7 +111,7 @@ const gatesGate = (b: Built, data: string, target: string, cls = "plugin-deploy"
 
 // Failure text is compared with the script name and the final summary line normalised; everything else must match line for line.
 // home-ui.sh's die() prints all its arguments, so its refusals end in a stray " 3" (the exit code); home-gates.sh prints the message only.
-const normalise = (s: string) => s.replace(/^home-(ui|gates): /gm, "home: ").replace(/ 3$/gm, "").split("\n").filter((l) => !/^home: check found \d+ failed gate/.test(l)).join("\n");
+const normalise = (s: string) => s.replace(/^home-(ui|gates): /gm, "home: ").replace(/ 3$/gm, "").split("\n").filter((l) => !/^home: check found \d+ failed gate/.test(l) && !/^home: live CLI revision:/.test(l)).join("\n");
 
 const names = Object.keys(FIXTURES);
 const expectedLegacy: Record<string, { ui: number; code: number }> = {
@@ -465,6 +465,7 @@ describe("deploy.json", () => {
   });
 
   it("every control path names something the repo has (or a glob that can match later)", () => {
+    expect(load().controlPaths).toContain("scripts/home-cli.sh");
     for (const p of load().controlPaths as string[]) if (!p.includes("*")) expect(existsSync(join(REPO_ROOT, p)), p).toBe(true);
   });
 

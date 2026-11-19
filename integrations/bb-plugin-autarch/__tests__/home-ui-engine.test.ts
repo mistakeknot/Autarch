@@ -168,27 +168,18 @@ describe("home-ui.sh --engine: the legacy path", () => {
 });
 
 describe("home-ui.sh --engine tool: delegation", () => {
-  it("deploy execs the installed tool with the flags, the data and state dirs, and the inherited lock", () => {
+  it("refuses tool deploy before either component changes, with the CLI transaction hint", () => {
     const r = rig();
-    const out = r.run(["deploy", "--commit", SHA, "--engine", "tool", "--expect-tree", TREE], { FAKE_EXIT: "0" });
-    expect(out.status, out.stderr).toBe(0);
-    const [call, ...rest] = r.seen();
-    expect(rest).toEqual([]);
-    expect(call.argv).toEqual([
-      "deploy", "--plugin-file", `${r.inst}/${PLUGIN_REL}/deploy.json`, "--bb-data", r.data, "--state-dir", r.st,
-      "--commit", SHA, "--class", "plugin-deploy", "--mode", "agent", "--expect-tree", TREE,
-    ]);
-    expect(call.lockFd).toMatch(/^\d+$/);
-    expect(call.inherited).toBe(true);   // the descriptor is the lock file itself
-    expect(call.held).toBe(true);        // and the lock is held while the tool runs
-    expect(call.bb).toBe(r.bb);
-    expect(r.log()).not.toMatch(/disable|install/);   // the wrapper itself changed nothing
-    expect(readFileSync(r.lock, "utf8")).toBe("");
+    const out = r.run(["deploy", "--commit", SHA, "--engine", "tool"]);
+    expect(out.status).toBe(10);
+    expect(out.stderr).toContain("CLI transactions require --engine legacy");
+    expect(r.seen()).toEqual([]);
+    expect(r.log()).not.toMatch(/disable|install/);
   });
 
   it("the tool's exit code is the wrapper's exit code", () => {
     const r = rig();
-    expect(r.run(["deploy", "--commit", SHA, "--engine", "tool"], { FAKE_EXIT: "20" }).status).toBe(20);
+    expect(r.run(["preview", "--commit", SHA, "--engine", "tool"], { FAKE_EXIT: "20" }).status).toBe(20);
     expect(r.run(["check", "--commit", SHA, "--engine", "tool"], { FAKE_EXIT: "10" }).status).toBe(10);
   });
 
@@ -219,7 +210,7 @@ describe("home-ui.sh --engine tool: delegation", () => {
 
   it("works for a stamped installed build (stamp = HEAD and its tree)", () => {
     const r = rig({ stamped: true });
-    expect(r.run(["deploy", "--commit", SHA, "--engine", "tool"]).status).toBe(0);
+    expect(r.run(["check", "--commit", SHA, "--engine", "tool"]).status).toBe(0);
     expect(r.seen()).toHaveLength(1);
   });
 
@@ -472,7 +463,7 @@ describe("home-ui.sh --engine tool: refusals", () => {
     expect(out.stderr).toContain("no state dir");
     expect(r.seen()).toEqual([]);
     const r2 = rig();
-    const out2 = r2.run(["deploy", "--commit", SHA, "--engine", "tool"], { BPD_LOCK_FD: "2" });   // fd 2 is not the lock; the script opens its own
+    const out2 = r2.run(["check", "--commit", SHA, "--engine", "tool"], { BPD_LOCK_FD: "2" });   // fd 2 is not the lock; the script opens its own
     expect(out2.status).toBe(0);
     expect(r2.seen()[0].held).toBe(true);
     expect(r2.seen()[0].lockFd).not.toBe("2");

@@ -12,13 +12,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// buildRevision is set by the reviewed deploy build after verifying HEAD and a clean worktree.
+// Ordinary builds leave it empty and retain Go's BuildInfo behavior.
+var buildRevision string
+
+type vcsVersion struct {
+	Revision string `json:"revision"`
+	Modified bool   `json:"modified"`
+	Stamped  bool   `json:"stamped"`
+}
+
 type versionInfo struct {
-	VCS struct {
-		Revision string `json:"revision"`
-		Modified bool   `json:"modified"`
-		Stamped  bool   `json:"stamped"`
-	} `json:"vcs"`
-	SHA256 string `json:"sha256"`
+	VCS    vcsVersion `json:"vcs"`
+	SHA256 string     `json:"sha256"`
 }
 
 // executableSHA256 hashes the running binary, the value serve's /health also reports.
@@ -39,19 +45,28 @@ func executableSHA256() (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func readVersion() (versionInfo, error) {
-	var v versionInfo
-	if bi, ok := debug.ReadBuildInfo(); ok {
+func versionVCS(bi *debug.BuildInfo) vcsVersion {
+	if buildRevision != "" {
+		return vcsVersion{Revision: buildRevision, Stamped: true}
+	}
+	var v vcsVersion
+	if bi != nil {
 		for _, s := range bi.Settings {
 			switch s.Key {
 			case "vcs.revision":
-				v.VCS.Revision = s.Value
-				v.VCS.Stamped = true
+				v.Revision = s.Value
+				v.Stamped = true
 			case "vcs.modified":
-				v.VCS.Modified = s.Value == "true"
+				v.Modified = s.Value == "true"
 			}
 		}
 	}
+	return v
+}
+
+func readVersion() (versionInfo, error) {
+	bi, _ := debug.ReadBuildInfo()
+	v := versionInfo{VCS: versionVCS(bi)}
 	sum, err := executableSHA256()
 	if err != nil {
 		return v, fmt.Errorf("hash executable: %w", err)

@@ -92,6 +92,7 @@
     "tools/bb-plugin-deploy/**",
     "scripts/home-gates.sh",
     "scripts/home-ui.sh",
+    "scripts/home-cli.sh",
     "scripts/install-home-your-move.sh",
     "integrations/bb-plugin-autarch/deploy.json",
     "scripts/host/**",
