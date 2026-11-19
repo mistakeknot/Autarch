@@ -104,11 +104,6 @@ func TestUrgentAttemptedHeldReconcilesBeforeEscalating(t *testing.T) {
 			if outcome != "absent" && state[r.Key].DeliveredAt == "" {
 				t.Fatal("reconciliation lost the recorded delivery time")
 			}
-			full, capErr := f.dailyFull(state, r)
-			if capErr != nil || full {
-				t.Fatalf("wrong recovered delivery cap: %v %v", full, capErr)
-			}
-
 		})
 	}
 }

@@ -24,8 +24,7 @@ func (f *CardFiler) anyPilot() bool {
 }
 
 // The retired daycap pilot remains accepted as a compatibility no-op.
-func (f *CardFiler) deliveryGate() (func(), error)                    { return func() {}, nil }
-func (f *CardFiler) dailyFull(filingState, CardRequest) (bool, error) { return false, nil }
+func (f *CardFiler) deliveryGate() (func(), error) { return func() {}, nil }
 func (f *CardFiler) noteDelivery(key string, result CardResult) error {
 	if !f.anyPilot() || result.ID == "" {
 		return nil

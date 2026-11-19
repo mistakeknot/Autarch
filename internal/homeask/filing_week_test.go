@@ -332,15 +332,6 @@ func TestDailyCapFillingUsesDeliveryDayClock(t *testing.T) {
 			if err != nil || first.Queued != tc.held {
 				t.Fatalf("first ordinary card: %+v %v", first, err)
 			}
-			state, _, done, err := f.openState()
-			if err != nil {
-				t.Fatal(err)
-			}
-			full, err := f.dailyFull(state, r)
-			done()
-			if err != nil || full {
-				t.Fatalf("only delivery fills the daily cap: full=%v held=%v err=%v", full, tc.held, err)
-			}
 			r.Key = "second"
 			second, err := f.FileCard(context.Background(), r)
 			reason := ""

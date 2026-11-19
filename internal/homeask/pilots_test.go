@@ -481,14 +481,3 @@ func TestPilotDaycapRecoversItsOwnDelivery(t *testing.T) {
 		t.Fatalf("own delivery reservation prevented recovery: %+v %v", groups, e)
 	}
 }
-func TestPilotDaycapDoesNotCountNotificationCacheAsNewDelivery(t *testing.T) {
-	t.Setenv(EnvCardDailyCap, "1")
-	f := newFake(t, registryOnCreate).filer()
-	enablePilot(t, f, "daycap")
-	r := testReq()
-	s := filingState{"old-card": {Request: r, Uncharged: true, DeliveredCard: "existing-card", DeliveredAt: f.clock().Format(time.RFC3339Nano)}}
-	full, e := f.dailyFull(s, r)
-	if e != nil || full {
-		t.Fatalf("notification-only entry must not consume a new delivery slot: %v %v", full, e)
-	}
-}
