@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"time"
 )
 
 func (f *CardFiler) recordOwnerAttention(key, attention string) error {
@@ -88,6 +89,10 @@ func (f *CardFiler) recordProjectOwnerAttention(key, owner string, cause error, 
 			v.DeliveredCard = card.ID
 			v.DeliveredKey = card.Req.Key
 			v.DeliveredProject = card.ProjectID
+			if f.anyPilot() && v.DeliveredAt == "" {
+				v.DeliveredAt = f.clock().Format(time.RFC3339Nano)
+			}
+			v.DeliveryPendingAt = ""
 			proof.result = CardResult{ID: card.ID, Key: card.Req.Key, Project: card.ProjectID, Replay: true}
 			attention.remediation = "card " + card.ID + " was already delivered; ask the vizier to arrange handoff of the existing card; do not cancel-held or duplicate it"
 		case verified || safe:
@@ -100,11 +105,8 @@ func (f *CardFiler) recordProjectOwnerAttention(key, owner string, cause error, 
 			attention.remediation = "run needs-mk release once bb is reachable to retry the project-wide card check; do not cancel or refile before it completes"
 		case v.Update:
 			attention.remediation = "ask the vizier to check the existing card and pending update before cancelling or submitting another update"
-		case !safe:
-			attention.remediation = "ask the vizier to check whether the card exists before cancelling or filing another ask"
 		default:
-			v.Attempted = false
-			attention.remediation = "run needs-mk cancel-held " + key + ", then file the corrected ask against a live project"
+			attention.remediation = "ask the vizier to check whether the card exists before cancelling or filing another ask"
 		}
 		return attention.Error()
 	})

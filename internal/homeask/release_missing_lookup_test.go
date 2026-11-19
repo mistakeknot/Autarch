@@ -11,7 +11,7 @@ import (
 )
 
 func TestMissingProjectRequiresGlobalProof(t *testing.T) {
-	for _, outcome := range []string{"found", "update-created", "outage", "timeout", "absent", "update-absent", "changed"} {
+	for _, outcome := range []string{"found", "update-created", "delivered-key", "delivered-card", "outage", "timeout", "absent", "update-absent", "changed"} {
 		t.Run(outcome, func(t *testing.T) {
 			bb := newFake(t, registryAbsent)
 			f := bb.filer()
@@ -27,6 +27,15 @@ func TestMissingProjectRequiresGlobalProof(t *testing.T) {
 			}
 			e := state[r.Key]
 			e.Attempted = true
+			if outcome == "found" || outcome == "update-created" || outcome == "delivered-key" || outcome == "delivered-card" {
+				e.DeliveryPendingAt = "2026-01-01T00:00:00Z"
+			}
+			if outcome == "delivered-key" {
+				e.DeliveredKey = "recorded"
+			}
+			if outcome == "delivered-card" {
+				e.DeliveredCard = "old-card"
+			}
 			e.Update = outcome == "update-absent" || outcome == "update-created"
 			if outcome == "update-created" {
 				e.CreationKey = "generated"
@@ -37,8 +46,11 @@ func TestMissingProjectRequiresGlobalProof(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if outcome == "found" || outcome == "update-created" {
+			if outcome == "found" || outcome == "update-created" || outcome == "delivered-key" || outcome == "delivered-card" {
 				cardRequest := r
+				if outcome == "delivered-key" || outcome == "delivered-card" {
+					cardRequest.Key = "recorded"
+				}
 				if outcome == "update-created" {
 					cardRequest.Key = "generated"
 				}
@@ -56,6 +68,9 @@ func TestMissingProjectRequiresGlobalProof(t *testing.T) {
 				}
 				if len(args) >= 2 && strings.Join(args[:2], " ") == "tasks list" {
 					lists++
+					if outcome == "delivered-card" {
+						return okRes(map[string]any{"tasks": []any{}, "nextCursor": nil})
+					}
 					if outcome == "changed" {
 						state, path, done, err := f.openState()
 						if err != nil {
@@ -92,7 +107,10 @@ func TestMissingProjectRequiresGlobalProof(t *testing.T) {
 				t.Fatal("missing project cleared without global lookup")
 			}
 			switch outcome {
-			case "found", "update-created":
+			case "found", "update-created", "delivered-key", "delivered-card":
+				if state[r.Key].DeliveryPendingAt != "" {
+					t.Fatal("resolved delivery kept its pending timestamp")
+				}
 				if state[r.Key].Held || state[r.Key].DeliveredCard != "old-card" || len(report.Groups["other"]) != 1 {
 					t.Fatalf("lost moved card: %+v %+v %v", state[r.Key], report, releaseErr)
 				}
