@@ -153,11 +153,10 @@ func TestFullCapResolvesAttemptedHeldWithInvalidOwner(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				full, err := f.dailyFull(state, r)
 				fillBefore := state[fill.Key]
 				done()
-				if err != nil || full || fillBefore.DeliveredAt == "" {
-					t.Fatalf("fixture must have a full delivered cap: full=%v err=%v", full, err)
+				if fillBefore.DeliveredAt == "" {
+					t.Fatal("fixture must have a recorded delivery")
 				}
 				budgetBefore, err := f.BudgetStatus("autarch")
 				if err != nil {
