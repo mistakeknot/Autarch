@@ -10,14 +10,25 @@ import (
 )
 
 func (f *CardFiler) recordOwnerAttention(key, attention string) error {
+	return f.recordOwnerAttentionState(key, attention, false)
+}
+
+// clearAttempt is used only with a proven missing project before creation.
+func (f *CardFiler) recordOwnerAttentionState(key, attention string, clearAttempt bool) error {
 	s, p, done, e := f.openState()
 	if e != nil {
 		return e
 	}
 	defer done()
 	v, ok := s[key]
-	if !ok || v.OwnerAttention == attention {
+	// The caller's proof used an earlier snapshot. A fresh creation, update or
+	// delivery marker must prevent clearing the reservation under this lock.
+	clearAttempt = clearAttempt && !v.Update && v.CreationKey == "" && v.DeliveredCard == "" && v.DeliveredAt == "" && v.DeliveryPendingAt == ""
+	if !ok || (v.OwnerAttention == attention && (!clearAttempt || !v.Attempted)) {
 		return nil
+	}
+	if clearAttempt {
+		v.Attempted = false
 	}
 	v.OwnerAttention = attention
 	s[key] = v

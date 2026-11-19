@@ -613,7 +613,15 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		if owner == "" {
 			owner = "unowned request"
 		}
-		return &releaseOwnerError{owner: owner, cause: err, remediation: "run needs-mk cancel-held " + key + ", then file the corrected ask against a live project"}
+		// A prior creation or delivery marker can represent a card already written.
+		// Retain its attempt reservation until that outcome is reconciled.
+		clearAttempt := !e.Update && e.CreationKey == "" && e.DeliveredCard == "" && e.DeliveredAt == "" && e.DeliveryPendingAt == ""
+		remediation := "run needs-mk cancel-held " + key + ", then file the corrected ask against a live project"
+		if !clearAttempt {
+			remediation = "reconcile the prior delivery before cancelling or filing another ask"
+		}
+		attention := &releaseOwnerError{owner: owner, cause: err, remediation: remediation}
+		return errors.Join(attention, f.recordOwnerAttentionState(key, attention.Error(), clearAttempt))
 	}
 	if r.Owner != "" {
 		if ownerErr := f.checkOwnerLive(ctx, r.Owner); ownerErr != nil {
@@ -638,6 +646,11 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	}
 	if weeklyHold(f.clock(), r) {
 		return CardResult{}, "", nil
+	}
+	// Prove the destination exists before reserving an attempt. In particular,
+	// unchanged missing-project retries must not toggle Attempted on every run.
+	if err := f.ensureLabel(ctx, r.Project); err != nil {
+		return CardResult{}, r.Type, projectAttention(err)
 	}
 	if f.pilot("linkcheck") {
 		if v := f.checkLinks(ctx, r); len(v) > 0 {
