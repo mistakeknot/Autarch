@@ -123,6 +123,9 @@ func TestPilotCLIDailyCapIgnored(t *testing.T) {
 	defer func() { checkFilingPreconditions = oldCheck }()
 	checkFilingPreconditions = func(string, string) error { return nil }
 	f := &homeask.CardFiler{Now: filingTestNow, Run: s.run, StateDir: t.TempDir(), LockDir: t.TempDir()}
+	if err := os.WriteFile(filepath.Join(f.StateDir, "pilots.json"), []byte(`{"daycap":{"enabled":true,"until":"2099-01-01T00:00:00Z"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
 	newCardFiler = func() *homeask.CardFiler { return f }
 	ask := writeAsk(t)
 	execute := func(key string) (string, string, error) {
