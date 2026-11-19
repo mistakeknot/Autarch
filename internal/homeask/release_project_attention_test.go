@@ -69,7 +69,7 @@ func TestMissingProjectAttentionForUnownedPull(t *testing.T) {
 }
 
 func TestMissingProjectRetainsPossibleCreation(t *testing.T) {
-	for _, kind := range []string{"creation", "update"} {
+	for _, kind := range []string{"creation", "update", "card", "delivered", "pending"} {
 		t.Run(kind, func(t *testing.T) { testMissingProjectReservation(t, kind) })
 	}
 }
@@ -89,10 +89,17 @@ func testMissingProjectReservation(t *testing.T, kind string) {
 	}
 	entry := state[r.Key]
 	entry.Attempted = true
-	if kind == "update" {
+	switch kind {
+	case "update":
 		entry.Update = true
-	} else {
+	case "creation":
 		entry.CreationKey = "prior-creation"
+	case "card":
+		entry.DeliveredCard = "prior-card"
+	case "delivered":
+		entry.DeliveredAt = "2026-01-01T00:00:00Z"
+	case "pending":
+		entry.DeliveryPendingAt = "2026-01-01T00:00:00Z"
 	}
 	state[r.Key] = entry
 	err = saveFilingState(path, state)
@@ -104,10 +111,14 @@ func testMissingProjectReservation(t *testing.T, kind string) {
 		if len(args) >= 3 && strings.Join(args[:3], " ") == "tasks label list" {
 			return BBResult{Code: 1, Stderr: []byte("project not found: P1")}
 		}
+		if len(args) >= 2 && strings.Join(args[:2], " ") == "tasks list" {
+			return BBResult{Code: 1, Stderr: []byte("connection refused")}
+		}
 		return bb.run(ctx, env, args...)
 	}
 	report, err := f.ReleaseDetailed(context.Background())
-	if err == nil || !strings.Contains(report.OwnerAttention[r.Key], "reconcile the prior delivery") {
+	want := "run needs-mk release once bb is reachable"
+	if err == nil || !strings.Contains(report.OwnerAttention[r.Key], want) || strings.Contains(report.OwnerAttention[r.Key], "cancel-held") {
 		t.Fatalf("report=%+v err=%v", report, err)
 	}
 	if err := f.CancelHeld(r.Key); err == nil {
@@ -157,8 +168,9 @@ func TestProjectAttentionRechecksFreshReservation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// The caller computed true before a writer added the marker above.
-			if err := f.recordOwnerAttentionState(r.Key, "project needs attention", true); err != nil {
+			// The caller has no proof from the fresh entry; advice must use the locked state.
+			attention, err := f.recordProjectOwnerAttention(r.Key, "thr_owner", ErrProjectNotFound)
+			if err != nil {
 				t.Fatal(err)
 			}
 			state, _, done, err = f.openState()
@@ -169,7 +181,10 @@ func TestProjectAttentionRechecksFreshReservation(t *testing.T) {
 			if !state[r.Key].Attempted {
 				t.Fatal("stale proof cleared a fresh reservation")
 			}
-			if state[r.Key].OwnerAttention != "project needs attention" {
+			if strings.Contains(attention.Error(), "cancel-held") {
+				t.Fatal("fresh reservation advertised cancellation")
+			}
+			if state[r.Key].OwnerAttention != attention.Error() {
 				t.Fatal("attention not recorded")
 			}
 		})

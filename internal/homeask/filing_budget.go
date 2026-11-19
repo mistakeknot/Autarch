@@ -602,9 +602,9 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	}
 	unlock()
 	r := e.Request
-	projectAttention := func(err error) error {
+	projectAttention := func(err error) (CardResult, error) {
 		if !errors.Is(err, ErrProjectNotFound) {
-			return err
+			return CardResult{}, err
 		}
 		owner := r.Owner
 		if owner == "" {
@@ -613,15 +613,7 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		if owner == "" {
 			owner = "unowned request"
 		}
-		// A prior creation or delivery marker can represent a card already written.
-		// Retain its attempt reservation until that outcome is reconciled.
-		clearAttempt := !e.Update && e.CreationKey == "" && e.DeliveredCard == "" && e.DeliveredAt == "" && e.DeliveryPendingAt == ""
-		remediation := "run needs-mk cancel-held " + key + ", then file the corrected ask against a live project"
-		if !clearAttempt {
-			remediation = "reconcile the prior delivery before cancelling or filing another ask"
-		}
-		attention := &releaseOwnerError{owner: owner, cause: err, remediation: remediation}
-		return errors.Join(attention, f.recordOwnerAttentionState(key, attention.Error(), clearAttempt))
+		return f.reconcileMissingProject(ctx, key, owner, err)
 	}
 	if r.Owner != "" {
 		if ownerErr := f.checkOwnerLive(ctx, r.Owner); ownerErr != nil {
@@ -650,7 +642,8 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	// Prove the destination exists before reserving an attempt. In particular,
 	// unchanged missing-project retries must not toggle Attempted on every run.
 	if err := f.ensureLabel(ctx, r.Project); err != nil {
-		return CardResult{}, r.Type, projectAttention(err)
+		result, attentionErr := projectAttention(err)
+		return result, r.Type, attentionErr
 	}
 	if f.pilot("linkcheck") {
 		if v := f.checkLinks(ctx, r); len(v) > 0 {
@@ -667,7 +660,8 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 				}
 				err = errors.Join(errNoCardWritten, err, resolveErr)
 			}
-			return CardResult{}, "", projectAttention(err)
+			result, attentionErr := projectAttention(err)
+			return result, r.Type, attentionErr
 		}
 	}
 	gateDone, err := f.deliveryGate()
@@ -714,7 +708,11 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 			}
 			err = errors.Join(err, resolveErr)
 		}
-		return result, "", projectAttention(err)
+		resolved, attentionErr := projectAttention(err)
+		if resolved.ID != "" {
+			result = resolved
+		}
+		return result, r.Type, attentionErr
 	}
 
 	state, path, unlock, err = f.openState()
