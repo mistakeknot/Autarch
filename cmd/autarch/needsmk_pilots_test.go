@@ -124,9 +124,6 @@ func TestPilotCLIPrintsDailyCapReason(t *testing.T) {
 	checkFilingPreconditions = func(string, string) error { return nil }
 	f := &homeask.CardFiler{Now: filingTestNow, Run: s.run, StateDir: t.TempDir(), LockDir: t.TempDir()}
 	newCardFiler = func() *homeask.CardFiler { return f }
-	if e := f.SetPilot("daycap", true); e != nil {
-		t.Fatal(e)
-	}
 	ask := writeAsk(t)
 	execute := func(key string) (string, string, error) {
 		c := &cobra.Command{Use: "autarch", SilenceErrors: true}

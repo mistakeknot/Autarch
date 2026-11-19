@@ -26,9 +26,6 @@ func TestRound2AttemptedHeldRetryRecoversCanonicalCard(t *testing.T) {
 		t.Fatal(e)
 	}
 	done()
-	if e = f.SetPilot("daycap", true); e != nil {
-		t.Fatal(e)
-	}
 	res, e := f.FileCard(context.Background(), r)
 	if e != nil || res.Queued || !res.Replay || res.ID != first.ID {
 		t.Fatalf("attempted delivery masked by held replay: %+v %v", res, e)

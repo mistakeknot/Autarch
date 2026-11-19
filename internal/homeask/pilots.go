@@ -69,7 +69,7 @@ func (f *CardFiler) SetPilot(name string, enabled bool) error {
 	if name == "daycap" {
 		return nil
 	}
-	if name != "coldread" && name != "daycap" && name != "linkcheck" {
+	if name != "coldread" && name != "linkcheck" {
 		return fmt.Errorf("%w: pilot must be coldread or linkcheck; daycap is retired", ErrInvalid)
 	}
 	_, path, done, e := f.openState()
