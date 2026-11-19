@@ -40,7 +40,7 @@ func releaseDataError(err error) (bool, bool) {
 	if err == nil {
 		return true, false
 	}
-	if err == ErrInvalid {
+	if err == ErrInvalid || err == ErrProjectNotFound {
 		return true, true
 	}
 	if err == errNoCardWritten {

@@ -602,6 +602,16 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	}
 	unlock()
 	r := e.Request
+	projectAttention := func(err error) error {
+		if !errors.Is(err, ErrProjectNotFound) {
+			return err
+		}
+		owner := r.Owner
+		if owner == "" {
+			owner = r.Thread
+		}
+		return &releaseOwnerError{owner: owner, cause: err, remediation: "run needs-mk cancel-held " + key + ", then file the corrected ask against a live project"}
+	}
 	if r.Owner != "" {
 		if ownerErr := f.checkOwnerLive(ctx, r.Owner); ownerErr != nil {
 			if errors.Is(ownerErr, ErrInvalid) {
@@ -641,7 +651,7 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 				}
 				err = errors.Join(errNoCardWritten, err, resolveErr)
 			}
-			return CardResult{}, "", err
+			return CardResult{}, "", projectAttention(err)
 		}
 	}
 	gateDone, err := f.deliveryGate()
@@ -686,7 +696,7 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 			}
 			err = errors.Join(err, resolveErr)
 		}
-		return result, "", err
+		return result, "", projectAttention(err)
 	}
 
 	state, path, unlock, err = f.openState()

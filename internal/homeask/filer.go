@@ -11,6 +11,8 @@ var (
 	ErrInvalid = errors.New("invalid ask")
 	// ErrHomeDown: bb is missing or its server is not reachable; nothing was filed.
 	ErrHomeDown = errors.New("home is down, nothing filed")
+	// ErrProjectNotFound identifies a request for a Tasks project bb no longer knows.
+	ErrProjectNotFound = errors.New("project no longer exists in bb")
 	// ErrOutcomeUnknown: the request may have been written; re-run the same command.
 	ErrOutcomeUnknown = errors.New("outcome unknown, re-run the same command")
 	// ErrAlreadyRuled: the decision has already been ruled on.

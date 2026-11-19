@@ -512,7 +512,8 @@ func (r BBResult) text() string {
 	return s
 }
 
-// call runs bb and decodes its JSON stdout into out. Any failure is "unavailable".
+// call runs bb and decodes its JSON stdout into out. Failures are unavailable
+// unless a label lookup explicitly identifies a missing project.
 func (f *CardFiler) call(ctx context.Context, thread string, out any, args ...string) error {
 	return f.callEnv(ctx, cardEnv(thread), out, args...)
 }
@@ -520,6 +521,17 @@ func (f *CardFiler) call(ctx context.Context, thread string, out any, args ...st
 func (f *CardFiler) callEnv(ctx context.Context, env []string, out any, args ...string) error {
 	r := f.exec(ctx, env, args...)
 	if r.failed() {
+		// Only a completed label lookup with an explicit project diagnostic proves
+		// this request fault; timeouts and execution failures remain outages.
+		if r.Err == nil && !r.TimedOut && len(args) >= 5 &&
+			strings.Join(args[:3], " ") == "tasks label list" && args[3] == "--project" {
+			text := strings.TrimPrefix(strings.ToLower(r.text()), "error: ")
+			// This depends on bb's exact "project not found: <p>" wording.
+			// Anything else deliberately falls back to ErrHomeDown.
+			if text == "project not found: "+strings.ToLower(args[4]) {
+				return fmt.Errorf("%w: %q", ErrProjectNotFound, args[4])
+			}
+		}
 		return fmt.Errorf("%w: bb %s: %s", ErrHomeDown, strings.Join(args[:min(len(args), 3)], " "), r.text())
 	}
 	if out == nil {
