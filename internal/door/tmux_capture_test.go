@@ -115,7 +115,9 @@ func TestTmuxCaptureSwitchClientAndZed(t *testing.T) {
 	}
 	waitFor := func(why string, cond func() bool) {
 		t.Helper()
-		deadline := time.Now().Add(20 * time.Second)
+		// Race-enabled package runs share CPU with the rest of the suite.
+		// Poll the condition as before, allowing a loaded host time to render.
+		deadline := time.Now().Add(60 * time.Second)
 		for time.Now().Before(deadline) {
 			if cond() {
 				return
