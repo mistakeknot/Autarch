@@ -613,15 +613,8 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		if owner == "" {
 			owner = "unowned request"
 		}
-		// A prior creation or delivery marker can represent a card already written.
-		// Retain its attempt reservation until that outcome is reconciled.
-		clearAttempt := !e.Update && e.CreationKey == "" && e.DeliveredCard == "" && e.DeliveredAt == "" && e.DeliveryPendingAt == ""
-		remediation := "run needs-mk cancel-held " + key + ", then file the corrected ask against a live project"
-		if !clearAttempt {
-			remediation = "reconcile the prior delivery before cancelling or filing another ask"
-		}
-		attention := &releaseOwnerError{owner: owner, cause: err, remediation: remediation}
-		return errors.Join(attention, f.recordOwnerAttentionState(key, attention.Error(), clearAttempt))
+		attention, recordErr := f.recordProjectOwnerAttention(key, owner, err)
+		return errors.Join(attention, recordErr)
 	}
 	if r.Owner != "" {
 		if ownerErr := f.checkOwnerLive(ctx, r.Owner); ownerErr != nil {

@@ -10,25 +10,42 @@ import (
 )
 
 func (f *CardFiler) recordOwnerAttention(key, attention string) error {
-	return f.recordOwnerAttentionState(key, attention, false)
+	return f.updateOwnerAttention(key, func(*filingEntry) string { return attention })
 }
 
-// clearAttempt is used only with a proven missing project before creation.
-func (f *CardFiler) recordOwnerAttentionState(key, attention string, clearAttempt bool) error {
-	s, p, done, e := f.openState()
-	if e != nil {
-		return e
+// Build the remediation and clear the reservation from the same locked entry.
+func (f *CardFiler) recordProjectOwnerAttention(key, owner string, cause error) (*releaseOwnerError, error) {
+	attention := &releaseOwnerError{owner: owner, cause: cause}
+	err := f.updateOwnerAttention(key, func(v *filingEntry) string {
+		safe := !v.Update && v.CreationKey == "" && v.DeliveredCard == "" && v.DeliveredAt == "" && v.DeliveryPendingAt == ""
+		switch {
+		case v.Update:
+			attention.remediation = "ask the vizier to check the existing card and pending update before cancelling or submitting another update"
+		case !safe:
+			attention.remediation = "ask the vizier to check whether the card exists before cancelling or filing another ask"
+		default:
+			v.Attempted = false
+			attention.remediation = "run needs-mk cancel-held " + key + ", then file the corrected ask against a live project"
+		}
+		return attention.Error()
+	})
+	return attention, err
+}
+
+func (f *CardFiler) updateOwnerAttention(key string, build func(*filingEntry) string) error {
+	s, p, done, err := f.openState()
+	if err != nil {
+		return err
 	}
 	defer done()
 	v, ok := s[key]
-	// The caller's proof used an earlier snapshot. A fresh creation, update or
-	// delivery marker must prevent clearing the reservation under this lock.
-	clearAttempt = clearAttempt && !v.Update && v.CreationKey == "" && v.DeliveredCard == "" && v.DeliveredAt == "" && v.DeliveryPendingAt == ""
-	if !ok || (v.OwnerAttention == attention && (!clearAttempt || !v.Attempted)) {
+	if !ok {
 		return nil
 	}
-	if clearAttempt {
-		v.Attempted = false
+	attempted := v.Attempted
+	attention := build(&v)
+	if v.OwnerAttention == attention && v.Attempted == attempted {
+		return nil
 	}
 	v.OwnerAttention = attention
 	s[key] = v
