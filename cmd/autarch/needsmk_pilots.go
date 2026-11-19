@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/mistakeknot/autarch/internal/homeask"
 	"github.com/spf13/cobra"
 )
 
@@ -12,13 +13,25 @@ func needsMkPilotsCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return json.NewEncoder(c.OutOrStdout()).Encode(p)
+		type pilotView struct {
+			homeask.Pilot
+			Retired bool `json:"retired,omitempty"`
+		}
+		view := make(map[string]pilotView, len(p))
+		for name, pilot := range p {
+			view[name] = pilotView{Pilot: pilot, Retired: name == "daycap"}
+		}
+		return json.NewEncoder(c.OutOrStdout()).Encode(view)
 	}}
 	for _, action := range []string{"start", "stop"} {
 		action := action
 		c.AddCommand(&cobra.Command{Use: action + " NAME", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, a []string) error {
 			if e := newCardFiler().SetPilot(a[0], action == "start"); e != nil {
 				return e
+			}
+			if a[0] == "daycap" {
+				fmt.Fprintln(c.OutOrStdout(), "daycap is retired and inert since card limits were removed; pilot state is unchanged.")
+				return nil
 			}
 			fmt.Fprintln(c.OutOrStdout(), a[0], action)
 			return nil

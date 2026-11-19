@@ -65,8 +65,12 @@ func (f *CardFiler) pilot(name string) bool {
 	return v.Enabled && f.clock().Before(v.Until)
 }
 func (f *CardFiler) SetPilot(name string, enabled bool) error {
-	if name != "coldread" && name != "daycap" && name != "linkcheck" {
-		return fmt.Errorf("%w: pilot must be coldread, daycap or linkcheck", ErrInvalid)
+	// Retain compatibility without creating or rewriting retired pilot state.
+	if name == "daycap" {
+		return nil
+	}
+	if name != "coldread" && name != "linkcheck" {
+		return fmt.Errorf("%w: pilot must be coldread or linkcheck; daycap is retired", ErrInvalid)
 	}
 	_, path, done, e := f.openState()
 	if e != nil {
