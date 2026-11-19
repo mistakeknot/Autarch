@@ -1,6 +1,6 @@
 // scripts/home-ui.sh against a stub bb and a temp data directory. Never live. The deploy subcommand fetches origin, so it is
 // covered below through an extracted transaction body with fake Git, build, plugin and service commands.
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -52,9 +52,18 @@ cp() {
   case "$1" in *autarch.prev-*) echo restore >> "$HOME/order";; esac
   command cp "$@"
 }
-git() { case "$*" in *status*) [ "$MODE" != dirty ] || echo "?? stray"; [ "$MODE" != vcsfail ];; *'rev-parse HEAD'*) if [ "$2" = "$HOME/previous/plugin" ]; then echo ${old}; else echo "$COMMIT"; fi;; *--show-toplevel*) if [ "$2" = "$HOME/previous/plugin" ]; then echo "$HOME/previous"; else echo "$BUILDS/build-${sha.slice(0, 12)}"; fi;; esac; }
+git() { case "$*" in *status*) [ "$MODE" != dirty ] || echo "?? stray"; [ "$MODE" != vcsfail ];; *'rev-parse HEAD'*) if [ "$2" = "$HOME/previous/plugin" ]; then echo ${old}; else echo "$COMMIT"; fi;; *--show-toplevel*)
+  local top="$BUILDS/build-${sha.slice(0, 12)}"
+  [ "$2" != "$HOME/previous/plugin" ] || top="$HOME/previous"
+  if [ -n "\${STAMP_GROUP_SIGNAL:-}" ]; then
+    bash -c 'kill -s "$1" -- "-$2" || exit; echo "$1" > "$HOME/stamp-child-survived"; echo "$3"' stamp-child "$STAMP_GROUP_SIGNAL" "$$" "$top"
+  else echo "$top"; fi;; esac; }
 npm() { :; }
-mv() { command mv "$@" || return; if [ "\${STAMP_SIGNAL:-}" = 1 ] && [ "\${3:-}" = "$HOME/state/installed.sha" ]; then kill -s TERM "$$"; fi; }
+mv() {
+  if [ "\${STAMP_PHASE:-}" = before ] && [ "\${3:-}" = "$HOME/state/installed.sha" ]; then kill -s "$STAMP_SIGNAL" "$$"; fi
+  command mv "$@" || return
+  if [ "\${STAMP_PHASE:-after}" = after ] && [ -n "\${STAMP_SIGNAL:-}" ] && [ "\${3:-}" = "$HOME/state/installed.sha" ]; then kill -s "$STAMP_SIGNAL" "$$"; fi
+}
 go() { printf '%s\\n' "$*" > "$HOME/go-args"; [ "$MODE" != buildfail ] || return 1; cp "$HOME/new" "$6"; chmod +x "$6"; }
 fixture_systemctl() { echo "$*" >> "$HOME/unit"; if [ "$MODE" = restorefail ] && grep -q "revision ${old}" "$HOME/.local/bin/autarch"; then return 1; fi; if [ "$MODE" = queryfail ] && grep -q "revision ${sha}" "$HOME/.local/bin/autarch"; then return 1; fi; if [ "$2" = restart ] && [ "$MODE" = restartfail ] && grep -q "revision ${sha}" "$HOME/.local/bin/autarch"; then return 1; fi; [ "$MODE" != missing ] && [ "\${UNIT_MISSING:-}" != 1 ] || { echo not-found; return; }; if [ "$2" = restart ]; then
     if [ "$MODE" != stale ] || ! grep -q "revision ${sha}" "$HOME/.local/bin/autarch"; then
@@ -74,7 +83,10 @@ install_build() {
     if [ -n "\${RESTORE_SIGNAL:-}" ]; then kill -s "$RESTORE_SIGNAL" "$$"; fi;
   elif [ -n "\${DEPLOY_SIGNAL:-}" ]; then kill -s "$DEPLOY_SIGNAL" "$$"; fi
 }
-rollback_cmd() { echo "rollback $1"; }
+rollback_cmd() {
+  if [ -n "\${REPORT_SIGNAL:-}" ] && [ -f "$HOME/state/installed.sha" ] && [ "$(cat "$HOME/state/installed.sha")" = "$COMMIT" ]; then kill -s "$REPORT_SIGNAL" "$$"; fi
+  echo "rollback $1"
+}
 [ -f "$HOME/pid" ] || echo 10 > "$HOME/pid"
 mkdir -p "$HOME/proc/10"
 [ -L "$HOME/proc/10/exe" ] || ln -s "$HOME/.local/bin/autarch (deleted)" "$HOME/proc/10/exe"
@@ -83,9 +95,12 @@ HOME_UI_SYSTEMCTL=fixture_systemctl
 systemctl() { echo "unexpected ambient systemctl" >&2; return 99; }
 source '${CLI_HELPER}'
 SUB=$1; BACKUP_ARG=$HOME/backup
+trap 'if [[ $BASH_COMMAND == "PLUGIN_TOUCHED=0 CLI_SWAPPED=0" ]] && [ "\${STAMP_PHASE:-}" = clear ]; then kill -s "$STAMP_SIGNAL" "$$"; elif [[ $BASH_COMMAND == echo*rollback_cmd* ]] && [ -n "\${REPORT_SIGNAL:-}" ] && [ -f "$HOME/state/installed.sha" ]; then kill -s "$REPORT_SIGNAL" "$$"; fi' DEBUG
 ${body}
+if [ -n "\${REPORT_AFTER_SIGNAL:-}" ]; then kill -s "$REPORT_AFTER_SIGNAL" "$$"; fi
 `);
-  const run = (sub = "deploy", extra: Record<string, string> = {}) => spawnSync("bash", [harness, sub], { env: { ...process.env, HOME: root, MODE: mode, HOME_UI_WAIT: "1", HOME_UI_STATE_DIR: join(root, "state"), AUTARCH_CARD_STATE_DIR: join(root, "filer"), XDG_STATE_HOME: join(root, "xdg"), ...extra }, encoding: "utf8" });
+  // A separate session keeps process-group signals inside this temporary rig.
+  const run = (sub = "deploy", extra: Record<string, string> = {}) => spawnSync("setsid", ["bash", harness, sub], { env: { ...process.env, HOME: root, MODE: mode, HOME_UI_WAIT: "1", HOME_UI_STATE_DIR: join(root, "state"), AUTARCH_CARD_STATE_DIR: join(root, "filer"), XDG_STATE_HOME: join(root, "xdg"), ...extra }, encoding: "utf8", timeout: 10000, killSignal: "SIGKILL" });
   return { root, bin, sha, old, filings, run, version: () => spawnSync(bin, ["version"], { encoding: "utf8" }).stdout };
 }
 
@@ -234,11 +249,65 @@ describe("Home CLI deploy transaction", () => {
     expect(r.version()).toContain(r.old);
     expect(spawnSync("flock", ["-n", join(r.root, "filer/filing.lock"), "true"]).status).toBe(0);
   });
-  it("keeps a completed deploy and its stamp when interrupted after the stamp rename", () => {
-    const r = cliRig(), out = r.run("deploy", { STAMP_SIGNAL: "1" });
-    expect(out.status).not.toBe(0);
+  for (const automatic of [true, false]) it(`bounds the filer lock wait and restores the plugin (automatic=${automatic})`, async () => {
+    const r = cliRig(automatic ? "postfail" : "ok");
+    if (!automatic) expect(r.run().status).toBe(0);
+    const holder = spawn("bash", ["-c", 'exec 8>>"$1"; flock -x 8; echo held; read -r -t 2 || true', "holder", join(r.root, "filer/filing.lock")], { env: { HOME: r.root, PATH: process.env.PATH! } });
+    const finished = new Promise<void>(ok => holder.once("exit", () => ok()));
+    try {
+      await new Promise<void>((ok, no) => {
+        holder.stdout.once("data", () => ok());
+        holder.once("error", no);
+        holder.once("exit", () => no(new Error("lock holder exited before readiness")));
+      });
+      const out = r.run(automatic ? "deploy" : "rollback", { HOME_UI_FILER_LOCK_WAIT: "0.1" });
+      expect(holder.exitCode).toBeNull();
+      expect(spawnSync("flock", ["-n", join(r.root, "filer/filing.lock"), "true"]).status).not.toBe(0);
+      expect(out.status).toBe(5);
+      expect(r.version()).toContain(r.sha);
+      expect(out.stderr).toContain("cannot lock filer state; refusing CLI rollback");
+      expect(out.stderr).toContain("plugin=restored; CLI=failed");
+      expect(out.stderr).toContain("may differ");
+      expect(readFileSync(join(r.root, "plugin-log"), "utf8")).toContain("previous/plugin");
+      expect(out.stdout.trim().split("\n").at(-1)).toBe(`rollback ${r.root}/backup`);
+      expect(readdirSync(join(r.root, "backup")).some(p => p.startsWith("filings-"))).toBe(false);
+    } finally {
+      holder.kill("SIGKILL");
+      await finished;
+    }
+  });
+  for (const signal of ["INT", "TERM"]) for (const phase of ["clear", "before", "after"]) it(`reports a completed deploy on ${signal} at stamp phase ${phase}`, () => {
+    const r = cliRig();
+    mkdirSync(join(r.root, "state"));
+    writeFileSync(join(r.root, "state/installed.sha"), r.old + "\n");
+    const out = r.run("deploy", { STAMP_SIGNAL: signal, STAMP_PHASE: phase });
+    expect(out.status, out.stderr).toBe(0);
     expect(r.version()).toContain(r.sha);
     expect(readFileSync(join(r.root, "state/installed.sha"), "utf8").trim()).toBe(r.sha);
+    expect(readFileSync(join(r.root, "plugin-log"), "utf8")).not.toContain("previous");
+    expect(out.stdout).toContain(`deployed ${r.sha}; Home is running`);
+    expect(out.stdout.trim().split("\n").at(-1)).toBe(`rollback ${r.root}/backup`);
+  });
+  for (const signal of ["INT", "TERM"]) it(`protects the stamp child from process-group ${signal}`, () => {
+    const r = cliRig();
+    mkdirSync(join(r.root, "state"));
+    writeFileSync(join(r.root, "state/installed.sha"), r.old + "\n");
+    const out = r.run("deploy", { STAMP_GROUP_SIGNAL: signal });
+    expect(out.status, out.stderr).toBe(0);
+    expect(readFileSync(join(r.root, "stamp-child-survived"), "utf8").trim()).toBe(signal);
+    expect(readFileSync(join(r.root, "state/installed.sha"), "utf8").trim()).toBe(r.sha);
+    expect(out.stdout).not.toContain("installed.sha was not updated");
+    expect(out.stdout).toContain(`deployed ${r.sha}; Home is running`);
+    expect(out.stdout).toContain("ignoring INT/TERM");
+    expect(out.stdout.trim().split("\n").at(-1)).toBe(`rollback ${r.root}/backup`);
+    expect(readFileSync(join(r.root, "plugin-log"), "utf8")).not.toContain("previous");
+  });
+  for (const [signal, status] of [["INT", 130], ["TERM", 143]] as const) for (const phase of ["REPORT_SIGNAL", "REPORT_AFTER_SIGNAL"]) it(`finishes reporting before restoring ${signal} handling (${phase})`, () => {
+    const r = cliRig(), out = r.run("deploy", { [phase]: signal });
+    expect(out.stdout.trim().split("\n").at(-1)).toBe(`rollback ${r.root}/backup`);
+    expect(out.status, out.stderr).toBe(phase === "REPORT_SIGNAL" ? 0 : status);
+    expect(readFileSync(join(r.root, "state/installed.sha"), "utf8").trim()).toBe(r.sha);
+    expect(out.stdout).toContain(`deployed ${r.sha}; Home is running`);
     expect(readFileSync(join(r.root, "plugin-log"), "utf8")).not.toContain("previous");
   });
   for (const signal of ["INT", "TERM"]) it(`ignores a second ${signal} during automatic restoration`, () => {

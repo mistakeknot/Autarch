@@ -526,7 +526,8 @@ deploy)
   [ -d "$B" ] || git -C "$REPO" worktree add -q --detach "$B" "$COMMIT" || die "worktree add failed"
 # CLI transaction: begin
   trap cli_deploy_exit EXIT
-  trap 'exit 130' INT TERM
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   [ "$(git -C "$B" rev-parse HEAD)" = "$COMMIT" ] || die "$B is not at $COMMIT"
   cli_prepare "$B" "$COMMIT" || die "CLI build gate failed; nothing installed"
 # CLI transaction: end
@@ -553,6 +554,9 @@ deploy)
   CLI_SWAPPED=1
   cli_atomic_copy "$CLI_STAGE" || die "CLI atomic install failed"
   cli_postcheck || die "CLI post-check failed"
+  # Children must inherit ignored signals so a terminal interrupt cannot kill a stamp command.
+  trap '' INT TERM
+  echo "home-ui: ignoring INT/TERM until the verified deploy stamp and outcome are written"
   PLUGIN_TOUCHED=0 CLI_SWAPPED=0
 # CLI transaction: end
   # installed.sha write: begin (mk-zq345.8)
@@ -693,3 +697,9 @@ migrate-check)
   ' "$T/copy.db" ) || die "migration failed on the COPY (live untouched)"
   echo "migration ran on a copy of $BK; live was not touched" ;;
 esac
+# CLI transaction: begin
+if [ "$SUB" = deploy ]; then
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+fi
+# CLI transaction: end

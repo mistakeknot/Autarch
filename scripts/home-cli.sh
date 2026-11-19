@@ -7,6 +7,7 @@ PLUGIN_TOUCHED=0
 CLI_SYSTEMCTL=${HOME_UI_SYSTEMCTL:-systemctl}
 CLI_PROC_ROOT=${HOME_UI_PROC_ROOT:-/proc}
 CLI_BEFORE_PID=
+readonly CLI_FILER_LOCK_WAIT=${HOME_UI_FILER_LOCK_WAIT:-30}
 
 cli_revision() {
   "$1" version 2>/dev/null | sed -n 's/^revision \([0-9a-f]\{40\}\) modified=.*/\1/p'
@@ -124,7 +125,7 @@ cli_save_filer_state() (
     return 0
   fi
   # Same exclusive flock used by internal/homeask/flock_unix.go; the subshell releases it on every return.
-  if ! { exec {filer_lock}>>"$dir/filing.lock" && flock -x "$filer_lock"; }; then
+  if ! { exec {filer_lock}>>"$dir/filing.lock" && flock -x -w "$CLI_FILER_LOCK_WAIT" "$filer_lock"; }; then
     echo "home-ui: cannot lock filer state; refusing CLI rollback" >&2
     return 1
   fi
@@ -168,15 +169,19 @@ cli_restore() {
 
 cli_deploy_exit() {
   local rc=$? failed=0
+  local cli_outcome=unchanged plugin_outcome=restored
   local BB=${HOME_UI_BB_REAL:-$BB}
   trap - EXIT
   trap '' INT TERM
   if [ "$CLI_SWAPPED" = 1 ] || [ "$PLUGIN_TOUCHED" = 1 ]; then
     echo "home-ui: deploy failed during installation; restoring previous CLI and plugin" >&2
-    if [ "$CLI_SWAPPED" = 1 ]; then ( cli_restore "$BK" ) || failed=1; fi
+    if [ "$CLI_SWAPPED" = 1 ]; then
+      cli_outcome=restored
+      ( cli_restore "$BK" ) || { failed=1; cli_outcome=failed; }
+    fi
     # install_build may call die; contain its exit so the warning and rollback command always print.
-    ( install_build "$(cat "$BK/previous-source.txt")" ) || failed=1
-    [ "$failed" = 0 ] || echo "home-ui: automatic rollback incomplete; plugin and CLI may differ; run rollback" >&2
+    ( install_build "$(cat "$BK/previous-source.txt")" ) || { failed=1; plugin_outcome=failed; }
+    [ "$failed" = 0 ] || echo "home-ui: automatic rollback incomplete: plugin=$plugin_outcome; CLI=$cli_outcome; plugin and CLI may differ; run rollback" >&2
     rollback_cmd "$BK"
     rc=5
   fi

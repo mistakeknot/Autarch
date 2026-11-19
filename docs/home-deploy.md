@@ -29,6 +29,10 @@ An absent unit is explicitly skipped; failure to query systemd is an error.
 A failure after the swap automatically restores both CLI and plugin, restarts
 and checks the restored service, exits nonzero, and prints the rollback command.
 An incomplete restoration explicitly warns that the components may differ.
+Once both components pass verification, the command announces that INT/TERM
+is ignored while writing the deploy stamp and outcome. Stamp children inherit
+that protection. Afterwards normal signal handling resumes: INT exits 130,
+and TERM exits 143. Signals ignored during stamping do not change the exit status.
 `rollback BACKUP_DIR` restores both components; old backups without CLI records
 leave the CLI alone and say so. Data restoration remains opt-in.
 
@@ -36,6 +40,9 @@ Before every CLI rollback, the command copies the current filer state to
 `filings-<timestamp>-<unique suffix>.json` in that deploy's backup directory and
 prints its path. This happens before restoring or restarting the old binary.
 The copy holds the filer's existing exclusive `filing.lock` through verification.
+Lock acquisition waits at most 30 seconds (`HOME_UI_FILER_LOCK_WAIT` overrides
+this bound for tests); a timeout refuses CLI rollback while plugin rollback
+still proceeds and reports both outcomes with the rollback command.
 Keep filers quiet during rollback to avoid new entries after that lock is released.
 If the copy or its verification fails, CLI rollback is refused; plugin rollback
 still proceeds, and the command warns that the components may differ. If no
