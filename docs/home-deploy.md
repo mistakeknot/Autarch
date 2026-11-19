@@ -30,9 +30,9 @@ A failure after the swap automatically restores both CLI and plugin, restarts
 and checks the restored service, exits nonzero, and prints the rollback command.
 An incomplete restoration explicitly warns that the components may differ.
 Once both components pass verification, the command announces that INT/TERM
-is ignored while writing the deploy stamp and outcome. Stamp children inherit
-that protection. Afterwards normal signal handling resumes: INT exits 130,
-and TERM exits 143. Signals ignored during stamping do not change the exit status.
+stay ignored until the command exits. Stamp children inherit that protection
+while the deploy stamp and outcome are written. Ignored signals do not change
+the exit status.
 `rollback BACKUP_DIR` restores both components; old backups without CLI records
 leave the CLI alone and say so. Data restoration remains opt-in.
 
