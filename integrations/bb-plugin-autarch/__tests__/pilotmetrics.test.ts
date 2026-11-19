@@ -11,7 +11,7 @@ describe("pilot pick metrics", () => {
     const dir = mkdtempSync(join(tmpdir(), "pilot-metrics-"));
     const env = { AUTARCH_CARD_STATE_DIR: dir };
     const store = new Store(new Database(":memory:"));
-    writeFileSync(join(dir,"pilots.json"), JSON.stringify({ daycap: {enabled:true,until:"2099-01-01T00:00:00Z"} }));
+    writeFileSync(join(dir,"pilots.json"), JSON.stringify({ coldread: {enabled:true,until:"2099-01-01T00:00:00Z"} }));
     writeFileSync(join(dir,"filings.json"), JSON.stringify({ example:{request:{Type:"design",Urgent:true}} }));
     const input = { requestKey:"example", cardKey:"TEST-9", project:"example", pickId:"pick-1", time:"2026-11-15T12:00:00Z", optionKind:"needs-context", other:true, reason:"error: secret-value" };
     recordPilotPick(input,store,env);recordPilotPick(input,store,env);
@@ -24,6 +24,17 @@ describe("pilot pick metrics", () => {
     expect(store.events().filter(e => e.type === "pilot-pick-metric")).toHaveLength(1);
     store.db.close();
   });
+  it("treats daycap as retired while preserving historical observations", () => {
+    const dir = tmpDir();
+    const store = new Store(new Database(":memory:"));
+    try {
+      writeFileSync(join(dir.dir, "pilots.json"), JSON.stringify({ daycap: { enabled: true, until: "2099-01-01T00:00:00Z" } }));
+      const historical = { time: "2026-11-15T12:00:00Z", event_id: "pick:historical", event: "picked" };
+      store.recordPilotMetric(historical);
+      recordPilotPick({ requestKey: "example", cardKey: "fixture", project: "example", pickId: "new", time: historical.time, optionKind: "ruling-only", other: false }, store, { AUTARCH_CARD_STATE_DIR: dir.dir });
+      expect(store.pilotMetrics()).toEqual([historical]);
+    } finally { store.close(); dir.cleanup(); }
+  });
   it("names the pasted error heuristic", () => {
     for (const text of ["Traceback (most recent call last):", "error: missing build", "  at foo (build.js:14)", "exit code: 2"]) expect(pastedErrorV1(text)).toBe(true);
     expect(pastedErrorV1("Please choose blue")).toBe(false);
@@ -33,7 +44,7 @@ describe("pilot pick metrics", () => {
     const env = { AUTARCH_CARD_STATE_DIR: mkdtempSync(join(tmpdir(), "pilot-disabled-")) };
     const input = { requestKey: "example", cardKey: "fixture", project: "example", pickId: "pick", time: "2026-11-15T12:00:00Z", optionKind: "ruling-only", other: false };
     recordPilotPick(input, store, env);
-    writeFileSync(join(env.AUTARCH_CARD_STATE_DIR, "pilots.json"), JSON.stringify({ daycap: { enabled: true, until: "2099-01-01T00:00:00Z" } }));
+    writeFileSync(join(env.AUTARCH_CARD_STATE_DIR, "pilots.json"), JSON.stringify({ coldread: { enabled: true, until: "2099-01-01T00:00:00Z" } }));
     recordPilotPick(input, store, { ...env, AUTARCH_NEEDSMK_PILOTS_OFF: "1" });
     expect(store.pilotMetrics()).toEqual([]); store.db.close();
   });
