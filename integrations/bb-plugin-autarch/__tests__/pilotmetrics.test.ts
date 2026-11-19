@@ -10,6 +10,7 @@ describe("pilot pick metrics", () => {
   it.each([
     { name: "coldread only", pilots: { coldread: { enabled: true, until: "2099-01-01T00:00:00Z" } } },
     { name: "linkcheck only", pilots: { linkcheck: { enabled: true, until: "2099-01-01T00:00:00Z" } } },
+    // Checks coexistence only; the daycap-only test guards retirement.
     { name: "coldread with enabled leftover daycap", pilots: {
       daycap: { enabled: true, until: "2099-01-01T00:00:00Z" },
       coldread: { enabled: true, until: "2099-01-01T00:00:00Z" },

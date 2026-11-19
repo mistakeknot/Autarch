@@ -113,7 +113,7 @@ func TestPilotCLILivePilots(t *testing.T) {
 	}
 }
 
-func TestPilotCLIPrintsDailyCapReason(t *testing.T) {
+func TestPilotCLIDailyCapIgnored(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thr_x")
 	t.Setenv("AUTARCH_CARD_DAILY_CAP", "1")
 	s := &stubBB{}
@@ -142,9 +142,24 @@ func TestPilotCLIPrintsDailyCapReason(t *testing.T) {
 	if e != nil || strings.Contains(out, `"queued":true`) || warn != "" {
 		t.Fatalf("out=%s warning=%s err=%v", out, warn, e)
 	}
-	raw, _ := os.ReadFile(filepath.Join(f.StateDir, "filings.json"))
-	var state map[string]any
-	if json.Unmarshal(raw, &state) != nil {
-		t.Fatal("bad state")
+	raw, err := os.ReadFile(filepath.Join(f.StateDir, "filings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state map[string]struct {
+		Held       bool   `json:"held"`
+		HeldReason string `json:"held_reason"`
+	}
+	if err := json.Unmarshal(raw, &state); err != nil {
+		t.Fatal(err)
+	}
+	if len(state) != 2 {
+		t.Fatalf("want two filed entries, got %s", raw)
+	}
+	for _, key := range []string{"first", "second"} {
+		entry, ok := state[key]
+		if !ok || entry.Held || entry.HeldReason != "" {
+			t.Fatalf("request %q missing or held despite retired daily cap: %s", key, raw)
+		}
 	}
 }
