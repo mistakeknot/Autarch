@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReleaseUnknownProjectReportsFailureAndContinues(t *testing.T) {
@@ -108,6 +109,15 @@ func testReleaseUnknownProject(t *testing.T, owner string) {
 		t.Fatalf("footer=%s err=%v", &footer, err)
 	}
 	second := needsMkReleaseCmd()
+	statePath := filepath.Join(f.StateDir, "filings.json")
+	stamp := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(statePath, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	beforeRetry, err := os.Stat(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	out.Reset()
 	second.SetOut(&out)
 	second.SetErr(&bytes.Buffer{})
@@ -119,6 +129,13 @@ func testReleaseUnknownProject(t *testing.T, owner string) {
 	}
 	if report.OwnerAttention["bad"] != attention || readEntry()["owner_attention"] != attention {
 		t.Fatal("attention changed on retry")
+	}
+	afterRetry, err := os.Stat(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !beforeRetry.ModTime().Equal(afterRetry.ModTime()) || beforeRetry.Size() != afterRetry.Size() || !os.SameFile(beforeRetry, afterRetry) {
+		t.Fatal("unchanged missing-project retry rewrote filing state")
 	}
 
 }

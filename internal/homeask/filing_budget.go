@@ -676,9 +676,11 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		unlock()
 		return CardResult{}, "", nil
 	}
-	e.Attempted = true
-	state[key] = e
-	err = saveFilingState(path, state)
+	if !e.Attempted {
+		e.Attempted = true
+		state[key] = e
+		err = saveFilingState(path, state)
+	}
 	unlock()
 	if err != nil {
 		return CardResult{}, "", err
