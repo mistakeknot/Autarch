@@ -1,10 +1,6 @@
 package homeask
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"strconv"
 	"time"
 )
 
@@ -23,73 +19,13 @@ func pacificDay(t time.Time) string { return t.In(pacific).Format("2006-01-02") 
 func ordinary(r CardRequest) bool {
 	return !r.Urgent && r.KeepList == "" && r.Type != "merge" && r.RootRun == nil
 }
-func dailyCap() (int, error) {
-	n := CardDailyCap
-	if s := os.Getenv(EnvCardDailyCap); s != "" {
-		v, e := strconv.Atoi(s)
-		if e != nil || v < 1 {
-			return 0, fmt.Errorf("%w: %s must be a positive integer", ErrInvalid, EnvCardDailyCap)
-		}
-		n = v
-	}
-	return n, nil
-}
 func (f *CardFiler) anyPilot() bool {
-	return f.pilot("coldread") || f.pilot("daycap") || f.pilot("linkcheck")
+	return f.pilot("coldread") || f.pilot("linkcheck")
 }
 
-// A global delivery lock covers admission through readback, including release.
-func (f *CardFiler) deliveryGate() (func(), error) {
-	if !f.pilot("daycap") {
-		return func() {}, nil
-	}
-	d, e := f.stateDir()
-	if e != nil {
-		return nil, e
-	}
-	if e = os.MkdirAll(d, 0700); e != nil {
-		return nil, e
-	}
-	return lockFile(filepath.Join(d, "pilot-delivery.lock"))
-}
-func (f *CardFiler) dailyFull(s filingState, r CardRequest) (bool, error) {
-	if !f.pilot("daycap") || !ordinary(r) {
-		return false, nil
-	}
-	limit, e := dailyCap()
-	if e != nil {
-		return false, e
-	}
-	day := pacificDay(f.clock())
-	n := 0
-	seen := map[string]bool{}
-	for key, v := range s {
-		// Recovery reuses its already-admitted slot; it does not consume a second delivery.
-		if key == r.Key && v.Held && (v.DeliveredAt != "" || v.DeliveryPendingAt != "") {
-			continue
-		}
-		if v.Uncharged || !ordinary(v.Request) {
-			continue
-		}
-		at := v.DeliveredAt
-		if at == "" {
-			at = v.DeliveryPendingAt
-		}
-		t, e := time.Parse(time.RFC3339Nano, at)
-		if e != nil || pacificDay(t) != day {
-			continue
-		}
-		id := v.DeliveredCard
-		if id == "" {
-			id = key
-		}
-		if !seen[id] {
-			seen[id] = true
-			n++
-		}
-	}
-	return n >= limit, nil
-}
+// The retired daycap pilot remains accepted as a compatibility no-op.
+func (f *CardFiler) deliveryGate() (func(), error)                    { return func() {}, nil }
+func (f *CardFiler) dailyFull(filingState, CardRequest) (bool, error) { return false, nil }
 func (f *CardFiler) noteDelivery(key string, result CardResult) error {
 	if !f.anyPilot() || result.ID == "" {
 		return nil

@@ -60,7 +60,7 @@ type CardFiler struct {
 	ColdReader    ColdReader
 	Links         LinkChecker
 	StateDir      string           // persistent filing state; default XDG_STATE_HOME/autarch/needsmk
-	WeeklyBudget  int              // zero uses AUTARCH_CARD_WEEKLY_BUDGET or defaultWeeklyBudget (50)
+	WeeklyBudget  int              // Deprecated: ignored; retained for caller compatibility.
 	Now           func() time.Time // test clock; default time.Now
 	Bin           string           // default "bb"
 	Timeout       time.Duration    // per bb call, default 10 s
@@ -137,7 +137,7 @@ type RootRunSpec = RootRun
 type CardRequest struct {
 	replayEntry  *filingEntry           // internal verified replay target
 	replacesHeld string                 // internal escalation source, never part of the wire or saved JSON
-	beforeCreate func(string) error     // final budget admission for an update falling back to create
+	beforeCreate func(string) error     // record an update falling back to create
 	afterUpdate  func(CardResult) error // persist a successful edit before its ruling read
 
 	Urgent      bool

@@ -7,43 +7,6 @@ import (
 	"testing"
 )
 
-func TestRound2FullCapSkipsChecksAndWakes(t *testing.T) {
-	t.Setenv(EnvCardDailyCap, "1")
-	bb := newFake(t, registryOnCreate)
-	f := bb.filer()
-	if e := f.SetPilot("daycap", true); e != nil {
-		t.Fatal(e)
-	}
-	r := testReq()
-	r.Key = "delivered"
-	if _, e := f.FileCard(context.Background(), r); e != nil {
-		t.Fatal(e)
-	}
-	r.Key = "held"
-	r.NonBlocking = true
-	if _, e := f.FileCard(context.Background(), r); e != nil {
-		t.Fatal(e)
-	}
-	if e := f.SetPilot("linkcheck", true); e != nil {
-		t.Fatal(e)
-	}
-	calls, wakes := 0, 0
-	f.Links = reviewLinks(func(context.Context, CardRequest) []LinkFailure {
-		calls++
-		return []LinkFailure{{Item: "https://preview.invalid/gone", Reason: "HTTP 502"}}
-	})
-	f.Run = func(ctx context.Context, env []string, args ...string) BBResult {
-		if len(args) > 1 && args[0] == "thread" && args[1] == "tell" {
-			wakes++
-			return BBResult{}
-		}
-		return bb.run(ctx, env, args...)
-	}
-	report, e := f.ReleaseDetailed(context.Background())
-	if e != nil || calls != 0 || wakes != 0 || len(report.Failures) != 0 {
-		t.Fatalf("full cap must skip slow checks: calls=%d wakes=%d report=%+v err=%v", calls, wakes, report, e)
-	}
-}
 func TestRound2AttemptedHeldRetryRecoversCanonicalCard(t *testing.T) {
 	f := newFake(t, registryOnCreate).filer()
 	r := testReq()

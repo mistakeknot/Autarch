@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -19,7 +18,6 @@ const EnvCardStateDir = "AUTARCH_CARD_STATE_DIR"
 
 type CardBudget struct {
 	Ordinary  int    `json:"ordinary"`
-	Limit     int    `json:"limit"`
 	Exempt    int    `json:"exempt"`
 	WeekStart string `json:"week_start"`
 	WeekEnd   string `json:"week_end"`
@@ -28,17 +26,13 @@ type CardBudget struct {
 
 // BudgetStatus exposes ordinary and exempt volume for the Pacific Thursday-noon week.
 func (f *CardFiler) BudgetStatus(project string) (CardBudget, error) {
-	limit, err := f.budget()
-	if err != nil {
-		return CardBudget{}, err
-	}
 	state, _, unlock, err := f.openState()
 	if err != nil {
 		return CardBudget{}, err
 	}
 	defer unlock()
 	week := pacificBudgetWeek(f.clock())
-	status := CardBudget{Limit: limit, WeekStart: week.start.Format(time.RFC3339), WeekEnd: week.end.Format(time.RFC3339), TimeZone: pacific.String()}
+	status := CardBudget{WeekStart: week.start.Format(time.RFC3339), WeekEnd: week.end.Format(time.RFC3339), TimeZone: pacific.String()}
 	for _, e := range state {
 		if e.Project == strings.ToLower(project) && reservedInWeek(e, week) && !e.Uncharged && !e.Refunded {
 			if e.Request.Urgent || e.Request.KeepList != "" {
@@ -160,27 +154,6 @@ func saveFilingState(path string, state filingState) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// defaultWeeklyBudget is the ordinary cards per Home project per Pacific week when
-// neither CardFiler.WeeklyBudget nor AUTARCH_CARD_WEEKLY_BUDGET is set (mk-bzi8s).
-const defaultWeeklyBudget = 50
-
-func (f *CardFiler) budget() (int, error) {
-	n := f.WeeklyBudget
-	if n == 0 {
-		n = defaultWeeklyBudget
-		if v := os.Getenv(EnvCardWeeklyBudget); v != "" {
-			var err error
-			n, err = strconv.Atoi(v)
-			if err != nil {
-				return 0, fmt.Errorf("%w: %s must be a positive integer", ErrInvalid, EnvCardWeeklyBudget)
-			}
-		}
-	}
-	if n < 1 {
-		return 0, fmt.Errorf("%w: weekly card budget must be positive", ErrInvalid)
-	}
-	return n, nil
-}
 func checkKeepList(value string) error {
 	switch value {
 	case "", "spend", "credentials", "sign-ins/payments", "tags/releases/publishes", "force-pushes", "standing-approvals":
@@ -234,10 +207,6 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 			return CardResult{}, e
 		}
 		r.Attachments[i] = absolute
-	}
-	limit, err := f.budget()
-	if err != nil {
-		return CardResult{}, err
 	}
 	dir, e := f.stateDir()
 	if e != nil {
@@ -463,20 +432,11 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		windowHeld = nowHeld
 		week := pacificBudgetWeek(admittedAt)
 		project := strings.ToLower(fmt.Sprint(r.Ask["project"]))
-		used := ordinaryReservations(state, project, week)
-		if !uncharged && used >= limit && !r.Urgent && r.KeepList == "" {
-			return CardResult{}, fmt.Errorf("%w: weekly card budget of %d reached; decide by your stated default, log the decision on your bead, show mk the result in the next build; use --urgent or --keep-list only for an exception", ErrInvalid, limit)
-		}
-		full, e := f.dailyFull(state, r)
-		if e != nil {
-			return CardResult{}, e
-		}
-		held := r.NonBlocking || full || windowHeld
+		held := r.NonBlocking || windowHeld
 		reason := ""
 		if windowHeld {
 			reason = "weekday-window"
-		} else if full {
-			reason = "daily-cap"
+
 		} else if held && f.anyPilot() {
 			reason = "non-blocking"
 		}
@@ -492,9 +452,6 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		f.pilotEvent(r, "filed", "", "")
 		if held {
 			f.pilotEvent(r, "held", "", reason)
-			if full && f.Warn != nil {
-				f.Warn("held: daily-cap reached; queued for ranked release")
-			}
 			return state[r.Key].heldResult(r.Key, false), nil
 		}
 	}
@@ -560,14 +517,6 @@ func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) 
 		}
 	}
 	f = &scoped
-	if _, err := f.budget(); err != nil {
-		return report, err
-	}
-	if f.pilot("daycap") {
-		if _, err := dailyCap(); err != nil {
-			return report, err
-		}
-	}
 	state, _, unlock, err := f.openState()
 	if err != nil {
 		return report, err
@@ -579,18 +528,7 @@ func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) 
 			keys = append(keys, key)
 		}
 	}
-	rankByBlocks := f.pilot("daycap")
 	sort.Slice(keys, func(i, j int) bool {
-		if rankByBlocks {
-			a, b := state[keys[i]], state[keys[j]]
-			if len(a.Request.Blocks) != len(b.Request.Blocks) {
-				return len(a.Request.Blocks) > len(b.Request.Blocks)
-			}
-			if a.FiledAt != b.FiledAt {
-				return a.FiledAt < b.FiledAt
-			}
-			return keys[i] < keys[j]
-		}
 		a, b := state[keys[i]].Request.Type, state[keys[j]].Request.Type
 		if a == b {
 			return keys[i] < keys[j]
@@ -662,13 +600,6 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		unlock()
 		return CardResult{}, "", nil
 	}
-	// Snapshot the cap to skip link and preflight checks when delivery is full.
-	// Owner notices must still be refreshed; admission is rechecked under the fleet gate.
-	fullBeforeChecks, capErr := f.dailyFull(state, e.Request)
-	if capErr != nil {
-		unlock()
-		return CardResult{}, "", capErr
-	}
 	unlock()
 	r := e.Request
 	if r.Owner != "" {
@@ -692,7 +623,7 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 			return CardResult{}, r.Type, ownerErr
 		}
 	}
-	if fullBeforeChecks || weeklyHold(f.clock(), r) {
+	if weeklyHold(f.clock(), r) {
 		return CardResult{}, "", nil
 	}
 	if f.pilot("linkcheck") {
@@ -729,15 +660,6 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		return CardResult{}, "", nil
 	}
 	if weeklyHold(f.clock(), e.Request) {
-		unlock()
-		return CardResult{}, "", nil
-	}
-	full, capErr := f.dailyFull(state, e.Request)
-	if capErr != nil {
-		unlock()
-		return CardResult{}, "", capErr
-	}
-	if full {
 		unlock()
 		return CardResult{}, "", nil
 	}
@@ -892,8 +814,7 @@ func (f *CardFiler) resolveTerminal(ctx context.Context, key string, reason erro
 	return result, saveFilingState(path, state)
 }
 
-// An update target can disappear after the read-only admission probe. Recheck the
-// budget at the actual creation boundary before allowing that fallback to create.
+// Record the creation boundary, including updates whose target disappeared.
 func (f *CardFiler) chargeCreation(r CardRequest, creationKey string) error {
 	state, path, unlock, err := f.openState()
 	if err != nil {
@@ -905,21 +826,8 @@ func (f *CardFiler) chargeCreation(r CardRequest, creationKey string) error {
 		return fmt.Errorf("%w: missing creation reservation", ErrInvalid)
 	}
 	entry.CreationKey = creationKey
-	if f.pilot("daycap") && entry.DeliveredAt == "" {
+	if f.anyPilot() && entry.DeliveredAt == "" {
 		entry.DeliveryPendingAt = f.clock().Format(time.RFC3339Nano)
-	}
-	if !entry.Uncharged {
-		state[r.Key] = entry
-		return saveFilingState(path, state)
-	}
-	limit, err := f.budget()
-	if err != nil {
-		return err
-	}
-	for _, week := range reservationWeeks(entry) {
-		if ordinaryReservations(state, entry.Project, week) >= limit && !r.Urgent && r.KeepList == "" {
-			return fmt.Errorf("%w: weekly card budget reached before creating replacement; decide by your stated default, log the decision on your bead, show mk the result in the next build", ErrInvalid)
-		}
 	}
 	entry.Uncharged = false
 	state[r.Key] = entry

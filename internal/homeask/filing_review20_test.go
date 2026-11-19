@@ -2,35 +2,14 @@ package homeask
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
-
-func TestHeldOutcomeReportsDailyCapAndReplay(t *testing.T) {
-	t.Setenv(EnvCardDailyCap, "1")
-	f := newFake(t, registryOnCreate).filer()
-	enablePilot(t, f, "daycap")
-	ask := base()
-	ask.Project, ask.ProjectRoot, ask.RequestID = "autarch", "/sample", "delivered"
-	if id, err := f.File(context.Background(), ask); err != nil || id == "" {
-		t.Fatalf("first delivery: %q %v", id, err)
-	}
-	ask.RequestID = "held"
-	for range 2 {
-		id, err := f.File(context.Background(), ask)
-		var held *HeldError
-		if !errors.As(err, &held) || id != "" || held.RequestKey != "held" || held.Reason != "daily-cap" || !strings.Contains(err.Error(), "daily") || strings.Contains(err.Error(), "Thursday") {
-			t.Fatalf("daily cap mislabeled as weekday hold: id=%q err=%v", id, err)
-		}
-	}
-}
 
 func TestAdmissionUsesClockAfterStateLock(t *testing.T) {
 	if runtime.GOOS == "windows" {

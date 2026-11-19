@@ -3,7 +3,6 @@ package homeask
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -198,8 +197,8 @@ func TestPacificLegacyISOReservations(t *testing.T) {
 	f.WeeklyBudget = 2
 	r := testReq()
 	r.NonBlocking = true
-	if _, err := f.FileCard(context.Background(), r); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("legacy reservations did not enforce the budget: %v", err)
+	if _, err := f.FileCard(context.Background(), r); err != nil {
+		t.Fatalf("legacy reservations blocked filing: %v", err)
 	}
 }
 
@@ -261,8 +260,8 @@ func TestPacificLegacyReplacementChecksMappedBudget(t *testing.T) {
 	done()
 	r := testReq()
 	r.Key = "edit"
-	if err := f.chargeCreation(r, "replacement"); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("replacement ignored mapped reservation: %v", err)
+	if err := f.chargeCreation(r, "replacement"); err != nil {
+		t.Fatalf("replacement failed: %v", err)
 	}
 }
 
@@ -339,16 +338,16 @@ func TestDailyCapFillingUsesDeliveryDayClock(t *testing.T) {
 			}
 			full, err := f.dailyFull(state, r)
 			done()
-			if err != nil || full == tc.held {
+			if err != nil || full {
 				t.Fatalf("only delivery fills the daily cap: full=%v held=%v err=%v", full, tc.held, err)
 			}
 			r.Key = "second"
 			second, err := f.FileCard(context.Background(), r)
-			reason := "daily-cap"
+			reason := ""
 			if tc.held {
 				reason = "weekday-window"
 			}
-			if err != nil || !second.Queued || second.HoldReason != reason {
+			if err != nil || second.Queued != tc.held || second.HoldReason != reason {
 				t.Fatalf("wrong ordinary hold: %+v %v; want %s", second, err, reason)
 			}
 		})

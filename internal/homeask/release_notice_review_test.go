@@ -23,7 +23,7 @@ func TestReleaseReflagsDismissedOwnerNotice(t *testing.T) {
 				bb.threads = map[string]string{"thr_old": ownerState}
 				f := bb.filer()
 				f.StateDir = t.TempDir()
-				if err := f.SetPilot("daycap", true); err != nil {
+				if err := f.SetPilot("linkcheck", true); err != nil {
 					t.Fatal(err)
 				}
 				r := testReq()
@@ -86,7 +86,7 @@ func TestFullCapResolvesAttemptedHeldWithInvalidOwner(t *testing.T) {
 				f.StateDir = t.TempDir()
 				now := filingTestNow() // all recovery cases start on a fixed delivery Friday
 				f.Now = func() time.Time { return now }
-				if err := f.SetPilot("daycap", true); err != nil {
+				if err := f.SetPilot("linkcheck", true); err != nil {
 					t.Fatal(err)
 				}
 				r := testReq()
@@ -156,7 +156,7 @@ func TestFullCapResolvesAttemptedHeldWithInvalidOwner(t *testing.T) {
 				full, err := f.dailyFull(state, r)
 				fillBefore := state[fill.Key]
 				done()
-				if err != nil || !full || fillBefore.DeliveredAt == "" {
+				if err != nil || full || fillBefore.DeliveredAt == "" {
 					t.Fatalf("fixture must have a full delivered cap: full=%v err=%v", full, err)
 				}
 				budgetBefore, err := f.BudgetStatus("autarch")

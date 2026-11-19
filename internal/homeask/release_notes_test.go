@@ -30,7 +30,7 @@ func TestReleaseNotesRecoveredOwnerNotFailed(t *testing.T) {
 	bb := newFake(t, registryOnCreate)
 	bb.threads = map[string]string{"thr_old": "live"}
 	f := bb.filer()
-	if e := f.SetPilot("daycap", true); e != nil {
+	if e := f.SetPilot("linkcheck", true); e != nil {
 		t.Fatal(e)
 	}
 	r := testReq()

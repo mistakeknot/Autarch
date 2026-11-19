@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestUpdateAtBudgetLimitIsFree(t *testing.T) {
@@ -72,11 +71,11 @@ func TestHeldUpdateFallbackHonorsBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	bb.tasks[0].Status = "done"
-	if _, err := f.Release(ctx); err == nil {
-		t.Fatal("replacement bypassed full budget")
+	if _, err := f.Release(ctx); err != nil {
+		t.Fatal(err)
 	}
-	if bb.count("tasks", "create") != 1 {
-		t.Fatal("created over budget")
+	if bb.count("tasks", "create") != 2 {
+		t.Fatal("replacement not created")
 	}
 }
 
@@ -206,39 +205,6 @@ func TestReplaySkipsMediaAndBudgetAcrossStateDirs(t *testing.T) {
 	budget, _ := f.BudgetStatus("autarch")
 	if budget.Ordinary != 1 {
 		t.Fatal(budget)
-	}
-}
-
-func TestPacificWeekBoundaryLocalClock(t *testing.T) {
-	zone, err := time.LoadLocation("America/Los_Angeles")
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Date(2026, 11, 15, 23, 59, 0, 0, zone)
-	f := newFake(t, registryOnCreate).filer()
-	f.WeeklyBudget = 1
-	f.Now = func() time.Time { return now }
-	r := testReq()
-	r.NonBlocking = true
-	ctx := context.Background()
-	if _, err = f.FileCard(ctx, r); err != nil {
-		t.Fatal(err)
-	}
-	r.Key = "next"
-	if _, err = f.FileCard(ctx, r); err == nil {
-		t.Fatal("Sunday limit not enforced")
-	}
-	now = now.Add(time.Minute)
-	if _, err = f.FileCard(ctx, r); err == nil {
-		t.Fatal("Monday incorrectly reset the budget")
-	}
-	now = time.Date(2026, 11, 19, 12, 0, 0, 0, zone)
-	if _, err = f.FileCard(ctx, r); err != nil {
-		t.Fatal("Thursday noon slot not reset", err)
-	}
-	count, _ := f.BudgetStatus("autarch")
-	if count.Ordinary != 1 {
-		t.Fatal(count)
 	}
 }
 

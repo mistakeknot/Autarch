@@ -62,13 +62,3 @@ func reservedInWeek(e filingEntry, week budgetWeek) bool {
 	}
 	return false
 }
-
-func ordinaryReservations(state filingState, project string, week budgetWeek) int {
-	n := 0
-	for _, e := range state {
-		if e.Project == project && reservedInWeek(e, week) && !e.Uncharged && !e.Refunded && !e.Request.Urgent && e.Request.KeepList == "" {
-			n++
-		}
-	}
-	return n
-}

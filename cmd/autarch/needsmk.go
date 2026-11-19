@@ -236,21 +236,21 @@ func needsMkFileCmd() *cobra.Command {
 		Use:   "file",
 		Short: "File a needs-mk card from the asking thread; prints the card as one JSON line",
 		Long: `Run inside the asking thread ($BB_THREAD_ID is required): the filer posts the
-routing comment from it. AUTARCH_CARD_WEEKLY_BUDGET sets the weekly budget (default 50).
-The budget week starts Thursday 12:00 America/Los_Angeles; needs-mk budget shows
+routing comment from it. Legacy card count environment settings are ignored.
+The reporting week starts Thursday 12:00 America/Los_Angeles; needs-mk budget shows
 the current Pacific start and end. Legacy ISO reservations still count conservatively
 in overlapping weeks when their filing time is unknown.
 AUTARCH_CARD_STATE_DIR overrides the local XDG state directory.
---non-blocking queues a card until needs-mk release, reserving its slot now.
+--non-blocking queues a card until needs-mk release.
 Ordinary cards filed Monday 00:00 through Thursday before 12:00 Pacific are also
 held for the Thursday batch. Urgent, keep-list, merge and root-run cards bypass
 this weekday hold. Release inside that window leaves ordinary cards queued;
 schedule release at Thursday noon or later. Counted slots stay in their filing week.
---urgent or --keep-list marks a budget exception. Exit 0 means filed: JSON has a non-empty card_key.
+--urgent and --keep-list add labels. Exit 0 means filed: JSON has a non-empty card_key.
 Held cards exit 6, with queued:true, the request key and no card_key on stdout
 (--json is also accepted). Treat exit 6 as queued, not as a filed card or an uncertain write.
---urgent exempts the budget; --urgency blocker only controls phone push and does not exempt the budget.
-Exempt cards are recorded separately and never consume ordinary slots; needs-mk budget shows both tallies.
+--urgency blocker controls phone push.
+needs-mk budget reports ordinary and labeled (exempt) counts without a limit.
 After filing, waits up to 30 seconds for Home's index. If the key remains missing, exits 4
 with no success JSON: the card may have been filed. The error gives the request key;
 re-run with that same --request and unchanged input to replay without duplicating it.
@@ -473,9 +473,9 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&urgent, "urgent", false, "Exempt this urgent card from the weekly budget")
-	cmd.Flags().BoolVar(&nonBlocking, "non-blocking", false, "Hold for needs-mk release; reserves a weekly budget slot now")
-	cmd.Flags().StringVar(&keepList, "keep-list", "", "Budget exception: spend, credentials, sign-ins/payments, tags/releases/publishes, force-pushes, standing-approvals")
+	cmd.Flags().BoolVar(&urgent, "urgent", false, "Label this card urgent")
+	cmd.Flags().BoolVar(&nonBlocking, "non-blocking", false, "Hold for needs-mk release")
+	cmd.Flags().StringVar(&keepList, "keep-list", "", "Label: spend, credentials, sign-ins/payments, tags/releases/publishes, force-pushes, standing-approvals")
 	cmd.Flags().BoolVar(&ui, "ui", false, "Mark a UI card; play and merge require a screenshot or video")
 	cmd.Flags().StringArrayVar(&attachments, "attach", nil, "Non-symlink, non-empty png/jpg/jpeg/webp/gif/mp4/webm media file; repeatable")
 	cmd.Flags().BoolVar(&checkOnly, "check", false, "Run all preflight checks without submitting")
@@ -539,7 +539,7 @@ func needsMkReleaseCmd() *cobra.Command {
 	}}
 }
 func needsMkCancelHeldCmd() *cobra.Command {
-	return &cobra.Command{Use: "cancel-held REQUEST", Short: "Cancel an unsent card and refund its budget slot", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return newCardFiler().CancelHeld(args[0]) }}
+	return &cobra.Command{Use: "cancel-held REQUEST", Short: "Cancel an unsent card", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return newCardFiler().CancelHeld(args[0]) }}
 }
 
 func needsMkBudgetCmd() *cobra.Command {
