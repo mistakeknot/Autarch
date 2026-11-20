@@ -51,3 +51,22 @@ it.each([0,3,undefined])("Ideas shows its readable open count (%s)",ideas=>{
  const html=renderToStaticMarkup(<HomeOverflow ideas={ideas} onOpen={()=>{}}/>);
  expect(html).toContain(ideas===undefined?">Ideas</button>":`>Ideas (${ideas})</button>`);
 });
+
+it("keeps compact header spacing, keyboard-only rings and deterministic active colors",()=>{
+ const host=document.createElement("div");
+ host.innerHTML=renderToStaticMarkup(<QueueTabs tab="decide" counts={null} onTab={()=>{}} filter={<ProjectFilterBar compact choices={[{name:"Example",count:1}]} excluded={new Set()} hidden={0} onChange={()=>{}}/>} more={<HomeOverflow active="archive" onOpen={()=>{}}/>}/>);
+ const projects=host.querySelector('[data-project-filter-trigger]')!;
+ const more=host.querySelector('summary')!;
+ expect(projects.textContent).not.toContain("▾");
+ for(const control of [...Array.from(host.querySelectorAll('[role="tab"]')),projects,more]){
+  expect(control.className).toContain("focus-visible:ring-2");
+  expect(control.className).not.toMatch(/(?:^|\s)focus:ring-/);
+  expect(control.className).toContain("min-h-11");
+ }
+ for(const control of [projects,more])expect(control.className.split(" ")).toContain("px-2");
+ const selected=host.querySelector('[aria-selected="true"]')!;
+ expect(selected.className).toContain("bg-state-active");
+ expect(more.className).toContain("bg-muted");
+ expect(more.className.split(" ")).toContain("text-foreground");
+ for(const control of [selected,more])expect(control.className.split(" ")).not.toContain("bg-transparent");
+});
