@@ -62,7 +62,7 @@ export function MultiPick({ questions, onAnswer, disabled = false }: { questions
       ))}
       <label className="block text-xs text-muted-foreground">
         Note with your answers (optional)
-        <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={20000} disabled={disabled || pending} className="mt-1 block w-full rounded border border-border bg-background p-2 text-sm" data-multipick-note />
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={20000} disabled={disabled || pending} className="mt-1 block w-full rounded border border-input bg-transparent p-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-multipick-note />
       </label>
       <div className="flex flex-wrap items-center gap-2">
         <ActionButton tone="recommended" disabled={!ready || disabled || pending} selected={pending} onClick={() => void send()} data-multipick-answer>Answer</ActionButton>
@@ -70,7 +70,7 @@ export function MultiPick({ questions, onAnswer, disabled = false }: { questions
           {ready ? (changed > 0 ? `${changed} of ${questions.length} differ from the recommendation.` : "All recommended.") : "Pick one option for every question."}
         </span>
       </div>
-      {failure !== null ? <p role="alert" className="text-xs font-medium text-destructive" data-pick-failure>{`Your answers did not go through: ${failure}. The ask is still open; try again.`}</p> : null}
+      {failure !== null ? <p role="alert" className="text-xs font-medium text-[var(--destructive-text,var(--destructive))]" data-pick-failure>{`Your answers did not go through: ${failure}. The ask is still open; try again.`}</p> : null}
     </div>
   );
 }

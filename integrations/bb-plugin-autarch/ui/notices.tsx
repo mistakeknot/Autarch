@@ -12,7 +12,7 @@ export function NoticeBanner({ notices, suspended, onAcknowledge }: { notices: N
   if (notices.length === 0) return null;
   return (
     <section className="rounded-lg border border-destructive p-3" role="region" aria-label="Needs your eyes" data-section="needs-eyes">
-      <h2 className="m-0 text-xs font-semibold uppercase text-destructive">{`Needs your eyes (${notices.length})`}</h2>
+      <h2 className="m-0 text-xs font-semibold uppercase text-[var(--destructive-text,var(--destructive))]">{`Needs your eyes (${notices.length})`}</h2>
       {suspended ? <p className="mb-0 mt-1 text-sm font-medium" data-suspended>Delegated rulings are suspended until you acknowledge this.</p> : null}
       <ul className="m-0 mt-2 list-none space-y-2 p-0">
         {notices.map((n) => (

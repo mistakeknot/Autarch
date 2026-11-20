@@ -151,7 +151,7 @@ export function PickHoldBar({ hold }: { hold: PickHold }) {
   if (hold.failure !== null) {
     return (
       <div className="flex min-h-12 items-center justify-between gap-2 border-t border-border bg-muted px-4 py-1 text-sm" data-pick-hold-failure>
-        <span role="alert" className="font-medium text-destructive">{`Your answer did not go through: ${hold.failure}. The card is still open; try again.`}</span>
+        <span role="alert" className="font-medium text-[var(--destructive-text,var(--destructive))]">{`Your answer did not go through: ${hold.failure}. The card is still open; try again.`}</span>
         <ActionButton tone="quiet" className="min-h-11" onClick={hold.dismissFailure}>OK</ActionButton>
       </div>
     );

@@ -26,7 +26,7 @@ function UnboundRow({ u, serveProjects, onBind }: { u: UnboundView; serveProject
   return (
     <li className="flex flex-wrap items-center gap-2" data-unbound={u.tasks_project_id}>
       {`${u.tasks_project_id}: ${u.cards} open card${u.cards === 1 ? "" : "s"}, no binding${u.targets.length > 0 ? `; asks target ${u.targets.join(", ")}` : ""}`}
-      <select aria-label={`Citadel project for ${u.tasks_project_id}`} className="min-h-11 rounded-md border border-border bg-background px-2 sm:min-h-8" value={home} onChange={(e) => setPicked(e.target.value)}>
+      <select aria-label={`Citadel project for ${u.tasks_project_id}`} className="min-h-11 rounded-md border border-input bg-transparent px-2 sm:min-h-8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={home} onChange={(e) => setPicked(e.target.value)}>
         <option value="">choose a Citadel project</option>
         {serveProjects.map((p) => <option key={p} value={p}>{p}</option>)}
       </select>
@@ -90,12 +90,12 @@ export function SettingsPanel({ delegation, machineOwners, onSave }: { delegatio
       }}
     >
       <h2 className="text-xs font-semibold uppercase text-muted-foreground">Delegation</h2>
-      {delegation.suspended ? <p role="status" className="text-destructive">Delegation is suspended until you see this change.</p> : null}
-      <label className="block">Vizier thread<input name="vizierThreadId" defaultValue={s.vizierThreadId ?? ""} className="mt-1 block w-full rounded border border-border bg-background px-2 py-1" /></label>
-      <label className="block">Projects (comma separated)<input name="projects" defaultValue={(s.projects ?? []).join(", ")} className="mt-1 block w-full rounded border border-border bg-background px-2 py-1" /></label>
-      <label className="block">Daily cap<input name="dailyCap" defaultValue={String(s.dailyCap ?? 0)} className="mt-1 block w-full rounded border border-border bg-background px-2 py-1" /></label>
+      {delegation.suspended ? <p role="status" className="text-[var(--destructive-text,var(--destructive))]">Delegation is suspended until you see this change.</p> : null}
+      <label className="block">Vizier thread<input name="vizierThreadId" defaultValue={s.vizierThreadId ?? ""} className="mt-1 block w-full rounded border border-input bg-transparent px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" /></label>
+      <label className="block">Projects (comma separated)<input name="projects" defaultValue={(s.projects ?? []).join(", ")} className="mt-1 block w-full rounded border border-input bg-transparent px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" /></label>
+      <label className="block">Daily cap<input name="dailyCap" defaultValue={String(s.dailyCap ?? 0)} className="mt-1 block w-full rounded border border-input bg-transparent px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" /></label>
       <ActionButton type="submit" tone="recommended" data-save>Save</ActionButton>
-      {error ? <p role="alert" className="text-xs font-medium text-destructive" data-save-error>{`Not saved: ${error}.`}</p> : null}
+      {error ? <p role="alert" className="text-xs font-medium text-[var(--destructive-text,var(--destructive))]" data-save-error>{`Not saved: ${error}.`}</p> : null}
       <h2 className="pt-4 text-xs font-semibold uppercase text-muted-foreground">Machine owners (read-only)</h2>
       <ul>{Object.entries(machineOwners).map(([k, v]) => <li key={k}>{`${k}: ${v}`}</li>)}</ul>
     </form>

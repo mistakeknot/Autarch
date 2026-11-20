@@ -42,7 +42,7 @@ export function ArchiveRowView({ row, onBringBack, busy, error }: { row: Archive
           {row.reason ? <span className="text-muted-foreground"> — {row.reason}</span> : null}
         </p>
       )}
-      {error ? <p className="m-0 text-xs text-destructive" role="alert" data-archive-error>Could not bring it back: {error}</p> : null}
+      {error ? <p className="m-0 text-xs text-[var(--destructive-text,var(--destructive))]" role="alert" data-archive-error>Could not bring it back: {error}</p> : null}
       {onBringBack ? (
         <div>
           <ActionButton aria-disabled={blocked || undefined} aria-describedby={unavailable ? reasonId : undefined} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50" onClick={() => { if (!blocked && !submitted.current) setConfirming(true); }} data-archive-bringback={row.card_key}>Bring back</ActionButton>
@@ -128,7 +128,7 @@ export function ArchivePanel({ api }: { api: ArchiveApi }) {
         <input className={input} type="text" placeholder="Pick contains" value={f.pick} onChange={(e) => set("pick")(e.target.value)} aria-label="Pick" data-archive-pickfilter />
         <ActionButton tone="recommended" type="submit" data-archive-apply>Apply</ActionButton>
       </form>
-      {err ? <p className="m-0 text-sm text-destructive" role="alert">Could not load the archive: {err}</p> : null}
+      {err ? <p className="m-0 text-sm text-[var(--destructive-text,var(--destructive))]" role="alert">Could not load the archive: {err}</p> : null}
       <p className="m-0 text-xs text-muted-foreground" data-archive-count>{page.total} decided card{page.total === 1 ? "" : "s"}.</p>
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
         {page.rows.map((r) => <ArchiveRowView key={r.task_id} row={r} onBringBack={bringBack} busy={working !== null} error={rowErr[r.task_id] ?? null} />)}

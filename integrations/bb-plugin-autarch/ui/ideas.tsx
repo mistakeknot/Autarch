@@ -47,7 +47,7 @@ export function ProjectCombobox({ projects, value, disabled, onChange }: { proje
         aria-autocomplete="list"
         {...(open ? { "aria-controls": listId } : {})}
         {...(activeId ? { "aria-activedescendant": activeId } : {})}
-        className="min-h-11 w-full rounded-md border border-input bg-background px-2 text-sm sm:min-h-8"
+        className="min-h-11 w-full rounded-md border border-input bg-transparent px-2 text-sm sm:min-h-8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         placeholder="Choose a project"
         value={shown}
         disabled={disabled}
@@ -71,7 +71,7 @@ export function ProjectCombobox({ projects, value, disabled, onChange }: { proje
         data-idea-project
       />
       {open ? (
-        <ul id={listId} role="listbox" aria-label="Projects" className="absolute z-10 m-0 mt-1 max-h-60 w-full list-none overflow-y-auto rounded-md border border-border bg-background p-0 shadow-md" data-idea-project-list>
+        <ul id={listId} role="listbox" aria-label="Projects" className="absolute z-10 m-0 mt-1 max-h-60 w-full list-none overflow-y-auto rounded-md border border-border bg-[var(--popover,var(--background))] text-[var(--popover-foreground,var(--foreground))] p-0 shadow-md" data-idea-project-list>
           {matches.length === 0 ? <li className="px-2 py-2 text-sm text-muted-foreground" data-idea-project-none>No project matches.</li> : matches.map((p, i) => (
             <li
               key={p.id}
@@ -107,12 +107,12 @@ export function IdeaBox({ projects, project, text, busy, error, notice, onProjec
       <label className="block text-xs font-semibold uppercase text-muted-foreground" htmlFor="idea-project">Project</label>
       <ProjectCombobox projects={projects} value={project} disabled={busy} onChange={onProject} />
       <label className="block text-xs font-semibold uppercase text-muted-foreground" htmlFor="idea-text">Your idea, in a line</label>
-      <textarea id="idea-text" rows={2} className="w-full rounded-md border border-input bg-background p-2 text-sm" value={text} disabled={busy} onChange={(e) => onText(e.target.value)} placeholder="It would be cool if…" data-idea-text />
+      <textarea id="idea-text" rows={2} className="w-full rounded-md border border-input bg-transparent p-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={text} disabled={busy} onChange={(e) => onText(e.target.value)} placeholder="It would be cool if…" data-idea-text />
       <div className="flex flex-wrap items-center gap-2">
         <ActionButton tone="recommended" type="submit" disabled={busy || project === "" || text.trim() === "" || left < 0} data-idea-file>File idea</ActionButton>
         <span className="text-xs text-muted-foreground">{`${left} left. It is filed as an idea in that project and is not work until it is picked.`}</span>
       </div>
-      {error !== null ? <p role="alert" className="m-0 text-xs font-medium text-destructive" data-idea-failure>{`That did not go through: ${error}`}</p> : null}
+      {error !== null ? <p role="alert" className="m-0 text-xs font-medium text-[var(--destructive-text,var(--destructive))]" data-idea-failure>{`That did not go through: ${error}`}</p> : null}
       {notice !== null ? <p role="status" className="m-0 text-xs text-muted-foreground" data-idea-filed>{notice}</p> : null}
     </form>
   );
@@ -136,7 +136,7 @@ export function IdeaList({ ideas, busy, error, onAct, onClear }: { ideas: IdeaVi
         </ul>
       )}
       {onClear && ideas.length > 0 ? <ActionButton tone="quiet" className="mt-2" disabled={busy} onClick={onClear} data-idea-clear>Not this week</ActionButton> : null}
-      {error !== null ? <p role="alert" className="mt-1 text-xs font-medium text-destructive" data-idea-failure>{`That did not go through: ${error}`}</p> : null}
+      {error !== null ? <p role="alert" className="mt-1 text-xs font-medium text-[var(--destructive-text,var(--destructive))]" data-idea-failure>{`That did not go through: ${error}`}</p> : null}
     </div>
   );
 }
@@ -179,7 +179,7 @@ export function IdeaDesk({ api, refreshKey = 0, onChanged, heading = true }: { a
   return (
     <section className="space-y-3 p-2 sm:p-4" aria-label="Idea box" data-idea-desk>
       {heading ? <h2 className="m-0 text-sm font-semibold">Idea box</h2> : null}
-      {loadError !== null ? <p role="alert" className="m-0 text-xs font-medium text-destructive" data-idea-load-failure>{`The ideas could not be loaded: ${loadError}. What is shown may be out of date.`}</p> : null}
+      {loadError !== null ? <p role="alert" className="m-0 text-xs font-medium text-[var(--destructive-text,var(--destructive))]" data-idea-load-failure>{`The ideas could not be loaded: ${loadError}. What is shown may be out of date.`}</p> : null}
       <IdeaBox projects={projects} project={project} text={text} busy={busy} error={error} notice={notice} onProject={(id) => { setProject(id); setIdeaId(crypto.randomUUID()); }} onText={(t) => { setText(t); setIdeaId(crypto.randomUUID()); setNotice(null); }} onFile={file} />
       <h3 className="m-0 text-xs font-semibold uppercase text-muted-foreground">{`Open ideas (${ideas.length})`}</h3>
       <IdeaList ideas={ideas} busy={busy} error={null} onAct={act} />
@@ -213,7 +213,7 @@ export function IdeaDigest({ api, refreshKey = 0, onChanged }: { api: IdeaApi; r
   return (
     <section className="m-2 rounded-lg border border-border p-3 sm:m-4" aria-label="Weekly idea digest" data-idea-digest>
       <h2 className="m-0 text-xs font-semibold uppercase text-muted-foreground">{`This week's ideas (${state.ideas.length}) · not counted in Waiting`}</h2>
-      {loadError !== null ? <p role="alert" className="m-0 mt-1 text-xs font-medium text-destructive" data-idea-load-failure>{`The ideas could not be loaded: ${loadError}.`}</p> : null}
+      {loadError !== null ? <p role="alert" className="m-0 mt-1 text-xs font-medium text-[var(--destructive-text,var(--destructive))]" data-idea-load-failure>{`The ideas could not be loaded: ${loadError}.`}</p> : null}
       <div className="mt-2">
         <IdeaList ideas={state.ideas} busy={busy} error={error} onAct={(id, a) => void run(() => api.act(id, a))} onClear={() => void run(() => api.clear())} />
       </div>

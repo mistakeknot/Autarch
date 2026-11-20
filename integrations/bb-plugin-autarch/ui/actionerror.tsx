@@ -28,5 +28,5 @@ export function useActionError(): { error: string | null; act: (label: string, s
 
 export function ActionError({ message }: { message: string | null }) {
   if (message === null) return null;
-  return <p role="alert" className="m-0 px-4 py-2 text-sm font-medium text-destructive" data-action-error>{message}</p>;
+  return <p role="alert" className="m-0 px-4 py-2 text-sm font-medium text-[var(--destructive-text,var(--destructive))]" data-action-error>{message}</p>;
 }
