@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 const { rpc }=vi.hoisted(()=>({rpc:{call:vi.fn()}}));
@@ -41,8 +41,8 @@ it("steps through pairs and singles with keys, buttons and swipe, resetting natu
  await mount();open();click('[aria-label="Next image"]');expect(q("h2").textContent).toBe("Header: After");
  key("ArrowRight");expect(q("h2").textContent).toBe("Answers: Before");key("ArrowLeft");expect(q("h2").textContent).toBe("Header: After");
  click('[aria-label="Previous image"]');expect(q("h2").textContent).toBe("Header: Before");key("ArrowLeft");expect(q("h2").textContent).toBe("Overview");
- click("[data-evidence-full-image]");expect(q('[aria-pressed="true"]').textContent).toBe("Fit to viewport");
- key("ArrowRight");expect(q("h2").textContent).toBe("Header: Before");expect(q('[aria-pressed="false"]').textContent).toBe("Natural size");
+ click("[data-evidence-full-image]");expect(Array.from(host.querySelectorAll("button")).find(b=>b.textContent==="Fit to viewport")?.textContent).toBe("Fit to viewport");
+ key("ArrowRight");expect(q("h2").textContent).toBe("Header: Before");expect(Array.from(host.querySelectorAll("button")).find(b=>b.textContent==="Natural size")?.textContent).toBe("Natural size");
  const swipe=(type:string,x:number)=>{const e=new Event(type,{bubbles:true});Object.defineProperty(e,type==="touchstart"?"touches":"changedTouches",{value:[{clientX:x,clientY:100}]});q("[data-evidence-viewport]").dispatchEvent(e);};
  act(()=>{swipe("touchstart",200);swipe("touchend",50)});expect(q("h2").textContent).toBe("Header: After");
  expect(rpc.call).toHaveBeenCalledTimes(5);
@@ -59,4 +59,36 @@ it("a failed image decode becomes an unavailable noninteractive placeholder",asy
 it("removing and restoring evidence does not reopen a stale viewer",async()=>{
  await mount();open();await mount([{caption:"Reference",url:"https://sample.example.test/"}]);expect(q("dialog")).toBeNull();
  await mount();expect(q("dialog")).toBeNull();open();expect(q("dialog").hasAttribute("open")).toBe(true);
+});
+
+it("contains keys from the image and body without firing host handlers",async()=>{
+ await mount();open();const hostKey=vi.fn();window.addEventListener("keydown",hostKey);
+ try{
+  click("[data-evidence-full-image]");expect(document.activeElement).toBe(q("dialog"));
+  for(const value of ["[","]","x","Tab"]){act(()=>document.body.dispatchEvent(new KeyboardEvent("keydown",{key:value,bubbles:true})));}
+  act(()=>document.body.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowRight",bubbles:true,cancelable:true})));
+  expect(q("h2").textContent).toBe("Header: After");
+  act(()=>document.body.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowLeft",bubbles:true,cancelable:true})));
+  expect(q("h2").textContent).toBe("Header: Before");
+  act(()=>document.body.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true})));
+  expect(q("dialog")).toBeNull();expect(hostKey).not.toHaveBeenCalled();
+  document.body.dispatchEvent(new KeyboardEvent("keydown",{key:"[",bubbles:true}));expect(hostKey).toHaveBeenCalledOnce();
+ }finally{window.removeEventListener("keydown",hostKey);}
+});
+it("returns focus to a tapped trigger even when it was never focused, including StrictMode",async()=>{
+ await act(async()=>root.render(<StrictMode><EvidenceBlock items={items}/></StrictMode>));
+ const origin=q('button[aria-label^="Enlarge:"]');expect(document.activeElement).not.toBe(origin);act(()=>origin.click());
+ expect(document.activeElement).toBe(q('[aria-label="Close image preview"]'));
+ const controls=Array.from(host.querySelectorAll("dialog button"));
+ for(const control of controls){expect(control.className).toContain("sm:!min-h-11");expect(control.className).toContain("border");expect(control.className).toContain("hover:bg-state-hover");expect(control.hasAttribute("aria-pressed")).toBe(false);}
+ click('[aria-label="Close image preview"]');expect(document.activeElement).toBe(origin);
+ expect(q("dialog")).toBeNull();
+});
+it("natural-size gestures pan without navigation and fit allows pinch zoom",async()=>{
+ await mount();open();expect(q("[data-evidence-viewport]").style.touchAction).toBe("pan-y pinch-zoom");
+ expect(q("[data-evidence-viewport]").className).toContain("overscroll-contain");click("[data-evidence-full-image]");
+ const swipe=(type:string,x:number)=>{const event=new Event(type,{bubbles:true});Object.defineProperty(event,type==="touchstart"?"touches":"changedTouches",{value:[{clientX:x,clientY:100}]});q("[data-evidence-viewport]").dispatchEvent(event);};
+ act(()=>{swipe("touchstart",200);swipe("touchend",50)});expect(q("h2").textContent).toBe("Header: Before");
+ expect(q("[data-evidence-viewport]").style.touchAction).toBe("auto");
+ key("ArrowRight");expect(q("[data-evidence-full-image]").className).not.toContain("max-w-none");
 });

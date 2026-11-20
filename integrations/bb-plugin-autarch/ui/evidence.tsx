@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EvidenceLightbox, type LightboxImage } from "./evidence-lightbox.js";
 import { useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../server.js";
 import type { Evidence, EvidenceImage, EvidenceSide } from "../evidence.js";
 
-function LocalImage({ image, caption, id, register, open }: { image: EvidenceImage; caption: string; id: string; register: (id: string, url: string | null) => void; open: (id: string) => void }) {
+function LocalImage({ image, caption, id, register, open }: { image: EvidenceImage; caption: string; id: string; register: (id: string, url: string | null) => void; open: (id: string, trigger: HTMLButtonElement) => void }) {
  const rpc = useRpc<typeof rpcContract>();
  const [loaded, setLoaded] = useState<{ key: string; url: string } | null>(null);
  const [failed, setFailed] = useState<string | null>(null);
@@ -23,10 +23,12 @@ function LocalImage({ image, caption, id, register, open }: { image: EvidenceIma
   }).catch(() => { /* An unavailable image stays a quiet placeholder. */ });
   return () => { active = false; if (url) { register(id, null); URL.revokeObjectURL(url); } };
  }, [rpc, image.sha256, image.mime, id, register]);
- return src ? <button type="button" aria-label={`Enlarge: ${caption}`} className="block max-w-full cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => open(id)}><img src={src} alt={caption} onError={() => { setFailed(key); register(id, null); }} className="max-h-48 max-w-full rounded-md object-contain" /></button> : <p className="m-0 text-xs text-muted-foreground">image unavailable</p>;
+ return src ? <button type="button" aria-label={`Enlarge: ${caption}`} className="block max-w-full cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={e => open(id, e.currentTarget)}><img src={src} alt={caption} onError={() => { setFailed(key); register(id, null); }} className="max-h-48 max-w-full rounded-md object-contain" /></button> : <p className="m-0 text-xs text-muted-foreground">image unavailable</p>;
 }
 export function EvidenceBlock({ items }: { items?: Evidence[] }) {
  const [urls,setUrls]=useState<Record<string,string>>({}), [current,setCurrent]=useState<string | null>(null);
+ const trigger=useRef<HTMLButtonElement | null>(null);
+ const open=(id:string,button:HTMLButtonElement)=>{trigger.current=button;setCurrent(id);};
  const register=useCallback((id:string,url:string|null)=>{
   if (!url) setCurrent(previous => previous === id ? null : previous);
   setUrls(prev=>{const next={...prev};if(url)next[id]=url;else delete next[id];return next;});
@@ -37,7 +39,7 @@ export function EvidenceBlock({ items }: { items?: Evidence[] }) {
   if(!value.image)return null;
   const id=`${path}:${value.image.sha256}:${value.image.mime}`;
   if(urls[id])images.push({id,caption,url:urls[id]});
-  return <LocalImage image={value.image} caption={caption} id={id} register={register} open={setCurrent}/>;
+  return <LocalImage image={value.image} caption={caption} id={id} register={register} open={open}/>;
  };
  if (!items?.length) return null;
  const figures=items.map((e,i)=><figure key={i} className="m-0 space-y-1">
@@ -45,6 +47,6 @@ export function EvidenceBlock({ items }: { items?: Evidence[] }) {
  </figure>);
  return <section className="mt-3 space-y-2 text-sm" aria-label="Evidence" data-evidence>
   <h4 className="m-0 text-xs font-medium text-muted-foreground">Evidence</h4>{figures}
-  {current&&images.some(i=>i.id===current)?<EvidenceLightbox images={images} current={current} onChange={setCurrent} onClose={()=>setCurrent(null)}/>:null}
+  {current&&images.some(i=>i.id===current)?<EvidenceLightbox trigger={trigger.current} images={images} current={current} onChange={setCurrent} onClose={()=>setCurrent(null)}/>:null}
  </section>;
 }
