@@ -2,7 +2,7 @@
 // cards, each with a tick. mk ticks projects out and in; the card lists show the ticked ones. No motion: the list
 // appears and goes at once, since mk opens it often and reads what is behind it.
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import { ActionButton, buttonClass } from "./buttons.js";
+import { ActionButton, HEADER_QUIET, buttonClass } from "./buttons.js";
 import { hiddenText, loadExcluded, saveExcluded, toggleProject, type ProjectChoice, type StorageGetter } from "./projectfilterstore.js";
 
 const deviceStorage: StorageGetter = () => (typeof localStorage === "undefined" ? null : localStorage);
@@ -91,11 +91,11 @@ export function ProjectFilterBar({ choices, excluded, hidden, onChange, compact 
   };
 
   return (
-    <div ref={root} className="relative flex flex-wrap items-center gap-x-3 px-2 sm:px-4" data-project-filter>
+    <div ref={root} className={`relative flex flex-wrap items-center ${compact ? "" : "gap-x-3 px-2 sm:px-4"}`} data-project-filter>
       <button
         ref={trigger}
         type="button"
-        className={`${buttonClass("quiet")} min-w-0 max-w-full`}
+        className={`${compact ? HEADER_QUIET : buttonClass("quiet")} min-w-0 max-w-full`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? `${id}-list` : undefined}
@@ -110,7 +110,7 @@ export function ProjectFilterBar({ choices, excluded, hidden, onChange, compact 
         title={compact ? label : undefined}
         data-project-filter-trigger
       >
-        <span aria-hidden>▾</span>
+        {compact ? null : <span aria-hidden>▾</span>}
         <span>{compact ? (hidden > 0 ? `Projects · ${hidden} hidden` : "Projects") : label}</span>
       </button>
       {hidden > 0 && !compact ? (
