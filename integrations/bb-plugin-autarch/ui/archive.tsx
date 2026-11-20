@@ -114,7 +114,7 @@ export function ArchivePanel({ api }: { api: ArchiveApi }) {
     ).finally(() => setWorking((w) => (w === taskId ? null : w)));
   };
   const set = (k: keyof ArchiveFilters) => (v: string) => setF((o) => ({ ...o, [k]: v }));
-  const input = "min-h-11 rounded-md border border-border bg-background px-2 text-sm sm:min-h-0";
+  const input = "min-h-11 rounded-md border border-input bg-transparent px-2 text-sm [@media(pointer:fine)]:min-h-9 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
   return (
     <section className="flex flex-col gap-3 p-4" aria-label="Archive" data-archive-panel>
       <form className="flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); setQ({ ...f }); }}>

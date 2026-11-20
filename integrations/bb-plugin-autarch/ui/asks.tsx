@@ -76,7 +76,7 @@ export async function runLater(onLater: OnLater, taskId: string, on: boolean, se
 /** The short inline error under a Later or Move back tap that did not go through. */
 export function LaterFailure({ error }: { error: string | null }) {
   if (error === null) return null;
-  return <p role="alert" className="mt-2 w-full text-xs font-medium text-destructive" data-later-failure>{`The card did not move: ${error}. Try again.`}</p>;
+  return <p role="alert" className="mt-2 w-full text-xs font-medium text-[var(--destructive-text,var(--destructive))]" data-later-failure>{`The card did not move: ${error}. Try again.`}</p>;
 }
 
 export type ApprovalSpec = { kind: string; target: string; identity: string; ttl?: number };
@@ -327,7 +327,7 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
   // Link, time and judging criteria stay above the full text; answer effects stay with their buttons.
   const glanceOf = glance(ask);
   return (
-    <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
+    <article className="min-w-0 bg-background p-4" data-decision={ask.id}>
       <h3 className="text-sm font-medium [overflow-wrap:anywhere]">
         {ask.key ? <span className="mr-2 select-all rounded bg-muted px-1.5 font-mono text-xs font-semibold" data-task-key>{ask.key}</span> : null}
         <RefText text={ask.subject} />
@@ -355,7 +355,7 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
         {ask.ask.options.map((o) => {
           const recommended = ask.ask.recommendation === o.id;
           return (
-            <li key={o.id} className={`rounded border p-2 ${recommended ? "border-primary" : "border-border"}`} data-reversible={o.reversible === true ? "true" : "false"}>
+            <li key={o.id} className="border-b border-border py-3" data-reversible={o.reversible === true ? "true" : "false"}>
               {o.approval ? (
                 <p className="mb-1 text-xs" data-approval={o.approval.kind}>
                   {`Records your approval to ${o.approval.kind} ${o.approval.target} at ${o.approval.identity}; ${approvalExpiry(o.approval.ttl)}. This is a record only and does not authorize anything.`}
@@ -389,7 +389,7 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
         </div>
       ) : null}
       <LaterFailure error={laterError} />
-      {failure !== null ? <p role="alert" className="mt-2 text-xs font-medium text-destructive" data-pick-failure>{`Your pick did not go through: ${failure}. The ask is still open; try again.`}</p> : null}
+      {failure !== null ? <p role="alert" className="mt-2 text-xs font-medium text-[var(--destructive-text,var(--destructive))]" data-pick-failure>{`Your pick did not go through: ${failure}. The ask is still open; try again.`}</p> : null}
       {onNote ? (
         <OtherBox
           onNote={(t, im) => onNote(ask.id, t, im)}
@@ -482,7 +482,7 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
   const showProject = new Set(owed.map((o) => o.project ?? "")).size > 1;
   return (
     <div className="flex flex-wrap items-start gap-2 sm:gap-4">
-      <ol ref={listRef} className="m-0 min-w-0 shrink-0 grow basis-64 list-none space-y-1 p-0 max-sm:[font-family:ui-sans-serif,system-ui,sans-serif]" data-decide-list>
+      <ol ref={listRef} className="m-0 min-w-0 shrink-0 grow basis-64 list-none space-y-1 p-0" data-decide-list>
         {owed.map((o) => {
           const old = isOldAsk(o.filed_at, nowMs);
           const rec = o.ask.options.find((x) => x.id === o.ask.recommendation);
@@ -542,7 +542,7 @@ export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now(), bare = 
             <span className="min-w-0 [overflow-wrap:anywhere]" title={a.expires_at}>{`${a.kind} ${a.target} at ${a.identity}, ${expiryText(a.expires_at, nowMs)}`}</span>
             {onRevoke ? <ConfirmTap needsConfirm onConfirmed={() => onRevoke(a.approval_id)} resetKey={a.approval_id}>
               {({ armed, onClick, onBlur }) => (
-                <button type="button" className={`min-h-11 text-xs underline sm:min-h-0${armed ? " font-medium text-destructive" : ""}`} onClick={onClick} onBlur={onBlur} {...(armed ? { "data-confirming": "true" } : {})}>{armed ? CONFIRM_LABEL : "Revoke"}</button>
+                <button type="button" className={`min-h-11 text-xs underline sm:min-h-0${armed ? " font-medium text-[var(--destructive-text,var(--destructive))]" : ""}`} onClick={onClick} onBlur={onBlur} {...(armed ? { "data-confirming": "true" } : {})}>{armed ? CONFIRM_LABEL : "Revoke"}</button>
               )}
             </ConfirmTap> : null}
           </li>
