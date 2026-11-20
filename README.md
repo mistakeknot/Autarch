@@ -42,8 +42,10 @@ Open **Citadel** in bb's sidebar. See the [plugin README](integrations/bb-plugin
 for installation, configuration and storage details, and the
 [plugin overview](integrations/bb-plugin-autarch/PLUGIN_OVERVIEW.md) for its role.
 The plugin reads project data through a local Autarch service; it does not start
-that service. Build the Go CLI below and make it available as `autarch`, then
-run `autarch serve` with the project and token configuration described in the
+that service. Build the Go CLI below and put the binary on your PATH as `autarch`,
+then run `autarch serve`, using `--project-dir` to name your project scan roots.
+It creates its token file on first run. See the project and token configuration
+in the
 [local service reference](AGENTS.md#autarch-serve).
 
 For source development, rebuild and reload after edits:
@@ -69,8 +71,8 @@ planning context, not a list of shipped Citadel features.
 ## Go tools and local inspection
 
 The repository also contains a Go CLI, terminal dashboards and research tools.
-These remain available alongside the bb plugin. Building them needs Go 1.25+;
-tmux is used by the daily catch-up and Coldwine.
+These remain available alongside the bb plugin. They require macOS or Linux.
+Building them needs Go 1.25+; tmux is used by the daily catch-up and Coldwine.
 
 | Tool | What it does | Interface |
 |------|-------------|-----------|
@@ -92,6 +94,7 @@ From the repository root:
 GOWORK=off go build -mod=readonly -o autarch ./cmd/autarch
 ./autarch
 ./autarch project .
+# Compile-check all tools without writing binaries.
 go build ./cmd/...
 ./dev autarch tui
 ```
@@ -125,7 +128,7 @@ on your first visit. Click **Time range** or press `w` to choose last visit,
 
 Click **View** or press `v` to compare **Cozy** (roomier summaries) and
 **Compact** (more projects at a glance). Press `d` to switch immediately.
-Cozy is the initial view; your choice is saved in the local display configuration
+Cozy is the initial view; your choice is saved in `~/.autarch/display.yaml`
 and also applies to the product HUD. Click the header tabs or use `1`–`4`
 to navigate. Press `?` for the in-app guide.
 
