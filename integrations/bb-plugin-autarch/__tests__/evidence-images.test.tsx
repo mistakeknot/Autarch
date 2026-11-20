@@ -16,8 +16,8 @@ it("loads local thumbnails by hash, opens full size and releases the object URL"
   await act(async()=>{root.render(<EvidenceBlock items={[{caption:"Screenshot",image:{sha256:"a".repeat(64),mime:"image/png"}}]} />)});
   expect(call).toHaveBeenCalledWith("evidenceImage",{sha256:"a".repeat(64)});
   expect(div.querySelector("img")?.getAttribute("src")).toBe("blob:local-image");
-  expect(div.querySelector("a")?.getAttribute("href")).toBe("blob:local-image");
-  expect(div.querySelector("a")?.getAttribute("rel")).toBe("noopener noreferrer");
+  expect(div.querySelector('button[aria-label="Enlarge: Screenshot"]')).not.toBeNull();
+  expect(div.querySelector("a")).toBeNull();
  } finally { await act(async()=>root.unmount()); }
  expect(revoke).toHaveBeenCalledWith("blob:local-image");
 });
