@@ -511,7 +511,6 @@ describe("vizier, thread, settings and map", () => {
     expect(parseDelegationForm({ vizierThreadId: "t", projects: "", dailyCap: "-1" }).ok).toBe(false);
   });
 
-
 });
 
 const NOW = Date.parse("2026-10-01T00:00:00.000Z");

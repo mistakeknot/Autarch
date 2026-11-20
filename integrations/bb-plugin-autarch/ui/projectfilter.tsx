@@ -111,7 +111,7 @@ export function ProjectFilterBar({ choices, excluded, hidden, onChange, compact 
         data-project-filter-trigger
       >
         <span aria-hidden>▾</span>
-        <span>{compact ? (excluded.size > 0 ? "Projects •" : "Projects") : label}</span>
+        <span>{compact ? (hidden > 0 ? `Projects · ${hidden} hidden` : "Projects") : label}</span>
       </button>
       {hidden > 0 && !compact ? (
         <p role="status" className="m-0 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground" data-project-filter-hidden>

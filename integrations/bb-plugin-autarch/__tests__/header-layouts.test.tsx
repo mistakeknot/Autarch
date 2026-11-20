@@ -26,7 +26,16 @@ it("does not label a Queue tab selected while another destination is open",()=>{
 
 it("keeps a filtered compact header short while marking the active filter",()=>{
  const html=renderToStaticMarkup(<ProjectFilterBar compact choices={[{name:"Example",count:2}]} excluded={new Set(["Example"])} hidden={2} onChange={()=>{}}/>);
- expect(html).toContain("Projects •");
+ expect(html).toContain("Projects · 2 hidden");
  expect(html).not.toContain("data-project-filter-hidden");
  expect(html).toContain('aria-label="Project filter: 0 of 1 projects"');
+});
+
+it("names and marks the active More destination", () => {
+ const host = document.createElement("div");
+ host.innerHTML = renderToStaticMarkup(<HomeOverflow learn active="archive" onOpen={()=>{}}/>);
+ expect(host.querySelector("summary")?.textContent).toBe("More · Archive");
+ expect(host.querySelector("summary")?.className).toContain("font-semibold");
+ expect(host.querySelector('[aria-current="page"]')?.textContent).toBe("Archive");
+ expect(host.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
 });

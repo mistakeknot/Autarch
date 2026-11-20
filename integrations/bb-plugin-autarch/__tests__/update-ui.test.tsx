@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { UPDATE_POLL_IDLE_MS, UPDATE_POLL_PENDING_MS, UpdateMenu, updatePollMs, type UpdateInfoView } from "../ui/update.js";
@@ -40,12 +41,15 @@ describe("UpdateMenu placement", () => {
     expect(html(base)).not.toContain("absolute");
   });
   it("HomeTabs puts the extra outside the scrolling nav", async () => {
-    const { HomeTabs } = await import("../ui/tabs.js");
-    const h = renderToStaticMarkup(<HomeTabs queue={<span>Queue</span>} extra={<UpdateMenu info={base} onRequest={() => {}} />} />);
-    const nav = h.slice(h.indexOf("<nav"), h.indexOf("</nav>"));
-    expect(nav).not.toContain("data-update-menu");
-    expect(h).toContain("data-home-extra");
-    expect(h.indexOf("data-update-menu")).toBeGreaterThan(h.indexOf("</nav>"));
+    const { HomeTabs, QueueTabs } = await import("../ui/tabs.js");
+    const h = renderToStaticMarkup(<HomeTabs queue={<QueueTabs tab="decide" counts={null} onTab={()=>{}}/>} extra={<UpdateMenu info={base} onRequest={() => {}} />} />);
+    const host = document.createElement("div");
+    host.innerHTML = h;
+    const header = host.querySelector("[data-queue-tabs]")?.parentElement?.parentElement;
+    expect(header).toBeTruthy();
+    expect(header!.querySelector("[data-update-menu]")).toBeNull();
+    expect(header!.nextElementSibling?.matches("[data-home-extra]")).toBe(true);
+    expect(header!.nextElementSibling?.querySelector("[data-update-menu]")).not.toBeNull();
   });
 });
 
@@ -107,7 +111,7 @@ describe("update polling", () => {
   });
   it("app.tsx re-arms its timer from updatePollMs", async () => {
     const { readFileSync } = await import("node:fs");
-    const src = readFileSync(new URL("../app.tsx", import.meta.url), "utf8");
+    const src = readFileSync("app.tsx", "utf8");
     expect(src).toMatch(/updatePollMs\(update\)/);
     expect(src).toMatch(/setInterval\(loadUpdate, updatePoll\)/);
     expect(src).toMatch(/\[loadUpdate, updatePoll\]/);

@@ -113,7 +113,7 @@ describe("prose is not promoted to a command", () => {
 describe("the definition is a tap target", () => {
   it("below sm the Queue tabs wrap instead of scrolling off-screen, and no label splits", () => {
     const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={() => {}} counts={null} />);
-    expect(html).toContain("flex-wrap");
+    expect(html).toMatch(/class="relative flex flex-wrap items-center gap-x-1 /);
     expect(html).not.toMatch(/[" ]overflow-x-auto/);
     expect(html.match(/data-queue-tab="[^"]+" class="[^"]*whitespace-nowrap/g)).toHaveLength(4);
   });

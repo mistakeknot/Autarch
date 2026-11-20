@@ -15,8 +15,6 @@ export interface GlanceLink {
   text: string;
 }
 export interface Glance {
-  /** The card's first sentence: what it is and why it is here. */
-  lead: string;
   link: GlanceLink | null;
   /** "About 2 min", from the title or the text; null when the card states no time. */
   time: string | null;
@@ -140,7 +138,7 @@ export function glance(ask: Pick<OwedAsk, "subject" | "ask">): Glance | null {
   const time = timeInTitle === AMBIGUOUS || timeInText === AMBIGUOUS || (timeInTitle !== null && timeInText !== null && timeInTitle !== timeInText) ? null : either;
   if (time === null && !ACTION.test(flat)) return null;
   if (link === null && time === null && judging.length === 0) return null;
-  return { lead: clip(firstSentence(flat), 220), link, time, judging };
+  return { link, time, judging };
 }
 
 const SMALL = "m-0 mt-2 text-xs font-semibold uppercase text-muted-foreground";
@@ -172,7 +170,6 @@ export function GlanceBlock({ g }: { g: Glance }) {
           </ol>
         </>
       ) : null}
-
     </section>
   );
 }

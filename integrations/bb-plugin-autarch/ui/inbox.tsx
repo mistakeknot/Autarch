@@ -2,7 +2,7 @@
 // Since you left) and one sticky bar with the card's main action. It reuses AskCard unchanged, so every
 // pick, note and safety line behaves as on the desktop; this file only arranges them and picks which
 // ones are shown. UI only: the lists come from the same data the desktop queue reads.
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { ActionButton } from "./buttons.js";
 import { orderedGroups } from "./mergegroups.js";
 import { glance } from "./glance.js";
@@ -144,7 +144,8 @@ function DetailBar({ r, onPick, onLater, onDone }: { r: InboxRow; onPick: OnPick
   );
 }
 
-export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, sinceNode, sinceCount, onDesktop, onIdea, ideaNode, updateNode, filter, now = Date.now(), initial }: {
+export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, sinceNode, sinceCount, onDesktop, onIdea, ideaNode, updateNode, filter, now = Date.now(), initial, embedded = false }: {
+  embedded?: boolean;
   asks: AsksData;
   waiting: number;
   onPick: OnPick;
@@ -216,8 +217,8 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
           <ActionButton tone="quiet" className="min-h-11" onClick={() => setOpen(null)} data-inbox-back>‹ Back</ActionButton>
         ) : (
           <div className="min-w-0">
-            <h1 className="m-0 text-base font-semibold" data-inbox-title>{title}</h1>
-            {tab === "waiting" && extras ? <p className="m-0 text-xs text-muted-foreground" data-inbox-extras>{extras}</p> : null}
+            {!embedded ? <><h1 className="m-0 text-base font-semibold" data-inbox-title>{title}</h1>
+            {tab === "waiting" && extras ? <p className="m-0 text-xs text-muted-foreground" data-inbox-extras>{extras}</p> : null}</> : null}
           </div>
         )}
         {current ? null : (
@@ -228,7 +229,7 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
         )}
       </header>
       {updateNode && !current ? <div className="border-b border-border px-4 py-2" data-inbox-update>{updateNode}</div> : null}
-      {filter && !current && !ideaNode && tab !== "since" ? <div className="border-b border-border py-1" data-inbox-filter>{filter.node(hiddenHere + (tab === "waiting" ? filter.heldHidden ?? 0 : 0))}</div> : null}
+      {filter && !embedded && !current && !ideaNode && tab !== "since" ? <div className="border-b border-border py-1" data-inbox-filter>{filter.node(hiddenHere + (tab === "waiting" ? filter.heldHidden ?? 0 : 0))}</div> : null}
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         {ideaNode && !current ? (
           ideaNode
@@ -253,7 +254,7 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
       <PickHoldBar hold={hold} />
       {current ? (
         <DetailBar key={current.key} r={current} onPick={hold.pick} onLater={onLater} onDone={() => advanceFrom(current.key)} />
-      ) : (
+      ) : embedded ? null : (
         <nav className="flex border-t border-border bg-background" data-inbox-tabs>
           {tabs.map(([id, label]) => (
             <button key={id} type="button" aria-current={tab === id ? "page" : undefined} className={`min-h-14 flex-1 px-1 text-sm ${tab === id ? "font-semibold underline" : "text-muted-foreground"}`} onClick={() => { setTab(id); if (ideaNode) onIdea?.(); }} data-inbox-tab={id}>{label}</button>
@@ -262,4 +263,13 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
       )}
     </div>
   );
+}
+
+/** Needs you now keeps the phone inbox and its pick hold; other Queue sections use their panels. */
+export function QueueSurface({ phone, inbox, children }: { phone: boolean; inbox: Omit<ComponentProps<typeof MobileInbox>, "onDesktop" | "embedded"> | null; children: ReactNode }) {
+  const [fullView, setFullView] = useState(false);
+  return phone && inbox && !fullView ? <MobileInbox {...inbox} embedded onDesktop={() => setFullView(true)} /> : <>
+    {phone && fullView ? <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={() => setFullView(false)} data-phone-inbox-back>‹ Back to the phone inbox</button> : null}
+    {children}
+  </>;
 }

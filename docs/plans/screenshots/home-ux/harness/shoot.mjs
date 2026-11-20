@@ -20,7 +20,7 @@ for (const [w, h] of [[390, 844], [430, 932]]) for (const name of ["before", "af
   page.on("pageerror", (e) => console.log("pageerror", String(e).slice(0, 300)));
   await page.goto(`${base}/${name}.html`); await page.waitForSelector("nav"); await page.waitForTimeout(300);
   await page.screenshot({ path: `${DEST}/${name}-${w}x${h}.png`, fullPage: true });
-  const m = await page.evaluate(() => ({ pageOverflowX: document.documentElement.scrollWidth > innerWidth, tabsOneLine: (() => { const n = document.querySelector("nav"); return n.getBoundingClientRect().height; })(), tabsScroll: (() => { const n = document.querySelector("nav"); return n.scrollWidth > n.clientWidth; })(), minTapHeight: Math.min(...[...document.querySelectorAll("button")].map((b) => b.getBoundingClientRect().height)), buttons: document.querySelectorAll("button").length }));
+  const m = await page.evaluate(() => ({ pageOverflowX: document.documentElement.scrollWidth > innerWidth, tabsOneLine: (() => { const n = (document.querySelector("[data-queue-tabs]")?.parentElement ?? document.querySelector("nav")); return n.getBoundingClientRect().height; })(), tabsScroll: (() => { const n = (document.querySelector("[data-queue-tabs]")?.parentElement ?? document.querySelector("nav")); return n.scrollWidth > n.clientWidth; })(), minTapHeight: Math.min(...[...document.querySelectorAll("button")].map((b) => b.getBoundingClientRect().height)), buttons: document.querySelectorAll("button").length }));
   console.log(name, w, JSON.stringify(m)); await page.close();
 }
 await browser.close(); server.close();

@@ -19,7 +19,7 @@ import type { OtherImage } from "./ui/other.js";
 import { setTimingSink, timed } from "./ui/clicktiming.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
 import type { AsksData } from "./ui/asks.js";
-import { useIsPhone } from "./ui/inbox.js";
+import { QueueSurface, useIsPhone } from "./ui/inbox.js";
 import { ProjectFilterBar, useProjectFilter } from "./ui/projectfilter.js";
 import { COUNTS_FOLLOW_FILTER, filterAsks, filterQueue, hiddenIn, projectChoices, shownCount } from "./ui/projectfilterstore.js";
 import { IdeaDesk, IdeaDigest, type IdeaApi } from "./ui/ideas.js";
@@ -262,6 +262,7 @@ function HomePage({ subPath }: { subPath?: string }) {
   useEffect(() => forgetClassicTabs(() => localStorage), []);
   // Phones get the inbox layout; "Full view" keeps the desktop layout on this device until the page is reopened.
   const phone = useIsPhone();
+  const [ideaOpen, setIdeaOpen] = useState(false);
   const [ideaTick, setIdeaTick] = useState(0);
   useRealtime("home-queue-changed", () => setIdeaTick((n) => n + 1));
   // The Learn deck (bead mk-uoiwp): off by default; the tab shows only when Settings turns it on.
@@ -429,7 +430,7 @@ function HomePage({ subPath }: { subPath?: string }) {
     blocks: allBlocks ? hiddenIn(allBlocks.rows, excluded) + hiddenIn(allBlocks.legacy.owed, excluded) : 0,
   };
   const filterBar = (hidden: number, compact = false) => <ProjectFilterBar compact={compact} choices={filterChoices} excluded={excluded} hidden={hidden} onChange={setExcluded} />;
-  const queueNavigation = () => (<QueueTabs active={stack.panels[stack.panels.length-1]?.id === "queue"} tab={queueTab} onTab={(next) => { setQueueTab(next); push({ id: "queue", kind: "decision", title: "Queue" }); }} more={<HomeOverflow definition={waiting?.definition} learn={learn.enabled} onOpen={push} />} filter={queueTab !== "catchup" ? <div data-queue-filter>{filterBar(hiddenBy[queueTab === "blocks" ? "blocks" : queueTab], true)}</div> : null} counts={waiting ? { decide: shownCount(waiting.decide, hiddenBy.decide), later: shownCount(asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, hiddenBy.later), blocks: shownCount(allBlocks ? blocksCount(allBlocks) : waiting.held, hiddenBy.blocks), catchup: waiting.updates } : null} />);
+  const queueNavigation = () => (<QueueTabs active={stack.panels[stack.panels.length-1]?.id === "queue"} tab={queueTab} onTab={(next) => { setQueueTab(next); push({ id: "queue", kind: "decision", title: "Queue" }); }} more={<HomeOverflow active={stack.panels[stack.panels.length-1]?.id} definition={waiting?.definition} learn={learn.enabled} onOpen={push} />} filter={queueTab !== "catchup" ? <div data-queue-filter>{filterBar(hiddenBy[queueTab === "blocks" ? "blocks" : queueTab], true)}</div> : null} counts={waiting ? { decide: shownCount(waiting.decide, hiddenBy.decide), later: shownCount(asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, hiddenBy.later), blocks: shownCount(allBlocks ? blocksCount(allBlocks) : waiting.held, hiddenBy.blocks), catchup: waiting.updates } : null} />);
   const HIDDEN_ALL = "Everything here is hidden by the project filter.";
 
   const render = (panel: Panel): ReactNode => {
@@ -588,14 +589,21 @@ function HomePage({ subPath }: { subPath?: string }) {
   }
   const keyNotice = linkKey !== null && lookup !== null && lookup.key === linkKey ? <CardKeyNotice cardKey={linkKey} lookup={lookup.result} /> : null;
 
-
   return (
     <ConversationProvider value={conversation}><DocReaderHost api={docs}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
       {keyNotice}
       {actionLine}
       <HomeTabs queue={queueNavigation()} extra={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined} />
-      <StackView placed={layoutStack(stack).filter((p) => !phone || !p.collapsed)} render={render} onExpand={push} />
+      <QueueSurface phone={phone && queueTab === "decide" && stack.panels[stack.panels.length-1]?.id === "queue"} inbox={asks ? {
+        asks: filterAsks(asks, excluded), waiting: waiting?.decide ?? 0,
+        onPick: sendPick, onNote: (decision_id, text, images) => note({ decision_id }, text, images), onLater: sendLater,
+        onOpen: openBeside, sinceNode: null, sinceCount: waiting?.updates ?? 0,
+        onIdea: () => setIdeaOpen(v => !v), ideaNode: ideaOpen ? render({ id: "ideas", kind: "ideas", title: "Ideas" }) : null,
+        filter: { node: () => null, hidden: { waiting: hiddenBy.decide, later: hiddenBy.later }, laterCount: waiting?.later ?? 0 },
+      } : null}>
+        <StackView placed={layoutStack(stack).filter((p) => !phone || !p.collapsed)} render={render} onExpand={push} />
+      </QueueSurface>
     </div>
     </DocReaderHost></ConversationProvider>
   );

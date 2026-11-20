@@ -1,5 +1,5 @@
 // One counted Queue row, with Projects and every other destination under More.
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { Panel } from "./stack.js";
 
 /** The removed Classic tabs switch stored its choice here; nothing reads it now, so Home clears it on load. */
@@ -32,8 +32,33 @@ export function HomeTabs({ queue, extra }: { queue: ReactNode; extra?: ReactNode
   return <>{queue}{extra ? <div className="border-b border-border px-4 py-1 sm:py-2" data-home-extra>{extra}</div> : null}</>;
 }
 
-export function HomeOverflow({ learn = false, onOpen, definition }: { definition?: string | null | undefined; learn?: boolean; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void }) {
- return <details className="relative shrink-0 text-xs" data-home-overflow onKeyDown={e=>{if(e.key==="Escape"){e.preventDefault();e.stopPropagation();e.currentTarget.open=false;e.currentTarget.querySelector("summary")?.focus();}}}><summary className="flex min-h-11 sm:min-h-9 cursor-pointer items-center rounded border border-border px-2">More</summary><div className="absolute right-0 z-30 flex w-40 flex-col rounded border border-border bg-background p-1 shadow-md">{homeTabs(learn).filter(([id])=>id!=="queue").map(([id,kind,title])=><button type="button" className="min-h-11 px-3 text-left hover:bg-muted" key={id} onClick={e=>{e.currentTarget.closest("details")?.removeAttribute("open");onOpen({id,kind,title});}}>{title}</button>)}{definition ? <p className="border-t border-border p-2 text-xs text-muted-foreground">{definition}</p> : null}</div></details>;
+export function HomeOverflow({ learn = false, onOpen, definition, active }: { active?: string | undefined; definition?: string | null | undefined; learn?: boolean; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void }) {
+  const menu = useRef<HTMLDetailsElement>(null);
+  const destination = homeTabs(learn).find(([id]) => id !== "queue" && id === active)?.[2];
+  useEffect(() => {
+    const outside = (e: PointerEvent) => {
+      if (menu.current && e.target instanceof Node && !menu.current.contains(e.target)) menu.current.open = false;
+    };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, []);
+  return <details ref={menu} className="relative shrink-0 text-xs" data-home-overflow onKeyDown={e => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      e.currentTarget.open = false;
+      e.currentTarget.querySelector("summary")?.focus();
+    }
+  }}>
+    <summary className={`flex min-h-11 sm:min-h-9 cursor-pointer items-center rounded border border-border px-2 ${destination ? "font-semibold bg-muted" : ""}`}>{destination ? `More · ${destination}` : "More"}</summary>
+    <div className="absolute right-0 z-30 flex w-40 flex-col rounded border border-border bg-background p-1 shadow-md">
+      {homeTabs(learn).filter(([id]) => id !== "queue").map(([id, kind, title]) => <button type="button" aria-current={active === id ? "page" : undefined} className="min-h-11 px-3 text-left hover:bg-muted" key={id} onClick={e => {
+        e.currentTarget.closest("details")?.removeAttribute("open");
+        onOpen({ id, kind, title });
+      }}>{title}</button>)}
+      {definition ? <p className="border-t border-border p-2 text-xs text-muted-foreground">{definition}</p> : null}
+    </div>
+  </details>;
 }
 
 export type QueueTab = "decide" | "later" | "blocks" | "catchup";
@@ -55,14 +80,15 @@ export function nextQueueTab(tab: QueueTab, key: string): QueueTab | null {
 export function QueueTabs({ tab, counts, onTab, filter = null, more = null, active = true }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; filter?: ReactNode; more?: ReactNode; active?: boolean }) {
   return (
     <div className="border-b border-border px-2 sm:px-4">
-    <div className="relative flex flex-wrap items-center gap-x-3 [&_[data-project-filter]]:static [&_[data-project-filter-popup]]:left-auto [&_[data-project-filter-popup]]:right-0 [&_[data-project-filter-popup]]:w-80 [&_[data-project-filter-popup]]:max-w-[calc(100vw-2rem)]" style={{ columnGap: 4 }}>
-    <div role="tablist" aria-label="Queue" className="contents [&_button]:min-h-11 [&_button]:text-[11px] sm:[&_button]:min-h-9 sm:[&_button]:text-sm" data-queue-tabs>
+    <div className="relative flex flex-wrap items-center gap-x-1 [&_[data-project-filter]]:static [&_[data-project-filter-popup]]:left-auto [&_[data-project-filter-popup]]:right-0 [&_[data-project-filter-popup]]:w-80 [&_[data-project-filter-popup]]:max-w-[calc(100vw-2rem)]">
+    <div role="tablist" aria-label="Queue" className="contents [&_button]:min-h-11 [&_button]:text-xs sm:[&_button]:min-h-9 sm:[&_button]:text-sm" data-queue-tabs>
       {QUEUE_TABS.map(([id, label]) => (
         <button
           key={id}
           type="button"
           role="tab"
           id={`queue-tab-${id}`}
+          aria-label={counts ? `${label} (${counts[id]})` : label}
           aria-selected={active && tab === id}
           aria-controls={active ? "queue-tabpanel" : undefined}
           tabIndex={tab === id ? 0 : -1}
@@ -77,13 +103,13 @@ export function QueueTabs({ tab, counts, onTab, filter = null, more = null, acti
             document.getElementById(`queue-tab-${to}`)?.focus();
           }}
         >
-          {counts ? `${label} (${counts[id]})` : label}
+          <span className="sm:hidden">{counts ? `${id === "decide" ? "Now" : id === "blocks" ? "Blocked" : id === "catchup" ? "Updates" : label} (${counts[id]})` : id === "decide" ? "Now" : id === "blocks" ? "Blocked" : id === "catchup" ? "Updates" : label}</span>
+          <span className="hidden sm:inline">{counts ? `${label} (${counts[id]})` : label}</span>
         </button>
       ))}
     </div>
     {filter}
     {more}
-
     </div>
     </div>
   );

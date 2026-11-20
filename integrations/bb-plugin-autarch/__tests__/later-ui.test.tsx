@@ -187,11 +187,11 @@ describe("Queue tabs", () => {
   it("the tab row has the four tabs with their counts, the chosen one selected and tap height", () => {
     const html = renderToStaticMarkup(<QueueTabs tab="later" onTab={noop} counts={{ decide: 4, later: 3, blocks: 0, catchup: 26 }} />);
     for (const [id, label] of [["decide", "Needs you now (4)"], ["later", "Later (3)"], ["blocks", "Blocked on others (0)"], ["catchup", "Since you left (26)"]]) {
-      expect(html).toMatch(new RegExp(`<button[^>]*data-queue-tab="${id}"[^>]*>${label.replace(/[()]/g, "\\$&")}</button>`));
+      expect(html).toMatch(new RegExp(`<button[^>]*data-queue-tab="${id}"[^>]*><span class="sm:hidden">[^<]*</span><span class="hidden sm:inline">${label.replace(/[()]/g, "\\$&")}</span></button>`));
     }
     expect(html.match(/aria-selected="true"/g)?.length).toBe(1);
     expect(html.match(/data-queue-tab="[^"]+" class="[^"]*min-h-11/g)).toHaveLength(4);
-    expect(renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} />)).toContain(">Later</button>");
+    expect(renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} />)).toContain('aria-label="Later"');
   });
   it("the tablist follows the W3C pattern: one tab stop, panel link, arrow, Home and End keys wrap", () => {
     const html = renderToStaticMarkup(<QueueTabs tab="later" onTab={noop} counts={null} />);

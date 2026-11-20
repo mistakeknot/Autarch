@@ -46,7 +46,6 @@ describe("glance: pulling the context out of a check card", () => {
     expect(g.judging).toHaveLength(4);
     expect(g.judging[0]).toBe("you see 'Waiting on you' with three tabs");
     expect(g.judging[3]).toBe("Full view (top right) shows the desktop layout, and 'Back' returns");
-    expect(g.lead).toMatch(/^The phone inbox you picked is live at/);
   });
   it("takes the first link (the build to play, not the PR), and ends the last question at its sentence", () => {
     const g = glance(PLAY)!;
