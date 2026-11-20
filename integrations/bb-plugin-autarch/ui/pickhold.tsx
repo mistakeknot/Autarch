@@ -24,6 +24,8 @@ interface Held {
 export interface PickHold {
   /** Wraps the page's onPick: a one-tap pick is held, any other goes straight through. */
   pick: OnPick;
+  /** An immediate panel pick supersedes a hold for the same card, leaving other cards held. */
+  sendNow: OnPick;
   /** The decision being held, for the list to mark it. */
   heldId: string | null;
   /** Whole seconds left on the bar, or null when nothing is held. */
@@ -72,20 +74,22 @@ export function usePickHold(onPick: OnPick, eligible: (decisionId: string, optio
     }
   }, []);
 
+  const sendNow: OnPick = useCallback((...args) => {
+    // An explicit replacement must cancel the timer before sending, including when that send fails.
+    if (heldRef.current?.decisionId === args[0]) {
+      heldRef.current = null;
+      clearTimer();
+      setHeld(null);
+    }
+    return onPickRef.current(...args);
+  }, []);
+
   const pick: OnPick = useCallback((...args) => {
     const [decisionId, optionId, revision, reason, images, answers] = args;
     const oneTap = reason === undefined && (images === undefined || images.length === 0) && answers === undefined && eligibleRef.current(decisionId, optionId);
     const cur = heldRef.current;
-    if (!oneTap) {
-      // A later explicit answer (confirmed destructive pick, typed words, images) on the card that is held supersedes the held
-      // pick: drop it so the two never both reach the agent, and the earlier one cannot land after a failed later one.
-      if (cur !== null && cur.decisionId === decisionId) {
-        heldRef.current = null;
-        clearTimer();
-        setHeld(null);
-      }
-      return onPickRef.current(...args);
-    }
+    // Confirmed destructive picks, typed words and images supersede a held answer on this card.
+    if (!oneTap) return sendNow(...args);
     // A second tap on the card already held does not replace it; it resolves first.
     if (cur !== null && cur.decisionId === decisionId) return;
     flush();
@@ -95,7 +99,7 @@ export function usePickHold(onPick: OnPick, eligible: (decisionId: string, optio
     setNow(Date.now());
     setHeld(h);
     timer.current = setTimeout(flush, UNDO_MS);
-  }, [flush]);
+  }, [flush, sendNow]);
 
   const undo = useCallback(() => {
     heldRef.current = null;
@@ -127,7 +131,7 @@ export function usePickHold(onPick: OnPick, eligible: (decisionId: string, optio
   useEffect(() => flush, [flush]);
 
   const seconds = held === null ? null : Math.max(0, Math.ceil((held.endsAt - now) / 1000));
-  return { pick, heldId: held?.decisionId ?? null, seconds, failure, undo, dismissFailure: () => setFailure(null) };
+  return { pick, sendNow, heldId: held?.decisionId ?? null, seconds, failure, undo, dismissFailure: () => setFailure(null) };
 }
 
 /**

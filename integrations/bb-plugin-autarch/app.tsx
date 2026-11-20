@@ -18,7 +18,7 @@ import { DocReaderHost, type DocReaderApi, type DocResultT } from "./ui/docreade
 import type { OtherImage } from "./ui/other.js";
 import { setTimingSink, timed } from "./ui/clicktiming.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
-import type { AsksData } from "./ui/asks.js";
+import type { AsksData, OnPick } from "./ui/asks.js";
 import { PickHoldBar, usePickHold } from "./ui/pickhold.js";
 import { QueueSurface, useIsPhone } from "./ui/inbox.js";
 import { ProjectFilterBar, useProjectFilter } from "./ui/projectfilter.js";
@@ -353,6 +353,8 @@ function HomePage({ subPath }: { subPath?: string }) {
     const option = asks?.owed.find(o => o.id === decisionId)?.ask.options.find(o => o.id === optionId);
     return option !== undefined && !isDestructiveOption(option);
   });
+  // Full view keeps immediate picks; a new phone answer supersedes this card's pending inbox pick.
+  const sendPanelPick: OnPick = (...args) => phone ? phonePickHold.sendNow(...args) : sendPick(...args);
   /** Open a thread and this plugin's blocks panel beside it; the host declines (false) where there is no side panel. */
   const openBeside = (thread: string) => {
     nav.toThread(thread);
@@ -480,7 +482,7 @@ function HomePage({ subPath }: { subPath?: string }) {
             onRevoke={revoke}
             onView={(decision_id) => void timed("setViewing", rpc.call("setViewing", { decision_id })).catch(() => {})}
             onPick={(decision_id, option_id, revision, reason, images, answers) => {
-              return sendPick(decision_id, option_id, revision, reason, images, answers);
+              return sendPanelPick(decision_id, option_id, revision, reason, images, answers);
             }}
           />
           </>
@@ -500,7 +502,7 @@ function HomePage({ subPath }: { subPath?: string }) {
             onNote={(decision_id, text, images) => note({ decision_id }, text, images)}
             onOpen={openBeside}
             onPick={(decision_id, option_id, revision, reason, images, answers) => {
-              return sendPick(decision_id, option_id, revision, reason, images, answers);
+              return sendPanelPick(decision_id, option_id, revision, reason, images, answers);
             }}
           />
         );
@@ -589,7 +591,7 @@ function HomePage({ subPath }: { subPath?: string }) {
             onRevoke={revoke}
             onView={(decision_id) => void timed("setViewing", rpc.call("setViewing", { decision_id })).catch(() => {})}
             onPick={(decision_id, option_id, revision, reason, images, answers) => {
-              return sendPick(decision_id, option_id, revision, reason, images, answers);
+              return sendPanelPick(decision_id, option_id, revision, reason, images, answers);
             }}
           />
         </div>
