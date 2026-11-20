@@ -353,8 +353,8 @@ function HomePage({ subPath }: { subPath?: string }) {
     const option = asks?.owed.find(o => o.id === decisionId)?.ask.options.find(o => o.id === optionId);
     return option !== undefined && !isDestructiveOption(option);
   });
-  // Full view keeps immediate picks; a new phone answer supersedes this card's pending inbox pick.
-  const sendPanelPick: OnPick = (...args) => phone ? phonePickHold.sendNow(...args) : sendPick(...args);
+  // Full view keeps immediate picks and supersedes a pending inbox pick even after a width change.
+  const sendPanelPick: OnPick = phonePickHold.sendNow;
   /** Open a thread and this plugin's blocks panel beside it; the host declines (false) where there is no side panel. */
   const openBeside = (thread: string) => {
     nav.toThread(thread);

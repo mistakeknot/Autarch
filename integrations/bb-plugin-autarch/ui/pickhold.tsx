@@ -1,13 +1,13 @@
 // The phone's 5-second Undo (bead mk-j5ipa.13). After a one-tap pick on the phone the pick is held here for five seconds under a
 // "sending in 5 s · Undo" bar. It goes through the normal answer path (the page's onPick) only when the bar closes; Undo drops it
-// and the card is back, unanswered. Nothing is held on the server and the desktop does not use this.
+// and the card is back, unanswered. Nothing is held on the server; only inbox one-tap picks enter the hold.
 //
 // Held picks are the ones that took one tap: no typed words, no images, no multi-question answers, and no option that asks for a
 // second tap to confirm. Those keep their own flow and go at once.
 //
-// A held pick is sent exactly once: when the bar closes, when the page is hidden or closed, when the phone inbox goes away (Full
-// view), or when another card is picked meanwhile (the first can no longer be undone). The send is the page's own onPick, the one
-// answer path there is (a plugin RPC with a retry-safe pick id), not a fetch or a beacon: the answer route is not an HTTP route.
+// A held pick sends when the bar closes, the page is hidden or closed, or a new inbox tap on another card flushes it early.
+// Full view leaves it held: an immediate panel pick on another card leaves the timer alone; a same-card pick cancels it before
+// sending the replacement. The send uses the page's onPick (a plugin RPC with a retry-safe pick id), not fetch or a beacon.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActionButton } from "./buttons.js";
 import type { OnPick } from "./asks.js";
