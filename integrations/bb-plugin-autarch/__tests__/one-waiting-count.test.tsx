@@ -11,7 +11,7 @@ import { Catchup } from "../catchup.js";
 import { homeCli } from "../cli.js";
 import { owedCounts, waitingLine } from "../waitingcount.js";
 import { waitingNow } from "../waiting.js";
-import { HomeTabs, QueueTabs } from "../ui/tabs.js";
+import { QueueTabs } from "../ui/tabs.js";
 import { railCount } from "../ui/waiting.js";
 import { inboxRows, MobileInbox } from "../ui/inbox.js";
 import type { AsksData, OwedAsk } from "../ui/asks.js";
@@ -113,8 +113,7 @@ describe("every surface shows that number", () => {
     const rows = r.svc.owed().map((d, i) => ask({ id: String(d.id), task_id: String(d.task_id), subject: `card ${i}`, held: r.svc.holdOf(String(d.task_id)), later: r.svc.laterOf(String(d.task_id)) }));
     expect(owedCounts(rows)).toEqual({ pick: 3, held: 2, later: 2 });
     expect(railCount(w.decide, rows)).toBe(3);
-    expect(renderToStaticMarkup(<HomeTabs waiting={w.total} onOpen={noop} />)).toContain("Queue (3)");
-    expect(renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={{ decide: w.decide, later: 2, blocks: 0, catchup: 0 }} line={w.line} />)).toContain("Needs you now (3)");
+    expect(renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={{ decide: w.decide, later: 2, blocks: 0, catchup: 0 }} />)).toContain("Needs you now (3)");
     expect(phone(asks(rows), w.total)).toContain("Waiting on you · 3");
   });
 });
@@ -134,10 +133,10 @@ describe("waitingLine", () => {
 describe("Desktop Queue tab line", () => {
   it("shows the count with held and Later by name, and nothing extra when there are none", () => {
     const counts = { decide: 10, later: 8, blocks: 0, catchup: 0 };
-    const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={counts} line="10 · 12 on hold · 8 later" />);
-    expect(html).toContain("10 · 12 on hold · 8 later");
-    expect(html).toContain("data-waiting-line");
-    expect(renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={counts} line="10" />)).not.toContain("data-waiting-line");
+    const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={counts} />);
+    expect(html).not.toContain("10 · 12 on hold · 8 later");
+    expect(html).not.toContain("data-waiting-line");
+    expect(renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={counts} />)).not.toContain("data-waiting-line");
   });
 });
 

@@ -291,7 +291,8 @@ export class Real {
       await p.locator('[data-queue-section="asks"]').getByText("Nothing needs you.", { exact: true }).waitFor({ state: "visible", timeout: 30_000 });
       assert.equal(await p.locator(`[data-decision="${decision}"]`).count(), 0, "settled decision remains in owed view");
       assert.equal(await p.locator(`[data-queue-id="${decision}"]`).count(), 0, "settled card remains in owed view");
-      await p.locator("[data-home-tabs]").getByRole("button", { name: "Archive", exact: true }).click();
+      await p.locator("[data-home-overflow] summary").click();
+      await p.locator("[data-home-overflow]").getByRole("button", { name: "Archive", exact: true }).click();
       await p.locator("[data-archive-panel]").waitFor({ state: "visible" });
       const archived = p.locator("[data-archive-row]").filter({ hasText: `e2e: pick-click ${this.runId}` });
       await archived.waitFor({ state: "visible", timeout: 30_000 });

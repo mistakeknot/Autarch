@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
 import { learnEnabled, learnSet, learnView, loadDeck, type LearnSettings } from "../learn.js";
-import { homeTabs, HomeTabs, QUEUE_TABS } from "../ui/tabs.js";
+import { homeTabs, HomeOverflow, QUEUE_TABS } from "../ui/tabs.js";
 import { LearnPanel, LearnSwitch, latestOnly, orderDeck } from "../ui/learn.js";
 import { MIGRATIONS } from "../migrations.js";
 import { openStore, tmpDir } from "./helpers.js";
@@ -148,10 +148,10 @@ describe("reading Learn state", () => {
 describe("the tab and the panel", () => {
   const noop = () => {};
   it("the Learn tab is absent by default and present when on", () => {
-    expect(homeTabs().map((t) => t[2])).toEqual(["Queue", "Ideas", "Archive", "Vizier", "Map", "Settings"]);
-    expect(homeTabs(true).map((t) => t[2])).toEqual(["Queue", "Ideas", "Learn", "Archive", "Vizier", "Map", "Settings"]);
-    expect(renderToStaticMarkup(<HomeTabs onOpen={noop} />)).not.toContain("Learn");
-    expect(renderToStaticMarkup(<HomeTabs learn onOpen={noop} />)).toContain("Learn");
+    expect(homeTabs().map((t) => t[2])).toEqual(["Queue", "Ideas", "Archive", "Vizier", "Settings"]);
+    expect(homeTabs(true).map((t) => t[2])).toEqual(["Queue", "Ideas", "Learn", "Archive", "Vizier", "Settings"]);
+    expect(renderToStaticMarkup(<HomeOverflow onOpen={noop} />)).not.toContain("Learn");
+    expect(renderToStaticMarkup(<HomeOverflow learn onOpen={noop} />)).toContain("Learn");
   });
   const cards = loadDeck(shipped).map((c, i) => ({ ...c, mark: (i === 0 ? "got" : i === 1 ? "later" : null) as "got" | "later" | null }));
   it("orders unread first, then Later, then Got it", () => {

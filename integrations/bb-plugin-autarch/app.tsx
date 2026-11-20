@@ -13,13 +13,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { definePluginApp, useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "./server";
-import { AsksPanel, PickController, imagesSig, pickOutcome, laterOutcome, withoutPicked, withLater } from "./ui/asks.js";
+import { AsksPanel, isDestructiveOption, PickController, imagesSig, pickOutcome, laterOutcome, withoutPicked, withLater } from "./ui/asks.js";
 import { DocReaderHost, type DocReaderApi, type DocResultT } from "./ui/docreader.js";
 import type { OtherImage } from "./ui/other.js";
 import { setTimingSink, timed } from "./ui/clicktiming.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
 import type { AsksData } from "./ui/asks.js";
-import { MobileInbox, useIsPhone } from "./ui/inbox.js";
+import { PickHoldBar, usePickHold } from "./ui/pickhold.js";
+import { QueueSurface, useIsPhone } from "./ui/inbox.js";
 import { ProjectFilterBar, useProjectFilter } from "./ui/projectfilter.js";
 import { COUNTS_FOLLOW_FILTER, filterAsks, filterQueue, hiddenIn, projectChoices, shownCount } from "./ui/projectfilterstore.js";
 import { IdeaDesk, IdeaDigest, type IdeaApi } from "./ui/ideas.js";
@@ -32,8 +33,6 @@ import { ActionError, actionErrorText, useActionError } from "./ui/actionerror.j
 import { railBadge, railCount } from "./ui/waiting.js";
 import type { Waiting } from "./waiting.js";
 import type { CatchupEntry } from "./ui/catchup.js";
-import { MapPlaceholder } from "./ui/map-placeholder.js";
-import type { Lens } from "./ui/map-placeholder.js";
 import { BlocksPanel, QueueRefresher, type RootRunHooks } from "./ui/blocks.js";
 import type { QueueView } from "./ui/blocks.js";
 import { blocksCount, withoutOwed } from "./ui/blocks.js";
@@ -42,7 +41,7 @@ import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { GovernorPanel } from "./ui/governor.js";
 import { UpdateMenu, updateLabel, updatePollMs, type UpdateInfoView } from "./ui/update.js";
 import { keyAction, layoutStack, ROOT_PANEL, stackReducer, StackView } from "./ui/stack.js";
-import { forgetClassicTabs, HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs.js";
+import { forgetClassicTabs, HomeTabs, HomeOverflow, QueueTabs, type QueueTab } from "./ui/tabs.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
 import { POLL_MS, startPoll } from "./ui/poll.js";
@@ -264,8 +263,6 @@ function HomePage({ subPath }: { subPath?: string }) {
   useEffect(() => forgetClassicTabs(() => localStorage), []);
   // Phones get the inbox layout; "Full view" keeps the desktop layout on this device until the page is reopened.
   const phone = useIsPhone();
-  const [fullView, setFullView] = useState(false);
-  // The Idea box (bead mk-2zojo): a panel on the desktop queue, a header button on the phone.
   const [ideaOpen, setIdeaOpen] = useState(false);
   const [ideaTick, setIdeaTick] = useState(0);
   useRealtime("home-queue-changed", () => setIdeaTick((n) => n + 1));
@@ -290,7 +287,6 @@ function HomePage({ subPath }: { subPath?: string }) {
   useEffect(loadLearn, [loadLearn]);
   useRealtime("home-learn-changed", loadLearn);
   const setLearnState = (args: { enabled?: boolean; card?: string; mark?: "got" | "later" | "clear" }) => { setLearnBusy(true); act("Saving the Learn setting", rpc.call("learnSet", args), () => { loadLearn(); setLearnBusy(false); }); };
-  const [openIdeas, setOpenIdeas] = useState<number | undefined>(undefined);
   const ideaApi = useMemo<IdeaApi>(() => ({
     projects: async () => { const r = (await rpc.call("ideaProjects")) as { ok: boolean; projects?: IdeaProject[]; error?: string }; if (!r.ok) throw new Error(r.error ?? "the Idea box could not load projects"); return r.projects ?? []; },
     digest: async () => { const r = (await rpc.call("ideas")) as { ok: boolean; ideas?: IdeaView[]; show?: boolean; error?: string }; if (!r.ok) throw new Error(r.error ?? "the ideas could not load"); return { ideas: r.ideas ?? [], show: r.show ?? false }; },
@@ -298,13 +294,13 @@ function HomePage({ subPath }: { subPath?: string }) {
     act: async (task_id, action) => (await rpc.call("actIdea", { task_id, action })) as { ok: boolean; error?: string },
     clear: async () => { const r = (await rpc.call("clearIdeaDigest")) as { ok?: boolean; error?: string }; if (r && r.ok === false) throw new Error(r.error ?? "could not hide the digest"); },
   }), [rpc]);
-  // The Ideas tab carries the open-idea count, as Queue carries the waiting count; no count when the read fails.
+  // The Ideas item carries its open count; a failed read leaves the count unset.
+  const [openIdeas, setOpenIdeas] = useState<number | undefined>();
   useEffect(() => { void ideaApi.digest().then((d) => setOpenIdeas(d.ideas.length), () => setOpenIdeas(undefined)); }, [ideaApi, ideaTick]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Rows on screen right now: React state (not just the tracker) so "Mark N seen" can say N.
   const [visible, setVisible] = useState<Set<string>>(new Set());
   const [markResult, setMarkResult] = useState<string | null>(null);
-  const [lens, setLens] = useState<Lens>("attention");
   const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
   const tracker = useMemo(() => new SeenTracker((item) => act("Marking it seen", rpc.call("markSeen", { item }), refetch)), [rpc, refetch, act]);
   const onVisibility = useCallback(
@@ -352,6 +348,11 @@ function HomePage({ subPath }: { subPath?: string }) {
       if (o.ok) dropOwed(decision_id);
       return o;
     }).finally(refetchAll);
+  // The page owns the phone hold so changing sections, More or Full view cannot shorten Undo.
+  const phonePickHold = usePickHold(sendPick, (decisionId, optionId) => {
+    const option = asks?.owed.find(o => o.id === decisionId)?.ask.options.find(o => o.id === optionId);
+    return option !== undefined && !isDestructiveOption(option);
+  });
   /** Open a thread and this plugin's blocks panel beside it; the host declines (false) where there is no side panel. */
   const openBeside = (thread: string) => {
     nav.toThread(thread);
@@ -404,12 +405,10 @@ function HomePage({ subPath }: { subPath?: string }) {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const editable = !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
-      const mapOnTop = stackRef.current.panels[stackRef.current.panels.length - 1]?.kind === "map";
-      const intent = keyAction(e.key, { editable, mapOnTop });
+      const intent = keyAction(e.key, { editable });
       if (!intent) return;
       if (intent.type === "close") dispatch({ type: "close" });
       else if (intent.type === "width") dispatch(intent);
-      else if (intent.type === "lens") setLens((["attention", "allocation", "dependencies", "neglect"] as const)[intent.lens - 1]!);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -434,13 +433,13 @@ function HomePage({ subPath }: { subPath?: string }) {
   const allBlocks = blocks.queue ? (asks ? withoutOwed(blocks.queue, asks) : blocks.queue) : null;
   const filterChoices = projectChoices([...(asks ? asks.owed.filter((o) => !o.held) : []), ...(allBlocks ? [...allBlocks.rows, ...allBlocks.legacy.owed] : [])]);
   const hiddenBy = {
+    heldOnPhone: asks ? hiddenIn(asks.owed.filter(o => o.held), excluded) : 0,
     decide: asks ? hiddenIn(asks.owed.filter((o) => !o.held && !o.later), excluded) : 0,
     later: asks ? hiddenIn(asks.owed.filter((o) => !o.held && o.later), excluded) : 0,
     blocks: allBlocks ? hiddenIn(allBlocks.rows, excluded) + hiddenIn(allBlocks.legacy.owed, excluded) : 0,
-    // On the phone the held cards sit under the On hold row of the waiting tab, so the filter's note counts them there too.
-    heldOnPhone: asks ? hiddenIn(asks.owed.filter((o) => o.held), excluded) : 0,
   };
-  const filterBar = (hidden: number) => <ProjectFilterBar choices={filterChoices} excluded={excluded} hidden={hidden} onChange={setExcluded} />;
+  const filterBar = (hidden: number, compact = false) => <ProjectFilterBar compact={compact} choices={filterChoices} excluded={excluded} hidden={hidden} onChange={setExcluded} />;
+  const queueNavigation = () => (<QueueTabs phone={phone} active={stack.panels[stack.panels.length-1]?.id === "queue"} tab={queueTab} onTab={(next) => { setQueueTab(next); push({ id: "queue", kind: "decision", title: "Queue" }); }} more={<HomeOverflow ideas={openIdeas} active={stack.panels[stack.panels.length-1]?.id} definition={waiting?.definition} learn={learn.enabled} onOpen={push} />} filter={queueTab !== "catchup" ? <div data-queue-filter>{filterBar(hiddenBy[queueTab === "blocks" ? "blocks" : queueTab] + (phone && queueTab === "decide" ? hiddenBy.heldOnPhone : 0), true)}</div> : null} counts={waiting ? { decide: shownCount(waiting.decide, hiddenBy.decide), later: shownCount(asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, hiddenBy.later), blocks: shownCount(allBlocks ? blocksCount(allBlocks) : waiting.held, hiddenBy.blocks), catchup: waiting.updates } : null} />);
   const HIDDEN_ALL = "Everything here is hidden by the project filter.";
 
   const render = (panel: Panel): ReactNode => {
@@ -453,8 +452,6 @@ function HomePage({ subPath }: { subPath?: string }) {
                 <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => act("Marking the notice seen", rpc.call("markSeen", { item }), refetch)} />
               </div>
             ) : null}
-            <QueueTabs tab={queueTab} onTab={setQueueTab} definition={waiting?.definition ?? null} line={waiting?.line ?? null} counts={waiting ? { decide: shownCount(waiting.decide, hiddenBy.decide), later: shownCount(asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, hiddenBy.later), blocks: shownCount(allBlocks ? blocksCount(allBlocks) : waiting.held, hiddenBy.blocks), catchup: waiting.updates } : null} />
-            {queueTab !== "catchup" ? <div className="border-b border-border py-1" data-queue-filter>{filterBar(hiddenBy[queueTab === "blocks" ? "blocks" : queueTab])}</div> : null}
             <section role="tabpanel" id="queue-tabpanel" aria-labelledby={`queue-tab-${queueTab}`} data-queue-section={queueTab === "decide" ? "asks" : queueTab} className="border-b border-border">
               {queueTab === "decide"
                 ? render({ id: "asks", kind: "decision", title: "Asks", part: "decide" })
@@ -560,8 +557,6 @@ function HomePage({ subPath }: { subPath?: string }) {
             )}
           </>
         );
-      case "map":
-        return <MapPlaceholder lens={lens} onLens={setLens} />;
       default:
         return panel.ref ? <ThreadPanel threadId={panel.ref} /> : null;
     }
@@ -603,50 +598,22 @@ function HomePage({ subPath }: { subPath?: string }) {
   }
   const keyNotice = linkKey !== null && lookup !== null && lookup.key === linkKey ? <CardKeyNotice cardKey={linkKey} lookup={lookup.result} /> : null;
 
-  if (phone && !fullView && asks !== null) {
-    return (
-      <ConversationProvider value={conversation}><DocReaderHost api={docs}>
-        <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
-          {keyNotice}
-          {actionLine}
-          <MobileInbox
-            asks={filterAsks(asks, excluded)}
-            waiting={shownCount(waiting?.total ?? 0, hiddenBy.decide)}
-            filter={{ node: filterBar, hidden: { waiting: hiddenBy.decide, later: hiddenBy.later }, heldHidden: hiddenBy.heldOnPhone, summaryOwed: COUNTS_FOLLOW_FILTER ? filterAsks(asks, excluded).owed : asks.owed, laterCount: shownCount(asks.owed.filter((o) => o.later && !o.held).length, hiddenBy.later) }}
-            sinceCount={waiting ? waiting.updates + waiting.notices : readable.length + notices.length}
-            sinceNode={
-              <>
-                {notices.length > 0 ? (
-                  <div className="p-2">
-                    <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => act("Marking the notice seen", rpc.call("markSeen", { item }), refetch)} />
-                  </div>
-                ) : null}
-                {render({ id: "catchup", kind: "catchup", title: "Catch-up" })}
-              </>
-            }
-            onOpen={openBeside}
-            onNote={(decision_id, text, images) => note({ decision_id }, text, images)}
-            onLater={sendLater}
-            onPick={(decision_id, option_id, revision, reason, images, answers) => {
-              return sendPick(decision_id, option_id, revision, reason, images, answers);
-            }}
-            onDesktop={() => setFullView(true)}
-            onIdea={() => setIdeaOpen((o) => !o)}
-            updateNode={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined}
-            ideaNode={ideaOpen ? <><IdeaDigest api={ideaApi} refreshKey={ideaTick} /><IdeaDesk api={ideaApi} refreshKey={ideaTick} /></> : null}
-          />
-        </div>
-      </DocReaderHost></ConversationProvider>
-    );
-  }
   return (
     <ConversationProvider value={conversation}><DocReaderHost api={docs}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
       {keyNotice}
       {actionLine}
-      {phone && fullView ? <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={() => setFullView(false)} data-inbox-return>‹ Back to the phone inbox</button> : null}
-      <HomeTabs extra={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined} learn={learn.enabled} {...(waiting ? { waiting: waiting.total } : {})} ideas={openIdeas} onOpen={push} />
-      <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
+      <HomeTabs queue={queueNavigation()} extra={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined} />
+      <PickHoldBar hold={phonePickHold} />
+      <QueueSurface phone={phone && queueTab === "decide" && stack.panels[stack.panels.length-1]?.id === "queue"} inbox={asks ? {
+        pickHold: phonePickHold, asks: filterAsks(asks, excluded), waiting: waiting?.decide ?? 0,
+        onPick: sendPick, onNote: (decision_id, text, images) => note({ decision_id }, text, images), onLater: sendLater,
+        onOpen: openBeside, sinceNode: null, sinceCount: waiting?.updates ?? 0,
+        onIdea: () => setIdeaOpen(v => !v), ideaNode: ideaOpen ? render({ id: "ideas", kind: "ideas", title: "Ideas" }) : null,
+        filter: { node: () => null, hidden: { waiting: hiddenBy.decide + hiddenBy.heldOnPhone, later: hiddenBy.later }, laterCount: waiting?.later ?? 0 },
+      } : null}>
+        <StackView placed={layoutStack(stack).filter((p) => !phone || !p.collapsed)} render={render} onExpand={push} />
+      </QueueSurface>
     </div>
     </DocReaderHost></ConversationProvider>
   );

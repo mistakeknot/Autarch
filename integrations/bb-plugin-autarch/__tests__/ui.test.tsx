@@ -10,7 +10,6 @@ vi.mock("@get-bb/plugin-sdk/app", () => ({
 import { BlocksPanel, BlocksRow, groupRows, QueueRefresher, type QueueRowView, type QueueView } from "../ui/blocks.js";
 import { ageText, ApprovalsList, AsksPanel, expiryText, optionEffect, currentAsk, isOldAsk, buildAsksView, PickController, pickOutcome, type AsksData } from "../ui/asks.js";
 import { CatchupPanel, observeVisibility, SeenTracker, snapshotIds, type CatchupEntry } from "../ui/catchup.js";
-import { MapPlaceholder } from "../ui/map-placeholder.js";
 import { BindingsPanel, parseDelegationForm, saveError, SettingsPanel } from "../ui/settings.js";
 import { keyAction, layoutStack, ROOT_PANEL, stackReducer, type Panel, type StackState } from "../ui/stack.js";
 import { TellVizier, ThreadPanel, VizierPanel } from "../ui/vizier.js";
@@ -235,11 +234,9 @@ describe("stack", () => {
   const p = (id: string): Panel => ({ id, kind: "decision", title: id });
   const start: StackState = { panels: [], width: "third" };
 
-  it("the keyboard map holds only keys Home acts on, and 1-4 change the lens only while Map is on top", () => {
-    for (const k of ["j", "k", "Enter"]) expect(keyAction(k, { editable: false, mapOnTop: true })).toBeNull();
-    expect(keyAction("2", { editable: false })).toBeNull();
-    expect(keyAction("2", { editable: false, mapOnTop: false })).toBeNull();
-    expect(keyAction("2", { editable: false, mapOnTop: true })).toEqual({ type: "lens", lens: 2 });
+  it("the keyboard map holds only keys Home acts on; retired Map digits fall through", () => {
+    for (const k of ["j", "k", "Enter"]) expect(keyAction(k, { editable: false })).toBeNull();
+    for (const key of ["1", "2", "3", "4"]) expect(keyAction(key, { editable: false })).toBeNull();
     expect(keyAction("Escape", { editable: false })).toEqual({ type: "close" });
     expect(keyAction("Escape", { editable: true })).toBeNull();
   });
@@ -514,11 +511,6 @@ describe("vizier, thread, settings and map", () => {
     expect(parseDelegationForm({ vizierThreadId: "t", projects: "", dailyCap: "-1" }).ok).toBe(false);
   });
 
-  it("the map is a labelled placeholder with the four lenses", () => {
-    const html = renderToStaticMarkup(<MapPlaceholder lens="attention" onLens={() => {}} />);
-    expect(html).toContain("placeholder");
-    for (const l of ["attention", "allocation", "dependencies", "neglect"]) expect(html).toContain(l);
-  });
 });
 
 const NOW = Date.parse("2026-10-01T00:00:00.000Z");
