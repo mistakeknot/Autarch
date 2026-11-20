@@ -92,3 +92,30 @@ it("natural-size gestures pan without navigation and fit allows pinch zoom",asyn
  expect(q("[data-evidence-viewport]").style.touchAction).toBe("auto");
  key("ArrowRight");expect(q("[data-evidence-full-image]").className).not.toContain("max-w-none");
 });
+it.each(["altKey","metaKey","ctrlKey"])("keeps %s arrows native",async(modifier)=>{
+ await mount();open();const hostKey=vi.fn();window.addEventListener("keydown",hostKey);
+ try{
+  for(const value of ["ArrowLeft","ArrowRight"]){
+   const event=new KeyboardEvent("keydown",{key:value,[modifier]:true,bubbles:true,cancelable:true});
+   act(()=>q("dialog").dispatchEvent(event));expect(event.defaultPrevented).toBe(false);
+   expect(q("h2").textContent).toBe("Header: Before");
+  }
+  expect(hostKey).toHaveBeenCalledTimes(2);
+ }finally{window.removeEventListener("keydown",hostKey);}
+});
+it("Escape still closes and stays contained with modifiers held",async()=>{
+ await mount();open();const hostKey=vi.fn();window.addEventListener("keydown",hostKey);
+ try{
+  const event=new KeyboardEvent("keydown",{key:"Escape",altKey:true,metaKey:true,ctrlKey:true,bubbles:true,cancelable:true});
+  act(()=>q("dialog").dispatchEvent(event));expect(q("dialog")).toBeNull();expect(event.defaultPrevented).toBe(true);expect(hostKey).not.toHaveBeenCalled();
+ }finally{window.removeEventListener("keydown",hostKey);}
+});
+it("fit-mode swipes pan while the page is pinch-zoomed",async()=>{
+ vi.stubGlobal("visualViewport",{scale:2});
+ try{
+  await mount();open();
+  const swipe=()=>act(()=>{for(const [type,x]of [["touchstart",200],["touchend",50]] as const){const event=new Event(type,{bubbles:true});Object.defineProperty(event,type==="touchstart"?"touches":"changedTouches",{value:[{clientX:x,clientY:100}]});q("[data-evidence-viewport]").dispatchEvent(event);}});
+  swipe();expect(q("h2").textContent).toBe("Header: Before");
+  vi.stubGlobal("visualViewport",{scale:1});swipe();expect(q("h2").textContent).toBe("Header: After");
+ }finally{vi.unstubAllGlobals();}
+});
