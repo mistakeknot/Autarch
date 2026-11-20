@@ -30,7 +30,7 @@ export function homeTabs(learn = false): ReadonlyArray<readonly [TabId, Panel["k
 }
 
 export function HomeTabs({ queue, extra }: { queue: ReactNode; extra?: ReactNode }) {
-  return <>{queue}{extra ? <div className="border-b border-border px-4 py-1 sm:py-2" data-home-extra>{extra}</div> : null}</>;
+  return <>{queue}{extra ? <div className="border-b border-[var(--border-seam,var(--border))] px-4 py-1 sm:py-2" data-home-extra>{extra}</div> : null}</>;
 }
 
 export function HomeOverflow({ learn = false, onOpen, definition, active, ideas }: { ideas?: number | undefined; active?: string | undefined; definition?: string | null | undefined; learn?: boolean; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void }) {
@@ -52,7 +52,7 @@ export function HomeOverflow({ learn = false, onOpen, definition, active, ideas 
     }
   }}>
     <summary className={`${destination ? `${HEADER_CONTROL} px-2 bg-transparent font-semibold underline underline-offset-4 text-foreground` : HEADER_QUIET}`}>{destination ? `More · ${destination}` : "More"}</summary>
-    <div className="absolute right-0 z-30 flex w-40 flex-col rounded border border-border bg-background p-1 shadow-md">
+    <div className="absolute right-0 z-30 flex w-40 flex-col rounded border border-border bg-[var(--popover,var(--background))] text-[var(--popover-foreground,var(--foreground))] p-1 shadow-md">
       {homeTabs(learn).filter(([id]) => id !== "queue").map(([id, kind, title]) => <button type="button" aria-current={active === id ? "page" : undefined} className="min-h-11 px-3 text-left hover:bg-muted" key={id} onClick={e => {
         e.currentTarget.closest("details")?.removeAttribute("open");
         onOpen({ id, kind, title });
@@ -82,7 +82,7 @@ export function nextQueueTab(tab: QueueTab, key: string): QueueTab | null {
 // Below sm the tabs wrap to a second line rather than scroll, so no tab sits off-screen with no cue; a label never splits.
 export function QueueTabs({ tab, counts, onTab, filter = null, more = null, active = true, phone = false }: { phone?: boolean; tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; filter?: ReactNode; more?: ReactNode; active?: boolean }) {
   return (
-    <div className="border-b border-border px-2 sm:px-4">
+    <div className="border-b border-[var(--border-seam,var(--border))] px-2 sm:px-4">
     <div className="relative flex flex-wrap items-center gap-x-1 [&_[data-project-filter]]:static [&_[data-project-filter-popup]]:left-auto [&_[data-project-filter-popup]]:right-0 [&_[data-project-filter-popup]]:w-80 [&_[data-project-filter-popup]]:max-w-[calc(100vw-2rem)]">
     <div role="tablist" aria-label="Queue" className="contents [&_button]:min-h-11 [&_button]:text-xs sm:[&_button]:min-h-9 sm:[&_button]:text-sm" data-queue-tabs>
       {QUEUE_TABS.map(([id, label]) => (

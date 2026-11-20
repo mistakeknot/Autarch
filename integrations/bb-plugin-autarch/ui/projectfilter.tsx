@@ -120,7 +120,7 @@ export function ProjectFilterBar({ choices, excluded, hidden, onChange, compact 
         </p>
       ) : null}
       {open ? (
-        <div className="absolute left-2 right-2 top-full z-20 rounded-md border border-border bg-background p-2 shadow-md sm:left-4 sm:right-auto sm:w-80" data-project-filter-popup onKeyDown={onPopupKey}>
+        <div className="absolute left-2 right-2 top-full z-20 rounded-md border border-border bg-[var(--popover,var(--background))] text-[var(--popover-foreground,var(--foreground))] p-2 shadow-md sm:left-4 sm:right-auto sm:w-80" data-project-filter-popup onKeyDown={onPopupKey}>
           {compact && hidden > 0 ? <p role="status" className="m-0 mb-2 text-xs text-muted-foreground">{hiddenText(hidden)}</p> : null}
           <input
             ref={input}
@@ -134,7 +134,7 @@ export function ProjectFilterBar({ choices, excluded, hidden, onChange, compact 
             placeholder="Find a project"
             autoComplete="off"
             value={query}
-            className="mb-2 min-h-11 w-full rounded-md border border-border bg-background px-2 text-sm sm:min-h-8"
+            className="mb-2 min-h-11 w-full rounded-md border border-input bg-transparent px-2 text-sm sm:min-h-8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onChange={(e) => { setQuery(e.target.value); setActiveName(choices.find((c) => c.name.toLowerCase().includes(e.target.value.trim().toLowerCase()))?.name ?? null); }}
             onKeyDown={onListKey}
           />

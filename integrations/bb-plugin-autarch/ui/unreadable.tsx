@@ -7,7 +7,7 @@ export const unreadableLabel = (key: string | null | undefined): string => `${ke
 
 export function UnreadableCard({ id, cardKey }: { id: string; cardKey?: string | null }) {
   return (
-    <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={id} data-unreadable>
+    <article className="min-w-0 bg-transparent p-4" data-decision={id} data-unreadable>
       <h3 className="text-sm font-medium [overflow-wrap:anywhere]" data-unreadable-title>{unreadableLabel(cardKey)}</h3>
       <p className="mt-1 text-xs text-muted-foreground">Home could not read this card, so it cannot be answered here. The asking agent was told to file it again.</p>
       {cardKey ? (

@@ -134,12 +134,12 @@ function DetailBar({ r, onPick, onLater, onDone }: { r: InboxRow; onPick: OnPick
     if (rec && !isDestructiveOption(rec)) main = { label: rec.label, go: () => void run(() => onPick(a.id, rec.id, a.revision)) };
   }
   return (
-    <div className="sticky bottom-0 border-t border-border bg-background px-3 py-2" data-detail-bar>
+    <div className="sticky bottom-0 border-t border-[var(--border-seam,var(--border))] bg-background px-3 py-2" data-detail-bar>
       <div className="flex gap-2">
         {later ? <ActionButton tone="quiet" className="min-h-12 flex-1" disabled={busy} onClick={later.go} data-bar-later>{later.label}</ActionButton> : null}
         {main ? <ActionButton tone="recommended" className="min-h-12 flex-[2]" disabled={busy} onClick={main.go} data-bar-main>{main.label}</ActionButton> : r.ask?.unreadable ? null : <span className="flex-[2] self-center text-xs text-muted-foreground" data-bar-hint>Choose an option above.</span>}
       </div>
-      {error !== null ? <p role="alert" className="mt-1 text-xs font-medium text-destructive" data-bar-failure>{`That did not go through: ${error}`}</p> : null}
+      {error !== null ? <p role="alert" className="mt-1 text-xs font-medium text-[var(--destructive-text,var(--destructive))]" data-bar-failure>{`That did not go through: ${error}`}</p> : null}
     </div>
   );
 }
@@ -215,7 +215,7 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
   useEffect(() => { if (open !== null && scroller.current) scroller.current.scrollTop = 0; }, [open]);
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col" data-mobile-inbox>
-      <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
+      <header className="flex items-center justify-between gap-2 border-b border-[var(--border-seam,var(--border))] px-4 py-2">
         {current ? (
           <ActionButton tone="quiet" className="min-h-11" onClick={() => setOpen(null)} data-inbox-back>‹ Back</ActionButton>
         ) : (

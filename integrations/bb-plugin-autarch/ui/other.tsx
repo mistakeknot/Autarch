@@ -196,7 +196,7 @@ export function OtherBox({
             }
           }}
           rows={3}
-          className="mt-1 block w-full min-w-0 resize-y rounded-md border border-input bg-transparent p-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mt-1 block min-h-11 w-full min-w-0 resize-y rounded-md border border-input bg-transparent p-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           placeholder="Your own words: a question, a note, or a different answer. Plain text; paste or attach images."
           data-other-text
         />
