@@ -51,7 +51,7 @@ export function HomeOverflow({ learn = false, onOpen, definition, active, ideas 
       e.currentTarget.querySelector("summary")?.focus();
     }
   }}>
-    <summary className={`${destination ? `${HEADER_CONTROL} px-2 font-semibold bg-muted text-foreground` : HEADER_QUIET}`}>{destination ? `More · ${destination}` : "More"}</summary>
+    <summary className={`${destination ? `${HEADER_CONTROL} px-2 bg-transparent font-semibold underline underline-offset-4 text-foreground` : HEADER_QUIET}`}>{destination ? `More · ${destination}` : "More"}</summary>
     <div className="absolute right-0 z-30 flex w-40 flex-col rounded border border-border bg-background p-1 shadow-md">
       {homeTabs(learn).filter(([id]) => id !== "queue").map(([id, kind, title]) => <button type="button" aria-current={active === id ? "page" : undefined} className="min-h-11 px-3 text-left hover:bg-muted" key={id} onClick={e => {
         e.currentTarget.closest("details")?.removeAttribute("open");
@@ -96,7 +96,7 @@ export function QueueTabs({ tab, counts, onTab, filter = null, more = null, acti
           aria-controls={active ? "queue-tabpanel" : undefined}
           tabIndex={tab === id ? 0 : -1}
           data-queue-tab={id}
-          className={`${HEADER_CONTROL} px-0.5 sm:px-2 whitespace-nowrap underline-offset-4 ${active && tab === id ? "font-semibold underline bg-state-active text-foreground" : "bg-transparent text-muted-foreground hover:bg-state-hover hover:text-foreground"}`}
+          className={`${HEADER_CONTROL} px-0.5 sm:px-2 whitespace-nowrap underline-offset-4 ${active && tab === id ? "bg-transparent font-semibold underline text-foreground" : "bg-transparent text-muted-foreground hover:bg-state-hover hover:text-foreground"}`}
           onClick={() => onTab(id)}
           onKeyDown={(e) => {
             const to = nextQueueTab(tab, e.key);

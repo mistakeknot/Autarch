@@ -65,8 +65,9 @@ it("keeps compact header spacing, keyboard-only rings and deterministic active c
  }
  for(const control of [projects,more])expect(control.className.split(" ")).toContain("px-2");
  const selected=host.querySelector('[aria-selected="true"]')!;
- expect(selected.className).toContain("bg-state-active");
- expect(more.className).toContain("bg-muted");
- expect(more.className.split(" ")).toContain("text-foreground");
- for(const control of [selected,more])expect(control.className.split(" ")).not.toContain("bg-transparent");
+ for(const control of [selected,more]){
+  const classes=control.className.split(" ");
+  for(const token of ["bg-transparent","font-semibold","underline","underline-offset-4","text-foreground"])expect(classes).toContain(token);
+  for(const token of ["bg-state-active","bg-muted"])expect(classes).not.toContain(token);
+ }
 });
