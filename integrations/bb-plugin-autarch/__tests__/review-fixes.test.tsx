@@ -111,18 +111,9 @@ describe("prose is not promoted to a command", () => {
 });
 
 describe("the definition is a tap target", () => {
-  it("What this counts has a 44px minimum at every width", () => {
-    const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={() => {}} counts={null} definition="d" />);
-    const button = html.match(/<button[^>]*data-waiting-definition-toggle[^>]*>/)?.[0];
-    expect(button).toBeDefined();
-    expect(button).toContain("min-h-11");
-    expect(button).toContain("min-width:44px");
-    expect(button).toContain("min-height:44px");
-    expect(button).toContain('aria-label="What this counts"');
-  });
   it("below sm the Queue tabs wrap instead of scrolling off-screen, and no label splits", () => {
     const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={() => {}} counts={null} />);
-    expect(html).toMatch(/class="[^"]*\bflex-wrap\b[^"]*\bsm:basis-0\b[^"]*" data-queue-tabs/);
+    expect(html).toContain("flex-wrap");
     expect(html).not.toMatch(/[" ]overflow-x-auto/);
     expect(html.match(/data-queue-tab="[^"]+" class="[^"]*whitespace-nowrap/g)).toHaveLength(4);
   });

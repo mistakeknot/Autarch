@@ -1,7 +1,5 @@
-// Home navigation wraps at narrow widths; every destination stays visible and tappable.
-import { useId, useState, type ReactNode } from "react";
-import * as Popover from "@radix-ui/react-popover";
-import { usePortalScopeProps } from "../lib/portal-scope.js";
+// One counted Queue row, with Projects and every other destination under More.
+import type { ReactNode } from "react";
 import type { Panel } from "./stack.js";
 
 /** The removed Classic tabs switch stored its choice here; nothing reads it now, so Home clears it on load. */
@@ -30,20 +28,8 @@ export function homeTabs(learn = false): ReadonlyArray<readonly [TabId, Panel["k
   ];
 }
 
-export function HomeTabs({ learn = false, onOpen, extra, mergedQueue }: { mergedQueue?: ReactNode; extra?: ReactNode; learn?: boolean | undefined; waiting?: number | undefined; ideas?: number | undefined; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void }) {
-  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("headerLayout") === "merged") return <>{mergedQueue}{extra ? <div className="border-b border-border px-4 py-1 sm:py-2" data-home-extra>{extra}</div> : null}</>;
-  return (
-    <>
-    <nav className="flex flex-nowrap gap-2 border-b border-border px-2 py-1 text-xs sm:gap-3 sm:px-4 sm:text-sm sm:py-2" data-home-tabs>
-      {homeTabs(learn).map(([id, kind, title]) => (
-        <button key={id} type="button" className="min-h-11 shrink-0 underline-offset-2 hover:underline sm:min-h-0" onClick={() => onOpen({ id, kind, title })}>
-          {title}
-        </button>
-      ))}
-    </nav>
-    {extra ? <div className="border-b border-border px-4 py-1 sm:py-2" data-home-extra>{extra}</div> : null}
-    </>
-  );
+export function HomeTabs({ queue, extra }: { queue: ReactNode; extra?: ReactNode }) {
+  return <>{queue}{extra ? <div className="border-b border-border px-4 py-1 sm:py-2" data-home-extra>{extra}</div> : null}</>;
 }
 
 export function HomeOverflow({ learn = false, onOpen, definition }: { definition?: string | null | undefined; learn?: boolean; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void }) {
@@ -64,63 +50,13 @@ export function nextQueueTab(tab: QueueTab, key: string): QueueTab | null {
   return null;
 }
 
-/** Tap-accessible count help, with dismissal and focus restoration supplied by the shared popover primitive. */
-function WaitingDefinition({ definition }: { definition: string }) {
-  const [open, setOpen] = useState(false);
-  const id = useId();
-  const portalScope = usePortalScopeProps();
-  return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger asChild>
-        <button
-          type="button"
-          aria-label="What this counts"
-          aria-expanded={open}
-          aria-controls={open ? id : undefined}
-          aria-describedby={open ? id : undefined}
-          data-waiting-definition-toggle
-          className="flex min-h-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          style={{ minWidth: 44, minHeight: 44 }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 11v6M12 7v1" />
-          </svg>
-        </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          {...portalScope}
-          id={id}
-          aria-label="What this counts"
-          tabIndex={-1}
-          side="bottom"
-          align="end"
-          sideOffset={4}
-          collisionPadding={8}
-          className="rounded-md border border-border bg-background p-3 text-xs text-foreground shadow-md"
-          style={{ width: "min(20rem, calc(100vw - 2rem))", overflowWrap: "anywhere", zIndex: 50 }}
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          onEscapeKeyDown={(event) => event.stopPropagation()}
-          data-waiting-definition
-        >
-          {definition}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
-  );
-}
-
 /** The Queue's own tabs: each paradigm gets a tab with its count, so no view makes mk scroll past one to reach another. */
 // Below sm the tabs wrap to a second line rather than scroll, so no tab sits off-screen with no cue; a label never splits.
-export function QueueTabs({ tab, counts, onTab, definition = null, filter = null, more = null, active = true }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; definition?: string | null; line?: string | null; filter?: ReactNode; more?: ReactNode; active?: boolean }) {
-  const layout = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("headerLayout");
-  const compact = layout === "compact";
-  const merged = layout === "merged";
+export function QueueTabs({ tab, counts, onTab, filter = null, more = null, active = true }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; filter?: ReactNode; more?: ReactNode; active?: boolean }) {
   return (
     <div className="border-b border-border px-2 sm:px-4">
-    <div className="relative flex flex-wrap items-center gap-x-3 [&_[data-project-filter]]:static [&_[data-project-filter-popup]]:left-auto [&_[data-project-filter-popup]]:right-0 [&_[data-project-filter-popup]]:w-80 [&_[data-project-filter-popup]]:max-w-[calc(100vw-2rem)]" style={merged ? { columnGap: 4 } : undefined}>
-    <div role="tablist" aria-label="Queue" className={merged ? "contents [&_button]:min-h-11 [&_button]:text-[11px] sm:[&_button]:min-h-9 sm:[&_button]:text-sm" : "flex min-w-0 flex-1 basis-full flex-wrap gap-x-3 sm:basis-0"} data-queue-tabs>
+    <div className="relative flex flex-wrap items-center gap-x-3 [&_[data-project-filter]]:static [&_[data-project-filter-popup]]:left-auto [&_[data-project-filter-popup]]:right-0 [&_[data-project-filter-popup]]:w-80 [&_[data-project-filter-popup]]:max-w-[calc(100vw-2rem)]" style={{ columnGap: 4 }}>
+    <div role="tablist" aria-label="Queue" className="contents [&_button]:min-h-11 [&_button]:text-[11px] sm:[&_button]:min-h-9 sm:[&_button]:text-sm" data-queue-tabs>
       {QUEUE_TABS.map(([id, label]) => (
         <button
           key={id}
@@ -131,7 +67,7 @@ export function QueueTabs({ tab, counts, onTab, definition = null, filter = null
           aria-controls={active ? "queue-tabpanel" : undefined}
           tabIndex={tab === id ? 0 : -1}
           data-queue-tab={id}
-          className={`min-h-11 shrink-0 whitespace-nowrap px-1 text-sm underline-offset-4 ${compact ? "rounded-full border border-border px-3 my-1" : ""} ${active && tab === id ? "font-semibold underline" : "text-muted-foreground hover:underline"}`}
+          className={`min-h-11 shrink-0 whitespace-nowrap px-1 text-sm underline-offset-4 ${active && tab === id ? "font-semibold underline" : "text-muted-foreground hover:underline"}`}
           onClick={() => onTab(id)}
           onKeyDown={(e) => {
             const to = nextQueueTab(tab, e.key);
@@ -147,9 +83,7 @@ export function QueueTabs({ tab, counts, onTab, definition = null, filter = null
     </div>
     {filter}
     {more}
-    {definition && !merged ? <div className="flex shrink-0 items-center">
-      {definition ? <WaitingDefinition definition={definition} /> : null}
-    </div> : null}
+
     </div>
     </div>
   );

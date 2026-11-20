@@ -19,7 +19,7 @@ import type { OtherImage } from "./ui/other.js";
 import { setTimingSink, timed } from "./ui/clicktiming.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
 import type { AsksData } from "./ui/asks.js";
-import { MobileInbox, useIsPhone } from "./ui/inbox.js";
+import { useIsPhone } from "./ui/inbox.js";
 import { ProjectFilterBar, useProjectFilter } from "./ui/projectfilter.js";
 import { COUNTS_FOLLOW_FILTER, filterAsks, filterQueue, hiddenIn, projectChoices, shownCount } from "./ui/projectfilterstore.js";
 import { IdeaDesk, IdeaDigest, type IdeaApi } from "./ui/ideas.js";
@@ -262,9 +262,6 @@ function HomePage({ subPath }: { subPath?: string }) {
   useEffect(() => forgetClassicTabs(() => localStorage), []);
   // Phones get the inbox layout; "Full view" keeps the desktop layout on this device until the page is reopened.
   const phone = useIsPhone();
-  const [fullView, setFullView] = useState(false);
-  // The Idea box (bead mk-2zojo): a panel on the desktop queue, a header button on the phone.
-  const [ideaOpen, setIdeaOpen] = useState(false);
   const [ideaTick, setIdeaTick] = useState(0);
   useRealtime("home-queue-changed", () => setIdeaTick((n) => n + 1));
   // The Learn deck (bead mk-uoiwp): off by default; the tab shows only when Settings turns it on.
@@ -288,7 +285,6 @@ function HomePage({ subPath }: { subPath?: string }) {
   useEffect(loadLearn, [loadLearn]);
   useRealtime("home-learn-changed", loadLearn);
   const setLearnState = (args: { enabled?: boolean; card?: string; mark?: "got" | "later" | "clear" }) => { setLearnBusy(true); act("Saving the Learn setting", rpc.call("learnSet", args), () => { loadLearn(); setLearnBusy(false); }); };
-  const [openIdeas, setOpenIdeas] = useState<number | undefined>(undefined);
   const ideaApi = useMemo<IdeaApi>(() => ({
     projects: async () => { const r = (await rpc.call("ideaProjects")) as { ok: boolean; projects?: IdeaProject[]; error?: string }; if (!r.ok) throw new Error(r.error ?? "the Idea box could not load projects"); return r.projects ?? []; },
     digest: async () => { const r = (await rpc.call("ideas")) as { ok: boolean; ideas?: IdeaView[]; show?: boolean; error?: string }; if (!r.ok) throw new Error(r.error ?? "the ideas could not load"); return { ideas: r.ideas ?? [], show: r.show ?? false }; },
@@ -297,7 +293,6 @@ function HomePage({ subPath }: { subPath?: string }) {
     clear: async () => { const r = (await rpc.call("clearIdeaDigest")) as { ok?: boolean; error?: string }; if (r && r.ok === false) throw new Error(r.error ?? "could not hide the digest"); },
   }), [rpc]);
   // The Ideas tab carries the open-idea count, as Queue carries the waiting count; no count when the read fails.
-  useEffect(() => { void ideaApi.digest().then((d) => setOpenIdeas(d.ideas.length), () => setOpenIdeas(undefined)); }, [ideaApi, ideaTick]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Rows on screen right now: React state (not just the tracker) so "Mark N seen" can say N.
   const [visible, setVisible] = useState<Set<string>>(new Set());
@@ -432,12 +427,9 @@ function HomePage({ subPath }: { subPath?: string }) {
     decide: asks ? hiddenIn(asks.owed.filter((o) => !o.held && !o.later), excluded) : 0,
     later: asks ? hiddenIn(asks.owed.filter((o) => !o.held && o.later), excluded) : 0,
     blocks: allBlocks ? hiddenIn(allBlocks.rows, excluded) + hiddenIn(allBlocks.legacy.owed, excluded) : 0,
-    // On the phone the held cards sit under the On hold row of the waiting tab, so the filter's note counts them there too.
-    heldOnPhone: asks ? hiddenIn(asks.owed.filter((o) => o.held), excluded) : 0,
   };
   const filterBar = (hidden: number, compact = false) => <ProjectFilterBar compact={compact} choices={filterChoices} excluded={excluded} hidden={hidden} onChange={setExcluded} />;
-  const mergedLayout = new URLSearchParams(window.location.search).get("headerLayout") === "merged";
-  const queueNavigation = (merged = false) => (<QueueTabs active={!merged || stack.panels[stack.panels.length-1]?.id === "queue"} tab={queueTab} onTab={(next) => { setQueueTab(next); if (merged) push({ id: "queue", kind: "decision", title: "Queue" }); }} more={merged ? <HomeOverflow definition={waiting?.definition} learn={learn.enabled} onOpen={push} /> : null} definition={waiting?.definition ?? null} line={waiting?.line ?? null} filter={queueTab !== "catchup" ? <div data-queue-filter>{filterBar(hiddenBy[queueTab === "blocks" ? "blocks" : queueTab], merged)}</div> : null} counts={waiting ? { decide: shownCount(waiting.decide, hiddenBy.decide), later: shownCount(asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, hiddenBy.later), blocks: shownCount(allBlocks ? blocksCount(allBlocks) : waiting.held, hiddenBy.blocks), catchup: waiting.updates } : null} />);
+  const queueNavigation = () => (<QueueTabs active={stack.panels[stack.panels.length-1]?.id === "queue"} tab={queueTab} onTab={(next) => { setQueueTab(next); push({ id: "queue", kind: "decision", title: "Queue" }); }} more={<HomeOverflow definition={waiting?.definition} learn={learn.enabled} onOpen={push} />} filter={queueTab !== "catchup" ? <div data-queue-filter>{filterBar(hiddenBy[queueTab === "blocks" ? "blocks" : queueTab], true)}</div> : null} counts={waiting ? { decide: shownCount(waiting.decide, hiddenBy.decide), later: shownCount(asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, hiddenBy.later), blocks: shownCount(allBlocks ? blocksCount(allBlocks) : waiting.held, hiddenBy.blocks), catchup: waiting.updates } : null} />);
   const HIDDEN_ALL = "Everything here is hidden by the project filter.";
 
   const render = (panel: Panel): ReactNode => {
@@ -450,7 +442,6 @@ function HomePage({ subPath }: { subPath?: string }) {
                 <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => act("Marking the notice seen", rpc.call("markSeen", { item }), refetch)} />
               </div>
             ) : null}
-            {!mergedLayout ? queueNavigation() : null}
             <section role="tabpanel" id="queue-tabpanel" aria-labelledby={`queue-tab-${queueTab}`} data-queue-section={queueTab === "decide" ? "asks" : queueTab} className="border-b border-border">
               {queueTab === "decide"
                 ? render({ id: "asks", kind: "decision", title: "Asks", part: "decide" })
@@ -597,50 +588,14 @@ function HomePage({ subPath }: { subPath?: string }) {
   }
   const keyNotice = linkKey !== null && lookup !== null && lookup.key === linkKey ? <CardKeyNotice cardKey={linkKey} lookup={lookup.result} /> : null;
 
-  if (phone && !fullView && asks !== null && !["compact", "merged", "wrap"].includes(new URLSearchParams(window.location.search).get("headerLayout") ?? "")) {
-    return (
-      <ConversationProvider value={conversation}><DocReaderHost api={docs}>
-        <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
-          {keyNotice}
-          {actionLine}
-          <MobileInbox
-            asks={filterAsks(asks, excluded)}
-            waiting={shownCount(waiting?.total ?? 0, hiddenBy.decide)}
-            filter={{ node: filterBar, hidden: { waiting: hiddenBy.decide, later: hiddenBy.later }, heldHidden: hiddenBy.heldOnPhone, summaryOwed: COUNTS_FOLLOW_FILTER ? filterAsks(asks, excluded).owed : asks.owed, laterCount: shownCount(asks.owed.filter((o) => o.later && !o.held).length, hiddenBy.later) }}
-            sinceCount={waiting ? waiting.updates + waiting.notices : readable.length + notices.length}
-            sinceNode={
-              <>
-                {notices.length > 0 ? (
-                  <div className="p-2">
-                    <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => act("Marking the notice seen", rpc.call("markSeen", { item }), refetch)} />
-                  </div>
-                ) : null}
-                {render({ id: "catchup", kind: "catchup", title: "Catch-up" })}
-              </>
-            }
-            onOpen={openBeside}
-            onNote={(decision_id, text, images) => note({ decision_id }, text, images)}
-            onLater={sendLater}
-            onPick={(decision_id, option_id, revision, reason, images, answers) => {
-              return sendPick(decision_id, option_id, revision, reason, images, answers);
-            }}
-            onDesktop={() => setFullView(true)}
-            onIdea={() => setIdeaOpen((o) => !o)}
-            updateNode={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined}
-            ideaNode={ideaOpen ? <><IdeaDigest api={ideaApi} refreshKey={ideaTick} /><IdeaDesk api={ideaApi} refreshKey={ideaTick} /></> : null}
-          />
-        </div>
-      </DocReaderHost></ConversationProvider>
-    );
-  }
+
   return (
     <ConversationProvider value={conversation}><DocReaderHost api={docs}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
       {keyNotice}
       {actionLine}
-      {phone && fullView ? <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={() => setFullView(false)} data-inbox-return>‹ Back to the phone inbox</button> : null}
-      <HomeTabs mergedQueue={queueNavigation(true)} extra={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined} learn={learn.enabled} {...(waiting ? { waiting: waiting.total } : {})} ideas={openIdeas} onOpen={push} />
-      <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
+      <HomeTabs queue={queueNavigation()} extra={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined} />
+      <StackView placed={layoutStack(stack).filter((p) => !phone || !p.collapsed)} render={render} onExpand={push} />
     </div>
     </DocReaderHost></ConversationProvider>
   );
