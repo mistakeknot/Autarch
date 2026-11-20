@@ -35,3 +35,9 @@ it("keeps unreadable detail transparent with the same quiet padding", () => {
   expect(source("unreadable")).toContain('className="min-w-0 bg-transparent p-4" data-decision');
   expect(source("unreadable")).not.toContain("rounded-lg border");
 });
+
+it("keeps unreadable list rows boxed while their detail stays quiet", () => {
+  expect(source("blocks")).toContain('className={`${className} space-y-1`} data-row={row.id}');
+  expect(source("blocks")).toContain('const className = `rounded-lg border border-border bg-card p-3');
+  expect(source("unreadable")).toContain('className="min-w-0 bg-transparent p-4"');
+});
