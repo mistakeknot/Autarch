@@ -169,9 +169,9 @@ export function GlanceBlock({ g, answers }: { g: Glance; answers: GlanceAnswer[]
             <code className="select-all rounded bg-muted px-1.5 py-1 font-mono text-xs [overflow-wrap:anywhere]" data-glance-path>{g.link.text}</code>
           </span>
         ) : null}
-        <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground" data-glance-time>{g.time ?? "Time not stated"}</span>
+        {g.time ? <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground" data-glance-time>{g.time}</span> : null}
       </div>
-      <p className="m-0 mt-2 text-sm [overflow-wrap:anywhere]" data-glance-lead>{g.lead}</p>
+
       {g.judging.length > 0 ? (
         <>
           <p className={SMALL}>{g.judging.length > 1 ? "You are judging" : "You are checking"}</p>

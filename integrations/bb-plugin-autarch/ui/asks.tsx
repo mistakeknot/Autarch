@@ -601,7 +601,7 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
       {!onlyLater && empty ? <p className="p-4 text-sm text-muted-foreground">{emptyText ?? "Nothing needs you."}</p> : null}
       {view.map((s) => (
         <section key={s.key} data-section={s.key}>
-          <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2>
+          {!part || s.key !== "decide" ? <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2> : null}
           {s.key === "decide" ? (
             <DecideQueue owed={live.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} {...(onView ? { onView } : {})} />
           ) : (

@@ -1,4 +1,4 @@
-// The Home tab row: one line that scrolls sideways when the screen is narrow, with tap-height buttons on phones.
+// Home navigation wraps at narrow widths; every destination stays visible and tappable.
 import { useId, useState, type ReactNode } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { usePortalScopeProps } from "../lib/portal-scope.js";
@@ -16,7 +16,7 @@ export function forgetClassicTabs(storage: () => Pick<Storage, "removeItem"> | n
   }
 }
 
-export type TabId = "queue" | "ideas" | "learn" | "archive" | "vizier" | "map" | "settings";
+export type TabId = "queue" | "ideas" | "learn" | "archive" | "vizier" | "settings";
 
 /** The Queue holds asks, Later, blocked cards and catch-up as its own tabs; the row has no separate Asks, Blocking or Catch-up tab. */
 export function homeTabs(learn = false): ReadonlyArray<readonly [TabId, Panel["kind"], string]> {
@@ -26,18 +26,17 @@ export function homeTabs(learn = false): ReadonlyArray<readonly [TabId, Panel["k
     ...(learn ? ([["learn", "learn", "Learn"]] as const) : []),
     ["archive", "archive", "Archive"],
     ["vizier", "vizier", "Vizier"],
-    ["map", "map", "Map"],
     ["settings", "settings", "Settings"],
   ];
 }
 
-export function HomeTabs({ learn = false, waiting, ideas, onOpen, extra }: { extra?: ReactNode; learn?: boolean | undefined; waiting?: number | undefined; ideas?: number | undefined; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void }) {
+export function HomeTabs({ learn = false, onOpen, extra }: { extra?: ReactNode; learn?: boolean | undefined; waiting?: number | undefined; ideas?: number | undefined; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void }) {
   return (
     <>
-    <nav className="flex gap-3 overflow-x-auto whitespace-nowrap border-b border-border px-4 py-1 text-sm sm:py-2" data-home-tabs>
+    <nav className="flex flex-wrap gap-3 border-b border-border px-4 py-1 text-sm sm:py-2" data-home-tabs>
       {homeTabs(learn).map(([id, kind, title]) => (
         <button key={id} type="button" className="min-h-11 shrink-0 underline-offset-2 hover:underline sm:min-h-0" onClick={() => onOpen({ id, kind, title })}>
-          {id === "queue" && waiting !== undefined ? `${title} (${waiting})` : id === "ideas" && ideas !== undefined ? `${title} (${ideas})` : title}
+          {title}
         </button>
       ))}
     </nav>
@@ -109,12 +108,13 @@ function WaitingDefinition({ definition }: { definition: string }) {
 
 /** The Queue's own tabs: each paradigm gets a tab with its count, so no view makes mk scroll past one to reach another. */
 // Below sm the tabs wrap to a second line rather than scroll, so no tab sits off-screen with no cue; a label never splits.
-export function QueueTabs({ tab, counts, onTab, definition = null, line = null }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; definition?: string | null; line?: string | null }) {
-  const hasLine = Boolean(line && line.includes(" · "));
+export function QueueTabs({ tab, counts, onTab, definition = null, filter = null }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; definition?: string | null; line?: string | null; filter?: ReactNode }) {
+  const layout = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("headerLayout");
+  const compact = layout === "compact";
   return (
     <div className="border-b border-border px-2 sm:px-4">
-    <div className="flex flex-wrap items-center gap-x-3">
-    <div role="tablist" aria-label="Queue" className="flex min-w-0 flex-1 basis-full flex-wrap gap-x-3 sm:basis-0 sm:flex-nowrap sm:overflow-x-auto" data-queue-tabs>
+    <div className="relative flex flex-wrap items-center gap-x-3 [&_[data-project-filter]]:static [&_[data-project-filter-popup]]:left-auto [&_[data-project-filter-popup]]:right-0 [&_[data-project-filter-popup]]:w-80 [&_[data-project-filter-popup]]:max-w-[calc(100vw-2rem)]">
+    <div role="tablist" aria-label="Queue" className="flex min-w-0 flex-1 basis-full flex-wrap gap-x-3 sm:basis-0" data-queue-tabs>
       {QUEUE_TABS.map(([id, label]) => (
         <button
           key={id}
@@ -125,7 +125,7 @@ export function QueueTabs({ tab, counts, onTab, definition = null, line = null }
           aria-controls="queue-tabpanel"
           tabIndex={tab === id ? 0 : -1}
           data-queue-tab={id}
-          className={`min-h-11 shrink-0 whitespace-nowrap px-1 text-sm underline-offset-4 ${tab === id ? "font-semibold underline" : "text-muted-foreground hover:underline"}`}
+          className={`min-h-11 shrink-0 whitespace-nowrap px-1 text-sm underline-offset-4 ${compact ? "rounded-full border border-border px-3 my-1" : ""} ${tab === id ? "font-semibold underline" : "text-muted-foreground hover:underline"}`}
           onClick={() => onTab(id)}
           onKeyDown={(e) => {
             const to = nextQueueTab(tab, e.key);
@@ -139,8 +139,8 @@ export function QueueTabs({ tab, counts, onTab, definition = null, line = null }
         </button>
       ))}
     </div>
-    {hasLine || definition ? <div className="flex shrink-0 items-center">
-      {hasLine ? <p className="m-0 shrink-0 text-xs text-muted-foreground [overflow-wrap:anywhere]" data-waiting-line>{`Waiting on you: ${line}`}</p> : null}
+    {filter}
+    {definition ? <div className="flex shrink-0 items-center">
       {definition ? <WaitingDefinition definition={definition} /> : null}
     </div> : null}
     </div>

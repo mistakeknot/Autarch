@@ -122,7 +122,7 @@ describe("the definition is a tap target", () => {
   });
   it("below sm the Queue tabs wrap instead of scrolling off-screen, and no label splits", () => {
     const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={() => {}} counts={null} />);
-    expect(html).toMatch(/class="[^"]*\bflex-wrap\b[^"]*\bsm:flex-nowrap\b[^"]*" data-queue-tabs/);
+    expect(html).toMatch(/class="[^"]*\bflex-wrap\b[^"]*\bsm:basis-0\b[^"]*" data-queue-tabs/);
     expect(html).not.toMatch(/[" ]overflow-x-auto/);
     expect(html.match(/data-queue-tab="[^"]+" class="[^"]*whitespace-nowrap/g)).toHaveLength(4);
   });

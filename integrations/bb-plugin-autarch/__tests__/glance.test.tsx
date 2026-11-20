@@ -176,8 +176,9 @@ describe("the At a glance block on a card", () => {
     expect(h).not.toContain("data-glance-link");
     expect(h).toMatch(/data-glance-path[^>]*>\/srv\/example\/sheet\/street-sheet\.md/);
   });
-  it("says so when the card states no time, instead of guessing", () => {
-    expect(html(PLAY)).toMatch(/data-glance-time[^>]*>Time not stated/);
+  it("omits the time chip when the card states no time", () => {
+    expect(html(PLAY)).not.toContain("data-glance-time");
+    expect(html(PLAY)).not.toContain("data-glance-lead");
   });
   it("lists what is judged as a numbered list", () => {
     const h = html(PLAY);

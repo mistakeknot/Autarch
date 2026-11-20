@@ -32,8 +32,6 @@ import { ActionError, actionErrorText, useActionError } from "./ui/actionerror.j
 import { railBadge, railCount } from "./ui/waiting.js";
 import type { Waiting } from "./waiting.js";
 import type { CatchupEntry } from "./ui/catchup.js";
-import { MapPlaceholder } from "./ui/map-placeholder.js";
-import type { Lens } from "./ui/map-placeholder.js";
 import { BlocksPanel, QueueRefresher, type RootRunHooks } from "./ui/blocks.js";
 import type { QueueView } from "./ui/blocks.js";
 import { blocksCount, withoutOwed } from "./ui/blocks.js";
@@ -304,7 +302,6 @@ function HomePage({ subPath }: { subPath?: string }) {
   // Rows on screen right now: React state (not just the tracker) so "Mark N seen" can say N.
   const [visible, setVisible] = useState<Set<string>>(new Set());
   const [markResult, setMarkResult] = useState<string | null>(null);
-  const [lens, setLens] = useState<Lens>("attention");
   const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
   const tracker = useMemo(() => new SeenTracker((item) => act("Marking it seen", rpc.call("markSeen", { item }), refetch)), [rpc, refetch, act]);
   const onVisibility = useCallback(
@@ -404,12 +401,10 @@ function HomePage({ subPath }: { subPath?: string }) {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const editable = !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
-      const mapOnTop = stackRef.current.panels[stackRef.current.panels.length - 1]?.kind === "map";
-      const intent = keyAction(e.key, { editable, mapOnTop });
+      const intent = keyAction(e.key, { editable });
       if (!intent) return;
       if (intent.type === "close") dispatch({ type: "close" });
       else if (intent.type === "width") dispatch(intent);
-      else if (intent.type === "lens") setLens((["attention", "allocation", "dependencies", "neglect"] as const)[intent.lens - 1]!);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -453,8 +448,7 @@ function HomePage({ subPath }: { subPath?: string }) {
                 <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => act("Marking the notice seen", rpc.call("markSeen", { item }), refetch)} />
               </div>
             ) : null}
-            <QueueTabs tab={queueTab} onTab={setQueueTab} definition={waiting?.definition ?? null} line={waiting?.line ?? null} counts={waiting ? { decide: shownCount(waiting.decide, hiddenBy.decide), later: shownCount(asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, hiddenBy.later), blocks: shownCount(allBlocks ? blocksCount(allBlocks) : waiting.held, hiddenBy.blocks), catchup: waiting.updates } : null} />
-            {queueTab !== "catchup" ? <div className="border-b border-border py-1" data-queue-filter>{filterBar(hiddenBy[queueTab === "blocks" ? "blocks" : queueTab])}</div> : null}
+            <QueueTabs tab={queueTab} onTab={setQueueTab} definition={waiting?.definition ?? null} line={waiting?.line ?? null} filter={queueTab !== "catchup" ? <div className="border-b border-border py-1" data-queue-filter>{filterBar(hiddenBy[queueTab === "blocks" ? "blocks" : queueTab])}</div> : null} counts={waiting ? { decide: shownCount(waiting.decide, hiddenBy.decide), later: shownCount(asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, hiddenBy.later), blocks: shownCount(allBlocks ? blocksCount(allBlocks) : waiting.held, hiddenBy.blocks), catchup: waiting.updates } : null} />
             <section role="tabpanel" id="queue-tabpanel" aria-labelledby={`queue-tab-${queueTab}`} data-queue-section={queueTab === "decide" ? "asks" : queueTab} className="border-b border-border">
               {queueTab === "decide"
                 ? render({ id: "asks", kind: "decision", title: "Asks", part: "decide" })
@@ -560,8 +554,6 @@ function HomePage({ subPath }: { subPath?: string }) {
             )}
           </>
         );
-      case "map":
-        return <MapPlaceholder lens={lens} onLens={setLens} />;
       default:
         return panel.ref ? <ThreadPanel threadId={panel.ref} /> : null;
     }
@@ -603,7 +595,7 @@ function HomePage({ subPath }: { subPath?: string }) {
   }
   const keyNotice = linkKey !== null && lookup !== null && lookup.key === linkKey ? <CardKeyNotice cardKey={linkKey} lookup={lookup.result} /> : null;
 
-  if (phone && !fullView && asks !== null) {
+  if (phone && !fullView && asks !== null && !["compact", "wrap"].includes(new URLSearchParams(window.location.search).get("headerLayout") ?? "")) {
     return (
       <ConversationProvider value={conversation}><DocReaderHost api={docs}>
         <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>

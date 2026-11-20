@@ -51,7 +51,7 @@ describe("waiting row layout", () => {
     expect(tabs.classList.contains("basis-full")).toBe(true);
     expect(tabs.classList.contains("sm:basis-0")).toBe(true);
     expect(tabs.classList.contains("flex-1")).toBe(true);
-    expect(host.querySelector("[data-waiting-line]")!.classList.contains("shrink-0")).toBe(true);
+    expect(host.querySelector("[data-waiting-line]")).toBeNull();
     expect(tabs.nextElementSibling!.classList.contains("shrink-0")).toBe(true);
   });
   it.each([null, "5", ""])("omits an empty wrapper for line %s", (line) => {
@@ -59,12 +59,12 @@ describe("waiting row layout", () => {
     host.innerHTML = renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} line={line} />);
     expect(host.querySelector('[role="tablist"]')!.parentElement!.children).toHaveLength(1);
   });
-  it.each([[W.line, null], [null, W.definition]])("keeps the wrapper when either element exists", (line, definition) => {
+  it.each([[W.line, null], [null, W.definition]])("only keeps the extra wrapper for count help", (line, definition) => {
     const host = document.createElement("div");
     host.innerHTML = renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} line={line} definition={definition} />);
     const row = host.querySelector('[role="tablist"]')!.parentElement!;
-    expect(row.children).toHaveLength(2);
-    expect(row.lastElementChild!.children).toHaveLength(1);
+    expect(row.children).toHaveLength(definition ? 2 : 1);
+    if (definition) expect(row.lastElementChild!.children).toHaveLength(1);
   });
 });
 
@@ -156,15 +156,15 @@ describe("every surface shows the same number", () => {
     expect(railBadge({ count: 0 }, { blocked: false, unowned: true })).toEqual({ text: "!", tone: "warning", label: "Citadel needs attention" });
     expect(railBadge({ count: 0 }, { blocked: false, unowned: false })).toBeNull();
   });
-  it("the Queue tab carries the total", () => {
+  it("the Queue tab leaves counts to its named sub-tabs", () => {
     const html = renderToStaticMarkup(<HomeTabs waiting={W.total} onOpen={noop} />);
-    expect(html).toContain("Queue (5)"); // the decisions that need a pick; the notice is not added
+    expect(html).not.toContain("Queue (");
     expect(homeTabs()[0]![2]).toBe("Queue");
   });
-  it("the Ideas tab sits before Archive and Vizier and carries the open-idea count", () => {
-    expect(homeTabs().map((t) => t[2])).toEqual(["Queue", "Ideas", "Archive", "Vizier", "Map", "Settings"]);
+  it("the Ideas tab sits before Archive and Vizier without repeating its panel count", () => {
+    expect(homeTabs().map((t) => t[2])).toEqual(["Queue", "Ideas", "Archive", "Vizier", "Settings"]);
     const html = renderToStaticMarkup(<HomeTabs waiting={W.total} ideas={3} onOpen={noop} />);
-    expect(html).toContain("Ideas (3)");
+    expect(html).not.toContain("Ideas (");
     expect(renderToStaticMarkup(<HomeTabs onOpen={noop} />)).not.toContain("Ideas (");
   });
   it("the tab row has no Classic tabs switch and no separate Asks, Blocking or Catch-up tab: the Queue holds them", () => {
