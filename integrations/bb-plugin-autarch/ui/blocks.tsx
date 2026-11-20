@@ -177,8 +177,8 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
     return (
       <div className={`${className} space-y-1 [&>[data-unreadable]]:p-0`} data-row={row.id}>
         <UnreadableCard id={row.decision_id} cardKey={row.card_key} />
-        {row.held ? <p className="px-1 text-xs [overflow-wrap:anywhere]" data-hold-reason>{`On hold: ${row.held.reason}`}</p> : null}
-        {row.held ? <HoldEndLine held={row.held} as="p" className="px-1 text-xs [overflow-wrap:anywhere]" /> : null}
+        {row.held ? <p className="text-xs [overflow-wrap:anywhere]" data-hold-reason>{`On hold: ${row.held.reason}`}</p> : null}
+        {row.held ? <HoldEndLine held={row.held} as="p" className="text-xs [overflow-wrap:anywhere]" /> : null}
       </div>
     );
   }

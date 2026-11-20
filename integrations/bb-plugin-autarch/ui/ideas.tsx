@@ -71,7 +71,7 @@ export function ProjectCombobox({ projects, value, disabled, onChange }: { proje
         data-idea-project
       />
       {open ? (
-        <ul id={listId} role="listbox" aria-label="Projects" className="absolute z-10 m-0 mt-1 max-h-60 w-full list-none overflow-y-auto rounded-md border border-border bg-background p-0 shadow-md" data-idea-project-list>
+        <ul id={listId} role="listbox" aria-label="Projects" className="absolute z-10 m-0 mt-1 max-h-60 w-full list-none overflow-y-auto rounded-md border border-border bg-[var(--popover,var(--background))] text-[var(--popover-foreground,var(--foreground))] p-0 shadow-md" data-idea-project-list>
           {matches.length === 0 ? <li className="px-2 py-2 text-sm text-muted-foreground" data-idea-project-none>No project matches.</li> : matches.map((p, i) => (
             <li
               key={p.id}

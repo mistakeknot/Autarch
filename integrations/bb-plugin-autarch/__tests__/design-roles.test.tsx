@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 import { buttonClass } from "../ui/buttons.js";
+const BARE_DESTRUCTIVE_TEXT = /text-destructive(?![-\w])/;
 const source = (name: string) => readFileSync(new URL(`../ui/${name}.tsx`, import.meta.url), "utf8");
 it("enters control hover immediately and keeps the recommendation outlined", () => {
   expect(buttonClass()).toContain("hover:duration-0");
@@ -46,7 +47,7 @@ it("uses text-safe destructive roles at every remaining text site", () => {
   const counts: Record<string, number> = { archive: 2, actionerror: 1, catchup: 1, blocks: 1, docreader: 3, ideas: 4, settings: 2, other: 3, pickhold: 1, notices: 1, update: 2, multipick: 1 };
   for (const [name, count] of Object.entries(counts)) {
     expect(source(name).split("text-[var(--destructive-text,var(--destructive))]").length - 1, name).toBe(count);
-    expect(source(name), name).not.toMatch(/text-destructive(?:["\s]|$)/);
+    expect(source(name), name).not.toMatch(BARE_DESTRUCTIVE_TEXT);
   }
 });
 it("gives every remaining text input the input surface and keyboard ring", () => {
@@ -59,5 +60,18 @@ it("gives every remaining text input the input surface and keyboard ring", () =>
 });
 it("removes nested unreadable padding and the header's unused hover duration", () => {
   expect(source("blocks")).toContain("[&>[data-unreadable]]:p-0");
+  const unreadableRow = source("blocks").split('if (row.unreadable && row.decision_id !== null)')[1]?.split('if (!row.display_only')[0];
+  expect(unreadableRow).not.toContain("px-1");
   expect(source("buttons").split('export const HEADER_CONTROL =')[1]?.split(';')[0]).not.toContain("hover:duration-0");
+});
+
+it("rejects a bare destructive class at every class ending", () => {
+  for (const ending of ['"', " ", "`", "}", ""]) expect(`text-destructive${ending}`).toMatch(BARE_DESTRUCTIVE_TEXT);
+  for (const safe of ["text-destructive-foreground", "text-destructive-text"]) expect(safe).not.toMatch(BARE_DESTRUCTIVE_TEXT);
+});
+it("uses the compatible popover roles on the ideas project list", () => {
+  const popup = source("ideas").match(/<ul[^>]*data-idea-project-list/)?.[0];
+  expect(popup).toContain("border-border");
+  expect(popup).toContain("bg-[var(--popover,var(--background))]");
+  expect(popup).toContain("text-[var(--popover-foreground,var(--foreground))]");
 });
