@@ -20,7 +20,9 @@ export function EvidenceLightbox({ images, current, onChange, onClose, trigger }
  const move = (delta: number) => { const next = images[(index + delta + images.length) % images.length]; if (next) { setNatural(false); onChange(next.id); } };
  useLayoutEffect(() => {
   const keys = (e: KeyboardEvent) => {
-   // Capture at document so body focus and host shortcuts cannot bypass modal containment.
+   if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && (e.altKey || e.metaKey || e.ctrlKey)) return;
+   // Controls rely on native key defaults: this capture runs before React root listeners.
+   // All remaining keys stay contained even when modifiers are held.
    e.stopPropagation();
    if (e.key === "Escape") { e.preventDefault(); onClose(); }
    else if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); move(e.key === "ArrowLeft" ? -1 : 1); }
@@ -39,8 +41,9 @@ export function EvidenceLightbox({ images, current, onChange, onClose, trigger }
    </header>
    <div ref={scroller} className={`min-h-0 flex-1 overflow-auto overscroll-contain p-2 ${natural ? "" : "flex items-center justify-center"}`} data-evidence-viewport style={{ touchAction: natural ? "auto" : "pan-y pinch-zoom" }} onClick={e => { if (e.target === e.currentTarget) onClose(); }} onTouchStart={e => { const t = e.touches[0]; start.current = e.touches.length === 1 && t ? { x:t.clientX,y:t.clientY } : null; }} onTouchCancel={() => { start.current=null; }} onTouchMove={e => { if(e.touches.length!==1)start.current=null; }} onTouchEnd={e => {
     const t=e.changedTouches[0], from=start.current; start.current=null;
-    // Natural-size gestures pan the image instead of changing it.
-    if (!natural && t && from && Math.abs(t.clientX-from.x)>48 && Math.abs(t.clientX-from.x)>Math.abs(t.clientY-from.y)*1.5) move(t.clientX<from.x?1:-1);
+    // Natural-size and page-zoomed gestures pan instead of changing the image.
+    const pageZoomed = (window.visualViewport?.scale ?? 1) > 1;
+    if (!natural && !pageZoomed && t && from && Math.abs(t.clientX-from.x)>48 && Math.abs(t.clientX-from.x)>Math.abs(t.clientY-from.y)*1.5) move(t.clientX<from.x?1:-1);
    }}>
     <img draggable={false} src={image.url} alt={image.caption} onClick={() => { dialog.current?.focus(); setNatural(v => !v); }} className={natural ? "block max-w-none cursor-zoom-out" : "block max-h-full max-w-full cursor-zoom-in object-contain"} data-evidence-full-image />
    </div>
