@@ -1,65 +1,126 @@
 # Autarch
 
-Help you choose worthwhile work, give agents coherent direction, and judge what
-they deliver. The [accepted product foundation](docs/why.md) and
-[roadmap](docs/roadmap.md) focus the next outcome on one project visit ending in
-an independently reviewed implementation plan. That full journey is not yet
-implemented or validated; the current capabilities follow.
+Autarch's main interface is **Citadel**, a decision-card and agent-oversight UI
+that runs as a bb plugin. It is for people directing agents who need to review
+work, answer questions and see what is blocked.
 
-Catch up on work across your projects and agent sessions, inspect the questions
-they left, and return to the original conversation to answer.
+**Citadel** is the sidebar name; **Home** is the name retained in the plugin's
+commands and storage.
 
-Bare `autarch` opens the daily catch-up: recent commit subjects and dated agent
-reports. Undated working-tree changes are counted separately. The existing
-mission-control, PRD, orchestration, and research tools remain available.
+## Citadel today
 
-`autarch project [path]` opens the project's product HUD: persona, primary
-journey, success criteria, guardrails, roadmap, backlog, and decision sources.
-It reads the existing files and Beads tracker. Declared intent, dated plans,
-and live work stay distinguishable; Autarch does not assign an alignment score.
+- **Queue** separates cards that need your decision, Later, work blocked on
+  others, and changes since you left. Filter cards by project.
+- Read a card's question, options, recommendation and evidence. Pick an answer,
+  send a note or answer in your own words. Image evidence opens in a lightbox.
+  On phones, inbox picks have a five-second Undo window.
+- **Archive** lets you search earlier cards and bring a question back for a new
+  round while keeping its history.
+- **Ideas** lets you record an idea, then pursue, park or drop it.
+- **Learn**, enabled in Settings, offers short reading pages with Got it and
+  Later marks. **Vizier** opens the configured oversight thread's chat.
+- **Settings** holds delegation and project bindings. Picks and updates are
+  reflected across open pages.
 
-## What this does
+A pick records a decision and tells the owning thread. Agents file cards with
+`autarch needs-mk file`. Citadel does not itself merge, deploy, publish or spend.
+Read [what Citadel does and never does](integrations/bb-plugin-autarch/learn/01-what-home-is.md)
+and [how cards and options work](integrations/bb-plugin-autarch/learn/02-cards-and-options.md).
 
-Running multiple AI agents across multiple projects creates a coordination problem: which agent is working on what, which specs are current, which tasks are blocked, and what's happening in the competitive landscape. Autarch provides four tools that each solve a piece of this:
+## Install and open Citadel
+
+You need bb. Building the plugin from source also needs Node.js and npm.
+From the `integrations/bb-plugin-autarch/` directory:
+
+```sh
+npm install
+bb plugin build
+bb plugin install .
+```
+
+Open **Citadel** in bb's sidebar. See the [plugin README](integrations/bb-plugin-autarch/README.md)
+for installation, configuration and storage details, and the
+[plugin overview](integrations/bb-plugin-autarch/PLUGIN_OVERVIEW.md) for its role.
+The plugin reads project data through a local Autarch service; it does not start
+that service. Build the Go CLI below and put the binary on your PATH as `autarch`,
+then run `autarch serve`, using `--project-dir` to name your project scan roots.
+It creates its token file on first run. See the project and token configuration
+in the
+[local service reference](AGENTS.md#autarch-serve).
+
+For source development, rebuild and reload after edits:
+
+```sh
+bb plugin build
+bb plugin reload autarch
+```
+
+For an existing managed installation, the **Update available** control shows
+commits and lets you request an update. The configured runner checks the commit,
+backs up data, installs it and rolls back on failure. This needs the managed
+update setup; a plain plugin install does not create that runner. The repository's
+[Home deployment wrapper](scripts/home-ui.sh) and
+[schema upgrade scripts](scripts/home-upgrade-v3.sh) document the operator
+workflow. They can change live data and are not a generic first-install recipe.
+
+Read the [Learn pages](integrations/bb-plugin-autarch/learn/) for cards, delegation,
+checks, scripts and ideas. The [product foundation](docs/why.md) and
+[roadmap](docs/roadmap.md) describe the broader project-visit direction; they are
+planning context, not a list of shipped Citadel features.
+
+## Go tools and local inspection
+
+The repository also contains a Go CLI, terminal dashboards and research tools.
+These remain available alongside the bb plugin. They require macOS or Linux.
+Building them needs Go 1.25+; tmux is used by the daily catch-up and Coldwine.
 
 | Tool | What it does | Interface |
 |------|-------------|-----------|
+| **Autarch** | Daily catch-up and a project's product HUD | CLI + TUI |
 | **Bigend** | Multi-project agent mission control | Web + TUI |
-| **Gurgeh** | PRD generation and validation | TUI |
-| **Coldwine** | Task orchestration for human-AI collaboration | TUI |
-| **Pollard** | Continuous research intelligence (tech, medicine, law, economics) | CLI |
+| **Gurgeh** | PRD generation and validation | CLI + TUI |
+| **Coldwine** | Task orchestration | CLI + TUI |
+| **Pollard** | Research intelligence | CLI |
+| **Mycroft** | Coordinator-selected worker spawning and pre-dispatch checks | CLI |
 
-## Who this is for
+Mycroft has no patrol loop or TUI tab. See the
+[worker spawner guide](docs/mycroft-bb-spawner.md).
 
-An experienced product leader directing interconnected software and research
-projects through agents. The first proving ground is mk's existing workflow;
-the [commercial hypothesis](docs/personas.md) remains untested.
+### Build and run
 
-## Quick start
+From the repository root:
 
-```bash
-# Build and open the daily catch-up (Go 1.25+, tmux)
+```sh
 GOWORK=off go build -mod=readonly -o autarch ./cmd/autarch
 ./autarch
-./autarch project .   # product context for this checkout
-
-# Build all tools
+./autarch project .
+# Compile-check all tools without writing binaries.
 go build ./cmd/...
-
-# Tool dashboard
 ./dev autarch tui
+```
 
-# Individual tools
-./dev bigend          # Mission control (web mode)
-./dev bigend --tui    # Mission control (TUI mode)
-./dev gurgeh          # PRD generation
-./dev coldwine        # Task orchestration
+The development wrapper also exposes individual tools:
 
-# Pollard (research intelligence)
+```sh
+./dev bigend
+./dev bigend --tui
+./dev gurgeh
+./dev coldwine
+```
+
+Pollard's CLI can initialize a project, scan and produce a report:
+
+```sh
 go run ./cmd/pollard init
 go run ./cmd/pollard scan
 go run ./cmd/pollard report
 ```
+
+### Daily catch-up and project HUD
+
+The catch-up shows recent commit subjects and dated agent reports. Undated
+working-tree changes are counted separately. The project HUD reads product
+context from local files and Beads without assigning an alignment score.
 
 Open `autarch` with no arguments. It looks back to your last visit, or 24 hours
 on your first visit. Click **Time range** or press `w` to choose last visit,
@@ -112,7 +173,7 @@ shown in the view. Unlabeled work is excluded from a shared scope. Explicit
 `spec_id` references are displayed without inferring CUJ alignment. Missing
 files, unreadable sources, and failed backlog reads remain visible.
 
-## Project onboarding
+### Project onboarding
 
 Choose a project from the Projects tab, press `i`, then **`6 Foundation`**.
 Autarch looks for mission, vision, philosophy, personas, critical user journeys,
@@ -134,38 +195,24 @@ is complete, current, or agreed. Empty and unreadable sources remain distinct.
 Custom or inherited document locations may need to be supplied in the
 onboarding conversation; the brief lists exactly where Autarch looked.
 
-## Tech stack
+## Implementation
 
-- **Language:** Go 1.25+
-- **TUI:** Bubble Tea + Lip Gloss (Tokyo Night palette)
-- **Web:** net/http + htmx + Tailwind
-- **Database:** SQLite (WAL mode, pure Go driver)
+Citadel uses TypeScript, React and SQLite in the bb plugin. The Go tools use
+Bubble Tea and Lip Gloss for TUIs, net/http with htmx and Tailwind for web
+views, and SQLite with a pure Go driver.
 
-## Prerequisites
+| Path | Contents |
+|------|----------|
+| `integrations/bb-plugin-autarch/` | Citadel plugin, UI, storage and Learn pages |
+| `internal/homeask/` | Decision-card filing and held-request handling |
+| `scripts/` | Build, deployment and maintenance helpers |
+| `cmd/`, `internal/` | Go entry points and tool implementations |
+| `pkg/tui/` | Shared terminal styles |
+| `pkg/contract/`, `pkg/events/` | Cross-tool types and event storage |
 
-- macOS or Linux
-- Go 1.25+
-- tmux (for the daily catch-up and Coldwine)
-
-## Project structure
-
-```
-cmd/           Entry points (bigend, gurgeh, coldwine, pollard)
-internal/      Tool-specific code
-pkg/tui/       Shared TUI styles (Tokyo Night)
-pkg/contract/  Cross-tool entity types
-pkg/events/    Event spine (SQLite)
-```
-
-## Intermute integration
-
-Autarch auto-registers with the Intermute coordination service when `INTERMUTE_URL` is set:
-
-```bash
-export INTERMUTE_URL="http://localhost:7338"
-```
-
-Bigend handles session I/O; Intermute provides coordination and messaging.
+Bigend can register with Intermute when `INTERMUTE_URL` is set. It handles
+session I/O while Intermute supplies coordination and messaging. See the
+[integration guide](docs/INTEGRATION.md).
 
 ## License
 
