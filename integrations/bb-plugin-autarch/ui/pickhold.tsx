@@ -1,13 +1,13 @@
 // The phone's 5-second Undo (bead mk-j5ipa.13). After a one-tap pick on the phone the pick is held here for five seconds under a
 // "sending in 5 s · Undo" bar. It goes through the normal answer path (the page's onPick) only when the bar closes; Undo drops it
-// and the card is back, unanswered. Nothing is held on the server and the desktop does not use this.
+// and the card is back, unanswered. Nothing is held on the server; only inbox one-tap picks enter the hold.
 //
 // Held picks are the ones that took one tap: no typed words, no images, no multi-question answers, and no option that asks for a
 // second tap to confirm. Those keep their own flow and go at once.
 //
-// A held pick is sent exactly once: when the bar closes, when the page is hidden or closed, when the phone inbox goes away (Full
-// view), or when another card is picked meanwhile (the first can no longer be undone). The send is the page's own onPick, the one
-// answer path there is (a plugin RPC with a retry-safe pick id), not a fetch or a beacon: the answer route is not an HTTP route.
+// A held pick sends when the bar closes, the page is hidden or closed, or a new inbox tap on another card flushes it early.
+// Full view leaves it held: an immediate panel pick on another card leaves the timer alone; a same-card pick cancels it before
+// sending the replacement. The send uses the page's onPick (a plugin RPC with a retry-safe pick id), not fetch or a beacon.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActionButton } from "./buttons.js";
 import type { OnPick } from "./asks.js";
@@ -24,6 +24,8 @@ interface Held {
 export interface PickHold {
   /** Wraps the page's onPick: a one-tap pick is held, any other goes straight through. */
   pick: OnPick;
+  /** An immediate panel pick supersedes a hold for the same card, leaving other cards held. */
+  sendNow: OnPick;
   /** The decision being held, for the list to mark it. */
   heldId: string | null;
   /** Whole seconds left on the bar, or null when nothing is held. */
@@ -72,20 +74,22 @@ export function usePickHold(onPick: OnPick, eligible: (decisionId: string, optio
     }
   }, []);
 
+  const sendNow: OnPick = useCallback((...args) => {
+    // An explicit replacement must cancel the timer before sending, including when that send fails.
+    if (heldRef.current?.decisionId === args[0]) {
+      heldRef.current = null;
+      clearTimer();
+      setHeld(null);
+    }
+    return onPickRef.current(...args);
+  }, []);
+
   const pick: OnPick = useCallback((...args) => {
     const [decisionId, optionId, revision, reason, images, answers] = args;
     const oneTap = reason === undefined && (images === undefined || images.length === 0) && answers === undefined && eligibleRef.current(decisionId, optionId);
     const cur = heldRef.current;
-    if (!oneTap) {
-      // A later explicit answer (confirmed destructive pick, typed words, images) on the card that is held supersedes the held
-      // pick: drop it so the two never both reach the agent, and the earlier one cannot land after a failed later one.
-      if (cur !== null && cur.decisionId === decisionId) {
-        heldRef.current = null;
-        clearTimer();
-        setHeld(null);
-      }
-      return onPickRef.current(...args);
-    }
+    // Confirmed destructive picks, typed words and images supersede a held answer on this card.
+    if (!oneTap) return sendNow(...args);
     // A second tap on the card already held does not replace it; it resolves first.
     if (cur !== null && cur.decisionId === decisionId) return;
     flush();
@@ -95,7 +99,7 @@ export function usePickHold(onPick: OnPick, eligible: (decisionId: string, optio
     setNow(Date.now());
     setHeld(h);
     timer.current = setTimeout(flush, UNDO_MS);
-  }, [flush]);
+  }, [flush, sendNow]);
 
   const undo = useCallback(() => {
     heldRef.current = null;
@@ -127,7 +131,7 @@ export function usePickHold(onPick: OnPick, eligible: (decisionId: string, optio
   useEffect(() => flush, [flush]);
 
   const seconds = held === null ? null : Math.max(0, Math.ceil((held.endsAt - now) / 1000));
-  return { pick, heldId: held?.decisionId ?? null, seconds, failure, undo, dismissFailure: () => setFailure(null) };
+  return { pick, sendNow, heldId: held?.decisionId ?? null, seconds, failure, undo, dismissFailure: () => setFailure(null) };
 }
 
 /**
