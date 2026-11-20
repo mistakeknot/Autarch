@@ -13,12 +13,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { definePluginApp, useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "./server";
-import { AsksPanel, PickController, imagesSig, pickOutcome, laterOutcome, withoutPicked, withLater } from "./ui/asks.js";
+import { AsksPanel, isDestructiveOption, PickController, imagesSig, pickOutcome, laterOutcome, withoutPicked, withLater } from "./ui/asks.js";
 import { DocReaderHost, type DocReaderApi, type DocResultT } from "./ui/docreader.js";
 import type { OtherImage } from "./ui/other.js";
 import { setTimingSink, timed } from "./ui/clicktiming.js";
 import { ConversationProvider, type ConversationApi, type ConversationData } from "./ui/conversation.js";
 import type { AsksData } from "./ui/asks.js";
+import { PickHoldBar, usePickHold } from "./ui/pickhold.js";
 import { QueueSurface, useIsPhone } from "./ui/inbox.js";
 import { ProjectFilterBar, useProjectFilter } from "./ui/projectfilter.js";
 import { COUNTS_FOLLOW_FILTER, filterAsks, filterQueue, hiddenIn, projectChoices, shownCount } from "./ui/projectfilterstore.js";
@@ -293,7 +294,9 @@ function HomePage({ subPath }: { subPath?: string }) {
     act: async (task_id, action) => (await rpc.call("actIdea", { task_id, action })) as { ok: boolean; error?: string },
     clear: async () => { const r = (await rpc.call("clearIdeaDigest")) as { ok?: boolean; error?: string }; if (r && r.ok === false) throw new Error(r.error ?? "could not hide the digest"); },
   }), [rpc]);
-  // The Ideas tab carries the open-idea count, as Queue carries the waiting count; no count when the read fails.
+  // The Ideas item carries its open count; a failed read leaves the count unset.
+  const [openIdeas, setOpenIdeas] = useState<number | undefined>();
+  useEffect(() => { void ideaApi.digest().then((d) => setOpenIdeas(d.ideas.length), () => setOpenIdeas(undefined)); }, [ideaApi, ideaTick]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Rows on screen right now: React state (not just the tracker) so "Mark N seen" can say N.
   const [visible, setVisible] = useState<Set<string>>(new Set());
@@ -345,6 +348,11 @@ function HomePage({ subPath }: { subPath?: string }) {
       if (o.ok) dropOwed(decision_id);
       return o;
     }).finally(refetchAll);
+  // The page owns the phone hold so changing sections, More or Full view cannot shorten Undo.
+  const phonePickHold = usePickHold(sendPick, (decisionId, optionId) => {
+    const option = asks?.owed.find(o => o.id === decisionId)?.ask.options.find(o => o.id === optionId);
+    return option !== undefined && !isDestructiveOption(option);
+  });
   /** Open a thread and this plugin's blocks panel beside it; the host declines (false) where there is no side panel. */
   const openBeside = (thread: string) => {
     nav.toThread(thread);
@@ -425,12 +433,13 @@ function HomePage({ subPath }: { subPath?: string }) {
   const allBlocks = blocks.queue ? (asks ? withoutOwed(blocks.queue, asks) : blocks.queue) : null;
   const filterChoices = projectChoices([...(asks ? asks.owed.filter((o) => !o.held) : []), ...(allBlocks ? [...allBlocks.rows, ...allBlocks.legacy.owed] : [])]);
   const hiddenBy = {
+    heldOnPhone: asks ? hiddenIn(asks.owed.filter(o => o.held), excluded) : 0,
     decide: asks ? hiddenIn(asks.owed.filter((o) => !o.held && !o.later), excluded) : 0,
     later: asks ? hiddenIn(asks.owed.filter((o) => !o.held && o.later), excluded) : 0,
     blocks: allBlocks ? hiddenIn(allBlocks.rows, excluded) + hiddenIn(allBlocks.legacy.owed, excluded) : 0,
   };
   const filterBar = (hidden: number, compact = false) => <ProjectFilterBar compact={compact} choices={filterChoices} excluded={excluded} hidden={hidden} onChange={setExcluded} />;
-  const queueNavigation = () => (<QueueTabs active={stack.panels[stack.panels.length-1]?.id === "queue"} tab={queueTab} onTab={(next) => { setQueueTab(next); push({ id: "queue", kind: "decision", title: "Queue" }); }} more={<HomeOverflow active={stack.panels[stack.panels.length-1]?.id} definition={waiting?.definition} learn={learn.enabled} onOpen={push} />} filter={queueTab !== "catchup" ? <div data-queue-filter>{filterBar(hiddenBy[queueTab === "blocks" ? "blocks" : queueTab], true)}</div> : null} counts={waiting ? { decide: shownCount(waiting.decide, hiddenBy.decide), later: shownCount(asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, hiddenBy.later), blocks: shownCount(allBlocks ? blocksCount(allBlocks) : waiting.held, hiddenBy.blocks), catchup: waiting.updates } : null} />);
+  const queueNavigation = () => (<QueueTabs phone={phone} active={stack.panels[stack.panels.length-1]?.id === "queue"} tab={queueTab} onTab={(next) => { setQueueTab(next); push({ id: "queue", kind: "decision", title: "Queue" }); }} more={<HomeOverflow ideas={openIdeas} active={stack.panels[stack.panels.length-1]?.id} definition={waiting?.definition} learn={learn.enabled} onOpen={push} />} filter={queueTab !== "catchup" ? <div data-queue-filter>{filterBar(hiddenBy[queueTab === "blocks" ? "blocks" : queueTab] + (phone && queueTab === "decide" ? hiddenBy.heldOnPhone : 0), true)}</div> : null} counts={waiting ? { decide: shownCount(waiting.decide, hiddenBy.decide), later: shownCount(asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, hiddenBy.later), blocks: shownCount(allBlocks ? blocksCount(allBlocks) : waiting.held, hiddenBy.blocks), catchup: waiting.updates } : null} />);
   const HIDDEN_ALL = "Everything here is hidden by the project filter.";
 
   const render = (panel: Panel): ReactNode => {
@@ -595,12 +604,13 @@ function HomePage({ subPath }: { subPath?: string }) {
       {keyNotice}
       {actionLine}
       <HomeTabs queue={queueNavigation()} extra={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined} />
+      <PickHoldBar hold={phonePickHold} />
       <QueueSurface phone={phone && queueTab === "decide" && stack.panels[stack.panels.length-1]?.id === "queue"} inbox={asks ? {
-        asks: filterAsks(asks, excluded), waiting: waiting?.decide ?? 0,
+        pickHold: phonePickHold, asks: filterAsks(asks, excluded), waiting: waiting?.decide ?? 0,
         onPick: sendPick, onNote: (decision_id, text, images) => note({ decision_id }, text, images), onLater: sendLater,
         onOpen: openBeside, sinceNode: null, sinceCount: waiting?.updates ?? 0,
         onIdea: () => setIdeaOpen(v => !v), ideaNode: ideaOpen ? render({ id: "ideas", kind: "ideas", title: "Ideas" }) : null,
-        filter: { node: () => null, hidden: { waiting: hiddenBy.decide, later: hiddenBy.later }, laterCount: waiting?.later ?? 0 },
+        filter: { node: () => null, hidden: { waiting: hiddenBy.decide + hiddenBy.heldOnPhone, later: hiddenBy.later }, laterCount: waiting?.later ?? 0 },
       } : null}>
         <StackView placed={layoutStack(stack).filter((p) => !phone || !p.collapsed)} render={render} onExpand={push} />
       </QueueSurface>

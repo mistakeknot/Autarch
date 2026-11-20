@@ -32,7 +32,7 @@ export function HomeTabs({ queue, extra }: { queue: ReactNode; extra?: ReactNode
   return <>{queue}{extra ? <div className="border-b border-border px-4 py-1 sm:py-2" data-home-extra>{extra}</div> : null}</>;
 }
 
-export function HomeOverflow({ learn = false, onOpen, definition, active }: { active?: string | undefined; definition?: string | null | undefined; learn?: boolean; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void }) {
+export function HomeOverflow({ learn = false, onOpen, definition, active, ideas }: { ideas?: number | undefined; active?: string | undefined; definition?: string | null | undefined; learn?: boolean; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void }) {
   const menu = useRef<HTMLDetailsElement>(null);
   const destination = homeTabs(learn).find(([id]) => id !== "queue" && id === active)?.[2];
   useEffect(() => {
@@ -43,7 +43,7 @@ export function HomeOverflow({ learn = false, onOpen, definition, active }: { ac
     return () => document.removeEventListener("pointerdown", outside);
   }, []);
   return <details ref={menu} className="relative shrink-0 text-xs" data-home-overflow onKeyDown={e => {
-    if (e.key === "Escape") {
+    if (e.key === "Escape" && e.currentTarget.open) {
       e.preventDefault();
       e.stopPropagation();
       e.currentTarget.open = false;
@@ -55,13 +55,15 @@ export function HomeOverflow({ learn = false, onOpen, definition, active }: { ac
       {homeTabs(learn).filter(([id]) => id !== "queue").map(([id, kind, title]) => <button type="button" aria-current={active === id ? "page" : undefined} className="min-h-11 px-3 text-left hover:bg-muted" key={id} onClick={e => {
         e.currentTarget.closest("details")?.removeAttribute("open");
         onOpen({ id, kind, title });
-      }}>{title}</button>)}
+      }}>{id === "ideas" && ideas !== undefined ? `Ideas (${ideas})` : title}</button>)}
       {definition ? <p className="border-t border-border p-2 text-xs text-muted-foreground">{definition}</p> : null}
     </div>
   </details>;
 }
 
 export type QueueTab = "decide" | "later" | "blocks" | "catchup";
+
+export const PHONE_QUEUE_LABELS: Record<QueueTab, string> = { decide: "Now", later: "Later", blocks: "Blocked", catchup: "Since left" };
 
 export const QUEUE_TABS: ReadonlyArray<readonly [QueueTab, string]> = [["decide", "Needs you now"], ["later", "Later"], ["blocks", "Blocked on others"], ["catchup", "Since you left"]];
 
@@ -77,7 +79,7 @@ export function nextQueueTab(tab: QueueTab, key: string): QueueTab | null {
 
 /** The Queue's own tabs: each paradigm gets a tab with its count, so no view makes mk scroll past one to reach another. */
 // Below sm the tabs wrap to a second line rather than scroll, so no tab sits off-screen with no cue; a label never splits.
-export function QueueTabs({ tab, counts, onTab, filter = null, more = null, active = true }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; filter?: ReactNode; more?: ReactNode; active?: boolean }) {
+export function QueueTabs({ tab, counts, onTab, filter = null, more = null, active = true, phone = false }: { phone?: boolean; tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; filter?: ReactNode; more?: ReactNode; active?: boolean }) {
   return (
     <div className="border-b border-border px-2 sm:px-4">
     <div className="relative flex flex-wrap items-center gap-x-1 [&_[data-project-filter]]:static [&_[data-project-filter-popup]]:left-auto [&_[data-project-filter-popup]]:right-0 [&_[data-project-filter-popup]]:w-80 [&_[data-project-filter-popup]]:max-w-[calc(100vw-2rem)]">
@@ -88,12 +90,12 @@ export function QueueTabs({ tab, counts, onTab, filter = null, more = null, acti
           type="button"
           role="tab"
           id={`queue-tab-${id}`}
-          aria-label={counts ? `${label} (${counts[id]})` : label}
+          aria-label={counts ? `${phone ? PHONE_QUEUE_LABELS[id] : label} (${counts[id]})` : phone ? PHONE_QUEUE_LABELS[id] : label}
           aria-selected={active && tab === id}
           aria-controls={active ? "queue-tabpanel" : undefined}
           tabIndex={tab === id ? 0 : -1}
           data-queue-tab={id}
-          className={`min-h-11 shrink-0 whitespace-nowrap px-1 text-sm underline-offset-4 ${active && tab === id ? "font-semibold underline" : "text-muted-foreground hover:underline"}`}
+          className={`min-h-11 shrink-0 whitespace-nowrap px-0.5 sm:px-1 text-sm underline-offset-4 ${active && tab === id ? "font-semibold underline" : "text-muted-foreground hover:underline"}`}
           onClick={() => onTab(id)}
           onKeyDown={(e) => {
             const to = nextQueueTab(tab, e.key);
@@ -103,8 +105,7 @@ export function QueueTabs({ tab, counts, onTab, filter = null, more = null, acti
             document.getElementById(`queue-tab-${to}`)?.focus();
           }}
         >
-          <span className="sm:hidden">{counts ? `${id === "decide" ? "Now" : id === "blocks" ? "Blocked" : id === "catchup" ? "Updates" : label} (${counts[id]})` : id === "decide" ? "Now" : id === "blocks" ? "Blocked" : id === "catchup" ? "Updates" : label}</span>
-          <span className="hidden sm:inline">{counts ? `${label} (${counts[id]})` : label}</span>
+          {counts ? `${phone ? PHONE_QUEUE_LABELS[id] : label} (${counts[id]})` : phone ? PHONE_QUEUE_LABELS[id] : label}
         </button>
       ))}
     </div>

@@ -123,7 +123,7 @@ export function usePickHold(onPick: OnPick, eligible: (decisionId: string, optio
     };
   }, [held, flush]);
 
-  // The inbox goes away (Full view, or the page unmounts): send it.
+  // The hold owner unmounts (the page, or a standalone inbox): send it.
   useEffect(() => flush, [flush]);
 
   const seconds = held === null ? null : Math.max(0, Math.ceil((held.endsAt - now) / 1000));

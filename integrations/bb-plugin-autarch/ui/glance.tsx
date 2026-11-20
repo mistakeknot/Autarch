@@ -161,7 +161,6 @@ export function GlanceBlock({ g }: { g: Glance }) {
         ) : null}
         {g.time ? <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground" data-glance-time>{g.time}</span> : null}
       </div>
-
       {g.judging.length > 0 ? (
         <>
           <p className={SMALL}>{g.judging.length > 1 ? "You are judging" : "You are checking"}</p>

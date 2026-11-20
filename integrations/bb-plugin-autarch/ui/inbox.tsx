@@ -8,7 +8,7 @@ import { orderedGroups } from "./mergegroups.js";
 import { glance } from "./glance.js";
 import { HoldEndLine } from "./holdendline.js";
 import { neighborAfterRemoval } from "./nextcard.js";
-import { PickHoldBar, usePickHold } from "./pickhold.js";
+import { PickHoldBar, usePickHold, type PickHold } from "./pickhold.js";
 import { unreadableLabel } from "./unreadable.js";
 import { extrasText, owedCounts } from "../waitingcount.js";
 import { MoreWaitingRow, moreWaiting } from "./morewaiting.js";
@@ -144,8 +144,10 @@ function DetailBar({ r, onPick, onLater, onDone }: { r: InboxRow; onPick: OnPick
   );
 }
 
-export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, sinceNode, sinceCount, onDesktop, onIdea, ideaNode, updateNode, filter, now = Date.now(), initial, embedded = false }: {
+export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, sinceNode, sinceCount, onDesktop, onIdea, ideaNode, updateNode, filter, now = Date.now(), initial, embedded = false, pickHold }: {
   embedded?: boolean;
+  /** A page-owned hold survives section changes; standalone inboxes keep their own. */
+  pickHold?: PickHold;
   asks: AsksData;
   waiting: number;
   onPick: OnPick;
@@ -180,10 +182,11 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
   const rows = inboxRows(asks, now);
   // A one-tap pick is held for 5 s under the Undo bar before it is sent (bead mk-j5ipa.13). Typed words, images, multi-question
   // answers and options that ask for a second tap are not one-tap picks and go straight through.
-  const hold = usePickHold(onPick, (decisionId, optionId) => {
+  const ownHold = usePickHold(onPick, (decisionId, optionId) => {
     const opt = asks.owed.find((o) => o.id === decisionId)?.ask.options.find((o) => o.id === optionId);
     return opt !== undefined && !isDestructiveOption(opt);
   });
+  const hold = pickHold ?? ownHold;
   const extras = extrasText(owedCounts(filter?.summaryOwed ?? asks.owed));
   const list = tab === "later" ? rows.later : rows.waiting;
   const current = open === null ? null : [...rows.waiting, ...rows.later].find((r) => r.key === open) ?? null;
@@ -251,7 +254,7 @@ export function MobileInbox({ asks, waiting, onPick, onOpen, onNote, onLater, si
           </>
         )}
       </div>
-      <PickHoldBar hold={hold} />
+      {pickHold ? null : <PickHoldBar hold={hold} />}
       {current ? (
         <DetailBar key={current.key} r={current} onPick={hold.pick} onLater={onLater} onDone={() => advanceFrom(current.key)} />
       ) : embedded ? null : (

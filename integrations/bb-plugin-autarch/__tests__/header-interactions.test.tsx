@@ -2,7 +2,6 @@
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 import { HomeOverflow } from "../ui/tabs.js";
 import { QueueSurface } from "../ui/inbox.js";
@@ -47,6 +46,18 @@ it("the production phone surface reaches the inbox and five-second pick Undo", a
  if(host.querySelector("[data-inbox-back]")) await click("[data-inbox-back]"); await click("[data-inbox-desktop]");
  expect(host.querySelector("[data-full-view]")).not.toBeNull();
  await click("[data-phone-inbox-back]"); expect(host.querySelector("[data-mobile-inbox]")).not.toBeNull();
- const source = readFileSync("app.tsx","utf8");
- expect(source).toContain('<QueueSurface phone={phone && queueTab === "decide"');
+
+});
+
+it("closed More lets Escape reach the page handler",()=>{
+ mount(<HomeOverflow onOpen={()=>{}}/>);
+ const escape=vi.fn();window.addEventListener("keydown",escape);
+ try{
+  const summary=host.querySelector("summary")!;
+  const event=new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true});
+  act(()=>summary.dispatchEvent(event));expect(event.defaultPrevented).toBe(false);expect(escape).toHaveBeenCalledOnce();
+  host.querySelector("details")!.open=true;
+  act(()=>summary.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true})));
+  expect(escape).toHaveBeenCalledOnce();
+ }finally{window.removeEventListener("keydown",escape);}
 });

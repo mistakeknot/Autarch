@@ -16,15 +16,19 @@ for(const [width,height] of [[1440,900],[390,844],[360,800]]){
   return geometry;
  };
  console.log(width,"queue",JSON.stringify(await check()));
- if(width<640){await p.locator('[data-inbox-row]').first().click();await p.locator('[data-bar-main]').click();await p.waitForSelector('[data-pick-hold]');await p.screenshot({path:`${dest}/final-undo-${width}x${height}.png`,fullPage:true});await p.locator('[data-pick-undo]').click();if(await p.locator('[data-inbox-back]').count())await p.locator('[data-inbox-back]').click();}
+ for(const button of await p.getByRole('tab').all()){
+  if((await button.innerText()).trim()!==await button.getAttribute('aria-label'))throw Error('tab Label in Name mismatch');
+ }
+ if(width<640 && !await p.getByRole('tab',{name:'Since left (91)',exact:true}).count())throw Error('phone catch-up label changed');
+ if(width<640){await p.locator('[data-inbox-row]').first().click();await p.locator('[data-bar-main]').click();await p.waitForSelector('[data-pick-hold]');await p.getByRole('tab',{name:'Later (8)',exact:true}).click();if(!await p.locator('[data-pick-undo]').count())throw Error('phone hold lost on section change');await p.screenshot({path:`${dest}/final-undo-${width}x${height}.png`,fullPage:true});await p.locator('[data-pick-undo]').click();await p.getByRole('tab',{name:'Now (2)',exact:true}).click();if(await p.locator('[data-inbox-back]').count())await p.locator('[data-inbox-back]').click();}
  await p.screenshot({path:`${dest}/final-${width}x${height}.png`,fullPage:true});
  await p.locator('[data-project-filter-trigger]').click();
  const popup=await p.locator('[data-project-filter-popup]').boundingBox();if(!popup||popup.x<0||popup.x+popup.width>width)throw Error('filter popup clipped');
  await p.getByRole('option',{name:/Example/}).click();await p.getByText('Projects · 2 hidden',{exact:true}).waitFor();console.log(width,'hidden',JSON.stringify(await check()));await p.keyboard.press('Escape');await p.screenshot({path:`${dest}/final-hidden-${width}x${height}.png`,fullPage:true});await p.locator('[data-project-filter-trigger]').click();
  await p.locator('[data-project-filter-all]').click();await p.keyboard.press('Escape');
- await p.getByRole('tab',{name:'Needs you now (2)',exact:true}).waitFor();
- const open=async(name)=>{await p.locator('[data-home-overflow] summary').click();await p.getByRole('button',{name,exact:true}).click();};
- const queue=async()=>{await p.getByRole('tab',{name:'Needs you now (2)',exact:true}).click();await p.locator(width<640?'[data-mobile-inbox]':'[data-decision]').first().waitFor();};
+ await p.getByRole('tab',{name:width<640?'Now (2)':'Needs you now (2)',exact:true}).waitFor();
+ const open=async(name)=>{await p.locator('[data-home-overflow] summary').click();await p.getByRole('button',{name:name==='Ideas'?/^Ideas(?: \(\d+\))?$/:name,exact:true}).click();};
+ const queue=async()=>{await p.getByRole('tab',{name:width<640?'Now (2)':'Needs you now (2)',exact:true}).click();await p.locator(width<640?'[data-mobile-inbox]':'[data-decision]').first().waitFor();};
  await open('Learn');await p.getByRole('button',{name:'Got it',exact:true}).click();await p.waitForSelector('[data-learn-mark="got"]');await queue();
  await open('Ideas');
  for(const action of ['Pursue','Park','Drop']){

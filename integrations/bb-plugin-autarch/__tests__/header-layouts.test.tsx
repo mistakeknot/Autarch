@@ -39,3 +39,15 @@ it("names and marks the active More destination", () => {
  expect(host.querySelector('[aria-current="page"]')?.textContent).toBe("Archive");
  expect(host.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
 });
+
+it.each([false,true])("visible and accessible Queue names match at phone=%s",phone=>{
+ const host=document.createElement("div");
+ host.innerHTML=renderToStaticMarkup(<QueueTabs phone={phone} tab="decide" counts={{decide:2,later:3,blocks:4,catchup:5}} onTab={()=>{}}/>);
+ const buttons=Array.from(host.querySelectorAll('[role="tab"]'));
+ expect(buttons.map(b=>b.textContent)).toEqual(phone?["Now (2)","Later (3)","Blocked (4)","Since left (5)"]:["Needs you now (2)","Later (3)","Blocked on others (4)","Since you left (5)"]);
+ for(const button of buttons)expect(button.getAttribute("aria-label")).toBe(button.textContent);
+});
+it.each([0,3,undefined])("Ideas shows its readable open count (%s)",ideas=>{
+ const html=renderToStaticMarkup(<HomeOverflow ideas={ideas} onOpen={()=>{}}/>);
+ expect(html).toContain(ideas===undefined?">Ideas</button>":`>Ideas (${ideas})</button>`);
+});
