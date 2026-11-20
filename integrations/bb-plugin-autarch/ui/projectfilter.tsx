@@ -17,7 +17,8 @@ export function useProjectFilter(): { excluded: ReadonlySet<string>; setExcluded
   return { excluded, setExcluded };
 }
 
-export function ProjectFilterBar({ choices, excluded, hidden, onChange }: {
+export function ProjectFilterBar({ choices, excluded, hidden, onChange, compact = false }: {
+  compact?: boolean;
   choices: readonly ProjectChoice[];
   excluded: ReadonlySet<string>;
   /** How many cards in the lists below the filter hides right now. */
@@ -105,12 +106,14 @@ export function ProjectFilterBar({ choices, excluded, hidden, onChange }: {
             setOpen(true);
           }
         }}
+        aria-label={compact ? `Project filter: ${label}` : undefined}
+        title={compact ? label : undefined}
         data-project-filter-trigger
       >
         <span aria-hidden>▾</span>
-        <span>{label}</span>
+        <span>{compact ? (excluded.size > 0 ? "Projects •" : "Projects") : label}</span>
       </button>
-      {hidden > 0 ? (
+      {hidden > 0 && !compact ? (
         <p role="status" className="m-0 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground" data-project-filter-hidden>
           <span>{hiddenText(hidden)}</span>
           <ActionButton tone="quiet" onClick={resetFromNote}>All projects</ActionButton>
@@ -118,6 +121,7 @@ export function ProjectFilterBar({ choices, excluded, hidden, onChange }: {
       ) : null}
       {open ? (
         <div className="absolute left-2 right-2 top-full z-20 rounded-md border border-border bg-background p-2 shadow-md sm:left-4 sm:right-auto sm:w-80" data-project-filter-popup onKeyDown={onPopupKey}>
+          {compact && hidden > 0 ? <p role="status" className="m-0 mb-2 text-xs text-muted-foreground">{hiddenText(hidden)}</p> : null}
           <input
             ref={input}
             type="text"

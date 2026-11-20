@@ -30,10 +30,11 @@ export function homeTabs(learn = false): ReadonlyArray<readonly [TabId, Panel["k
   ];
 }
 
-export function HomeTabs({ learn = false, onOpen, extra }: { extra?: ReactNode; learn?: boolean | undefined; waiting?: number | undefined; ideas?: number | undefined; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void }) {
+export function HomeTabs({ learn = false, onOpen, extra, mergedQueue }: { mergedQueue?: ReactNode; extra?: ReactNode; learn?: boolean | undefined; waiting?: number | undefined; ideas?: number | undefined; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void }) {
+  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("headerLayout") === "merged") return <>{mergedQueue}{extra ? <div className="border-b border-border px-4 py-1 sm:py-2" data-home-extra>{extra}</div> : null}</>;
   return (
     <>
-    <nav className="flex flex-wrap gap-3 border-b border-border px-4 py-1 text-sm sm:py-2" data-home-tabs>
+    <nav className="flex flex-nowrap gap-2 border-b border-border px-2 py-1 text-xs sm:gap-3 sm:px-4 sm:text-sm sm:py-2" data-home-tabs>
       {homeTabs(learn).map(([id, kind, title]) => (
         <button key={id} type="button" className="min-h-11 shrink-0 underline-offset-2 hover:underline sm:min-h-0" onClick={() => onOpen({ id, kind, title })}>
           {title}
@@ -43,6 +44,10 @@ export function HomeTabs({ learn = false, onOpen, extra }: { extra?: ReactNode; 
     {extra ? <div className="border-b border-border px-4 py-1 sm:py-2" data-home-extra>{extra}</div> : null}
     </>
   );
+}
+
+export function HomeOverflow({ learn = false, onOpen, definition }: { definition?: string | null | undefined; learn?: boolean; onOpen: (p: { id: string; kind: Panel["kind"]; title: string }) => void }) {
+ return <details className="relative shrink-0 text-xs" data-home-overflow onKeyDown={e=>{if(e.key==="Escape"){e.preventDefault();e.stopPropagation();e.currentTarget.open=false;e.currentTarget.querySelector("summary")?.focus();}}}><summary className="flex min-h-11 sm:min-h-9 cursor-pointer items-center rounded border border-border px-2">More</summary><div className="absolute right-0 z-30 flex w-40 flex-col rounded border border-border bg-background p-1 shadow-md">{homeTabs(learn).filter(([id])=>id!=="queue").map(([id,kind,title])=><button type="button" className="min-h-11 px-3 text-left hover:bg-muted" key={id} onClick={e=>{e.currentTarget.closest("details")?.removeAttribute("open");onOpen({id,kind,title});}}>{title}</button>)}{definition ? <p className="border-t border-border p-2 text-xs text-muted-foreground">{definition}</p> : null}</div></details>;
 }
 
 export type QueueTab = "decide" | "later" | "blocks" | "catchup";
@@ -108,24 +113,25 @@ function WaitingDefinition({ definition }: { definition: string }) {
 
 /** The Queue's own tabs: each paradigm gets a tab with its count, so no view makes mk scroll past one to reach another. */
 // Below sm the tabs wrap to a second line rather than scroll, so no tab sits off-screen with no cue; a label never splits.
-export function QueueTabs({ tab, counts, onTab, definition = null, filter = null }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; definition?: string | null; line?: string | null; filter?: ReactNode }) {
+export function QueueTabs({ tab, counts, onTab, definition = null, filter = null, more = null, active = true }: { tab: QueueTab; counts: Record<QueueTab, number> | null; onTab: (t: QueueTab) => void; definition?: string | null; line?: string | null; filter?: ReactNode; more?: ReactNode; active?: boolean }) {
   const layout = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("headerLayout");
   const compact = layout === "compact";
+  const merged = layout === "merged";
   return (
     <div className="border-b border-border px-2 sm:px-4">
-    <div className="relative flex flex-wrap items-center gap-x-3 [&_[data-project-filter]]:static [&_[data-project-filter-popup]]:left-auto [&_[data-project-filter-popup]]:right-0 [&_[data-project-filter-popup]]:w-80 [&_[data-project-filter-popup]]:max-w-[calc(100vw-2rem)]">
-    <div role="tablist" aria-label="Queue" className="flex min-w-0 flex-1 basis-full flex-wrap gap-x-3 sm:basis-0" data-queue-tabs>
+    <div className="relative flex flex-wrap items-center gap-x-3 [&_[data-project-filter]]:static [&_[data-project-filter-popup]]:left-auto [&_[data-project-filter-popup]]:right-0 [&_[data-project-filter-popup]]:w-80 [&_[data-project-filter-popup]]:max-w-[calc(100vw-2rem)]" style={merged ? { columnGap: 4 } : undefined}>
+    <div role="tablist" aria-label="Queue" className={merged ? "contents [&_button]:min-h-11 [&_button]:text-[11px] sm:[&_button]:min-h-9 sm:[&_button]:text-sm" : "flex min-w-0 flex-1 basis-full flex-wrap gap-x-3 sm:basis-0"} data-queue-tabs>
       {QUEUE_TABS.map(([id, label]) => (
         <button
           key={id}
           type="button"
           role="tab"
           id={`queue-tab-${id}`}
-          aria-selected={tab === id}
-          aria-controls="queue-tabpanel"
+          aria-selected={active && tab === id}
+          aria-controls={active ? "queue-tabpanel" : undefined}
           tabIndex={tab === id ? 0 : -1}
           data-queue-tab={id}
-          className={`min-h-11 shrink-0 whitespace-nowrap px-1 text-sm underline-offset-4 ${compact ? "rounded-full border border-border px-3 my-1" : ""} ${tab === id ? "font-semibold underline" : "text-muted-foreground hover:underline"}`}
+          className={`min-h-11 shrink-0 whitespace-nowrap px-1 text-sm underline-offset-4 ${compact ? "rounded-full border border-border px-3 my-1" : ""} ${active && tab === id ? "font-semibold underline" : "text-muted-foreground hover:underline"}`}
           onClick={() => onTab(id)}
           onKeyDown={(e) => {
             const to = nextQueueTab(tab, e.key);
@@ -140,7 +146,8 @@ export function QueueTabs({ tab, counts, onTab, definition = null, filter = null
       ))}
     </div>
     {filter}
-    {definition ? <div className="flex shrink-0 items-center">
+    {more}
+    {definition && !merged ? <div className="flex shrink-0 items-center">
       {definition ? <WaitingDefinition definition={definition} /> : null}
     </div> : null}
     </div>

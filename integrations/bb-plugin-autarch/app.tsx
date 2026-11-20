@@ -40,7 +40,7 @@ import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { GovernorPanel } from "./ui/governor.js";
 import { UpdateMenu, updateLabel, updatePollMs, type UpdateInfoView } from "./ui/update.js";
 import { keyAction, layoutStack, ROOT_PANEL, stackReducer, StackView } from "./ui/stack.js";
-import { forgetClassicTabs, HomeTabs, QueueTabs, type QueueTab } from "./ui/tabs.js";
+import { forgetClassicTabs, HomeTabs, HomeOverflow, QueueTabs, type QueueTab } from "./ui/tabs.js";
 import type { Panel, StackState } from "./ui/stack.js";
 import { HOME_SOURCE } from "./ui/identity.js";
 import { POLL_MS, startPoll } from "./ui/poll.js";
@@ -435,7 +435,9 @@ function HomePage({ subPath }: { subPath?: string }) {
     // On the phone the held cards sit under the On hold row of the waiting tab, so the filter's note counts them there too.
     heldOnPhone: asks ? hiddenIn(asks.owed.filter((o) => o.held), excluded) : 0,
   };
-  const filterBar = (hidden: number) => <ProjectFilterBar choices={filterChoices} excluded={excluded} hidden={hidden} onChange={setExcluded} />;
+  const filterBar = (hidden: number, compact = false) => <ProjectFilterBar compact={compact} choices={filterChoices} excluded={excluded} hidden={hidden} onChange={setExcluded} />;
+  const mergedLayout = new URLSearchParams(window.location.search).get("headerLayout") === "merged";
+  const queueNavigation = (merged = false) => (<QueueTabs active={!merged || stack.panels[stack.panels.length-1]?.id === "queue"} tab={queueTab} onTab={(next) => { setQueueTab(next); if (merged) push({ id: "queue", kind: "decision", title: "Queue" }); }} more={merged ? <HomeOverflow definition={waiting?.definition} learn={learn.enabled} onOpen={push} /> : null} definition={waiting?.definition ?? null} line={waiting?.line ?? null} filter={queueTab !== "catchup" ? <div data-queue-filter>{filterBar(hiddenBy[queueTab === "blocks" ? "blocks" : queueTab], merged)}</div> : null} counts={waiting ? { decide: shownCount(waiting.decide, hiddenBy.decide), later: shownCount(asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, hiddenBy.later), blocks: shownCount(allBlocks ? blocksCount(allBlocks) : waiting.held, hiddenBy.blocks), catchup: waiting.updates } : null} />);
   const HIDDEN_ALL = "Everything here is hidden by the project filter.";
 
   const render = (panel: Panel): ReactNode => {
@@ -448,7 +450,7 @@ function HomePage({ subPath }: { subPath?: string }) {
                 <NoticeBanner notices={notices} suspended={waiting?.suspended ?? true} onAcknowledge={(item) => act("Marking the notice seen", rpc.call("markSeen", { item }), refetch)} />
               </div>
             ) : null}
-            <QueueTabs tab={queueTab} onTab={setQueueTab} definition={waiting?.definition ?? null} line={waiting?.line ?? null} filter={queueTab !== "catchup" ? <div className="border-b border-border py-1" data-queue-filter>{filterBar(hiddenBy[queueTab === "blocks" ? "blocks" : queueTab])}</div> : null} counts={waiting ? { decide: shownCount(waiting.decide, hiddenBy.decide), later: shownCount(asks ? asks.owed.filter((o) => o.later && !o.held).length : waiting.later, hiddenBy.later), blocks: shownCount(allBlocks ? blocksCount(allBlocks) : waiting.held, hiddenBy.blocks), catchup: waiting.updates } : null} />
+            {!mergedLayout ? queueNavigation() : null}
             <section role="tabpanel" id="queue-tabpanel" aria-labelledby={`queue-tab-${queueTab}`} data-queue-section={queueTab === "decide" ? "asks" : queueTab} className="border-b border-border">
               {queueTab === "decide"
                 ? render({ id: "asks", kind: "decision", title: "Asks", part: "decide" })
@@ -595,7 +597,7 @@ function HomePage({ subPath }: { subPath?: string }) {
   }
   const keyNotice = linkKey !== null && lookup !== null && lookup.key === linkKey ? <CardKeyNotice cardKey={linkKey} lookup={lookup.result} /> : null;
 
-  if (phone && !fullView && asks !== null && !["compact", "wrap"].includes(new URLSearchParams(window.location.search).get("headerLayout") ?? "")) {
+  if (phone && !fullView && asks !== null && !["compact", "merged", "wrap"].includes(new URLSearchParams(window.location.search).get("headerLayout") ?? "")) {
     return (
       <ConversationProvider value={conversation}><DocReaderHost api={docs}>
         <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
@@ -637,7 +639,7 @@ function HomePage({ subPath }: { subPath?: string }) {
       {keyNotice}
       {actionLine}
       {phone && fullView ? <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={() => setFullView(false)} data-inbox-return>‹ Back to the phone inbox</button> : null}
-      <HomeTabs extra={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined} learn={learn.enabled} {...(waiting ? { waiting: waiting.total } : {})} ideas={openIdeas} onOpen={push} />
+      <HomeTabs mergedQueue={queueNavigation(true)} extra={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined} learn={learn.enabled} {...(waiting ? { waiting: waiting.total } : {})} ideas={openIdeas} onOpen={push} />
       <StackView placed={layoutStack(stack)} render={render} onExpand={push} />
     </div>
     </DocReaderHost></ConversationProvider>

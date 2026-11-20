@@ -7,7 +7,7 @@ import { CardConversation } from "./conversation.js";
 import { clickStarted, paintDone } from "./clicktiming.js";
 import { splitCommands, type CommandRole } from "./commandtext.js";
 import { CommandBlock } from "./copy.js";
-import { glance, GlanceBlock, type GlanceAnswer } from "./glance.js";
+import { glance, GlanceBlock } from "./glance.js";
 import { GH_REF_SRC, refNodes, URL_SRC } from "./links.js";
 import { DocLink } from "./docreader.js";
 import { HoldEndLine } from "./holdendline.js";
@@ -324,12 +324,8 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
   const n = ask.mentions ?? 0;
   const hasRealOther = ask.ask.options.some((o) => o.id === "other");
   const anyInstruction = ask.ask.options.some((o) => o.kind === "instruction" && (o.instruction ?? "").trim() !== "");
-  // A play or walk card gets its link, time, what is judged and what each answer does above the full text.
+  // Link, time and judging criteria stay above the full text; answer effects stay with their buttons.
   const glanceOf = glance(ask);
-  // Each answer shows in full what it sends; a ruling-only answer has no line.
-  const glanceAnswers: GlanceAnswer[] = glanceOf
-    ? ask.ask.options.map((o) => ({ id: o.id, label: o.label, recommended: ask.ask.recommendation === o.id, effect: optionEffect(o, threadName(ask), true) || null }))
-    : [];
   return (
     <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
       <h3 className="text-sm font-medium [overflow-wrap:anywhere]">
@@ -342,7 +338,7 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
         <button type="button" className="inline-flex min-h-11 items-center underline sm:min-h-0" onClick={() => onOpen(ask.thread)}>{threadName(ask)}</button>
         {n > 0 ? ` - ${`also mentioned in ${n} ${n === 1 ? "thread" : "threads"}`}` : ""}
       </p>
-      {glanceOf ? <GlanceBlock g={glanceOf} answers={glanceAnswers} /> : null}
+      {glanceOf ? <GlanceBlock g={glanceOf} /> : null}
       <QuestionText text={ask.ask.question} />
       <EvidenceBlock items={ask.ask.evidence} />
       {ask.ask.questions && ask.ask.questions.length > 0 ? (
