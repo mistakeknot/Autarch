@@ -241,7 +241,7 @@ export function LegacyGroup({ legacy, onPick, onOpen }: { legacy: LegacyView; on
   return (
     <section data-section="legacy">
       <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`Legacy asks (${legacy.count})`}</h2>
-      <div className="space-y-3">
+      <div className="divide-y divide-border [&>*]:py-3" data-legacy-entries>
         {legacy.owed.map((o) => (
           <AskCard key={o.id} ask={{ ...o, asker: "legacy" }} onPick={onPick} onOpen={onOpen} />
         ))}

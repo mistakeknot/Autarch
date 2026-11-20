@@ -327,7 +327,7 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
   // Link, time and judging criteria stay above the full text; answer effects stay with their buttons.
   const glanceOf = glance(ask);
   return (
-    <article className="min-w-0 bg-background p-4" data-decision={ask.id}>
+    <article className="min-w-0 bg-transparent p-4" data-decision={ask.id}>
       <h3 className="text-sm font-medium [overflow-wrap:anywhere]">
         {ask.key ? <span className="mr-2 select-all rounded bg-muted px-1.5 font-mono text-xs font-semibold" data-task-key>{ask.key}</span> : null}
         <RefText text={ask.subject} />

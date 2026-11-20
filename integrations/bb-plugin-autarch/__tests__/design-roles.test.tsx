@@ -7,7 +7,7 @@ it("enters control hover immediately and keeps the recommendation outlined", () 
   expect(buttonClass("recommended")).toContain("border-primary bg-transparent");
 });
 it("uses quiet detail rows without hiding answer effects", () => {
-  expect(source("asks")).toContain('className="min-w-0 bg-background p-4" data-decision');
+  expect(source("asks")).toContain('className="min-w-0 bg-transparent p-4" data-decision');
   expect(source("asks")).toContain('className="border-b border-border py-3" data-reversible');
   expect(source("asks")).toContain('data-effect');
   expect(source("asks")).not.toContain("font-family:");
@@ -26,4 +26,12 @@ it("gives archive and project inputs transparent input roles and keyboard focus"
     expect(source(name)).toContain("focus-visible:ring-ring");
     expect(source(name)).toContain("min-h-11");
   }
+});
+
+it("separates legacy entries with quiet hairlines", () => {
+  expect(source("blocks")).toContain('className="divide-y divide-border [&>*]:py-3" data-legacy-entries');
+});
+it("keeps unreadable detail transparent with the same quiet padding", () => {
+  expect(source("unreadable")).toContain('className="min-w-0 bg-transparent p-4" data-decision');
+  expect(source("unreadable")).not.toContain("rounded-lg border");
 });
