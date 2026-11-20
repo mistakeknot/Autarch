@@ -119,3 +119,17 @@ it("fit-mode swipes pan while the page is pinch-zoomed",async()=>{
   vi.stubGlobal("visualViewport",{scale:1});swipe();expect(q("h2").textContent).toBe("Header: After");
  }finally{vi.unstubAllGlobals();}
 });
+it.each([
+ {name:"Ctrl bracket",key:"[",ctrlKey:true},
+ {name:"Alt bracket",key:"]",altKey:true},
+ {name:"Meta bracket",key:"[",metaKey:true},
+ {name:"AltGr bracket",key:"]",ctrlKey:true,altKey:true},
+])("contains $name without preventing native defaults",async({name: _name,...init})=>{
+ await mount();open();const hostKey=vi.fn();window.addEventListener("keydown",hostKey);
+ try{
+  const event=new KeyboardEvent("keydown",{...init,bubbles:true,cancelable:true});
+  act(()=>q("dialog").dispatchEvent(event));
+  expect(event.defaultPrevented).toBe(false);expect(hostKey).not.toHaveBeenCalled();
+  expect(q("h2").textContent).toBe("Header: Before");
+ }finally{window.removeEventListener("keydown",hostKey);}
+});

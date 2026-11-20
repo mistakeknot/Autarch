@@ -20,9 +20,9 @@ export function EvidenceLightbox({ images, current, onChange, onClose, trigger }
  const move = (delta: number) => { const next = images[(index + delta + images.length) % images.length]; if (next) { setNatural(false); onChange(next.id); } };
  useLayoutEffect(() => {
   const keys = (e: KeyboardEvent) => {
-   if (e.key !== "Escape" && (e.altKey || e.metaKey || e.ctrlKey)) return;
+   if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && (e.altKey || e.metaKey || e.ctrlKey)) return;
    // Controls rely on native key defaults: this capture runs before React root listeners.
-   // Capture plain keys at document so body focus cannot bypass modal containment.
+   // All remaining keys stay contained even when modifiers are held.
    e.stopPropagation();
    if (e.key === "Escape") { e.preventDefault(); onClose(); }
    else if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); move(e.key === "ArrowLeft" ? -1 : 1); }
