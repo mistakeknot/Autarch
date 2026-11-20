@@ -1,5 +1,6 @@
 // One counted Queue row, with Projects and every other destination under More.
 import { useEffect, useRef, type ReactNode } from "react";
+import { HEADER_CONTROL, HEADER_QUIET } from "./buttons.js";
 import type { Panel } from "./stack.js";
 
 /** The removed Classic tabs switch stored its choice here; nothing reads it now, so Home clears it on load. */
@@ -50,7 +51,7 @@ export function HomeOverflow({ learn = false, onOpen, definition, active, ideas 
       e.currentTarget.querySelector("summary")?.focus();
     }
   }}>
-    <summary className={`flex min-h-11 sm:min-h-9 cursor-pointer items-center rounded border border-border px-2 ${destination ? "font-semibold bg-muted" : ""}`}>{destination ? `More · ${destination}` : "More"}</summary>
+    <summary className={`${destination ? `${HEADER_CONTROL} px-2 bg-transparent font-semibold underline underline-offset-4 text-foreground` : HEADER_QUIET}`}>{destination ? `More · ${destination}` : "More"}</summary>
     <div className="absolute right-0 z-30 flex w-40 flex-col rounded border border-border bg-background p-1 shadow-md">
       {homeTabs(learn).filter(([id]) => id !== "queue").map(([id, kind, title]) => <button type="button" aria-current={active === id ? "page" : undefined} className="min-h-11 px-3 text-left hover:bg-muted" key={id} onClick={e => {
         e.currentTarget.closest("details")?.removeAttribute("open");
@@ -95,7 +96,7 @@ export function QueueTabs({ tab, counts, onTab, filter = null, more = null, acti
           aria-controls={active ? "queue-tabpanel" : undefined}
           tabIndex={tab === id ? 0 : -1}
           data-queue-tab={id}
-          className={`min-h-11 shrink-0 whitespace-nowrap px-0.5 sm:px-1 text-sm underline-offset-4 ${active && tab === id ? "font-semibold underline" : "text-muted-foreground hover:underline"}`}
+          className={`${HEADER_CONTROL} px-0.5 sm:px-2 whitespace-nowrap underline-offset-4 ${active && tab === id ? "bg-transparent font-semibold underline text-foreground" : "bg-transparent text-muted-foreground hover:bg-state-hover hover:text-foreground"}`}
           onClick={() => onTab(id)}
           onKeyDown={(e) => {
             const to = nextQueueTab(tab, e.key);

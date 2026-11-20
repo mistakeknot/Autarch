@@ -73,7 +73,7 @@ export function StackView({ placed, render, onExpand }: { placed: Placed[]; rend
             {panel.title}
           </button>
         ) : (
-          <section key={panel.id} style={grow ? { minWidth: width, flex: "1 1 0%" } : { width, flex: "none" }} className="min-w-0 min-h-0 overflow-y-auto border-r border-border">
+          <section key={panel.id} style={grow ? { minWidth: width, flex: "1 1 0%" } : { width, flex: "none" }} className="min-w-0 min-h-0 overflow-y-auto border-r border-border last:border-r-0">
             {render(panel)}
           </section>
         ),

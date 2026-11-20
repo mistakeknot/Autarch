@@ -36,3 +36,7 @@ export function ActionButton({ tone = "default", selected = false, className = "
 export function RecommendedMark() {
   return <span className="rounded-sm border border-primary px-1 text-xs font-medium text-primary" data-recommended-mark>recommended</span>;
 }
+
+/** Shared header geometry and keyboard focus, using the host theme and spacing scale. */
+export const HEADER_CONTROL = "inline-flex min-h-11 sm:min-h-9 shrink-0 items-center justify-center rounded-md border-0 text-xs sm:text-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset";
+export const HEADER_QUIET = `${HEADER_CONTROL} px-2 bg-transparent text-muted-foreground hover:bg-state-hover hover:text-foreground`;
