@@ -37,7 +37,27 @@ it("keeps unreadable detail transparent with the same quiet padding", () => {
 });
 
 it("keeps unreadable list rows boxed while their detail stays quiet", () => {
-  expect(source("blocks")).toContain('className={`${className} space-y-1`} data-row={row.id}');
+  expect(source("blocks")).toContain('className={`${className} space-y-1 [&>[data-unreadable]]:p-0`} data-row={row.id}');
   expect(source("blocks")).toContain('const className = `rounded-lg border border-border bg-card p-3');
   expect(source("unreadable")).toContain('className="min-w-0 bg-transparent p-4"');
+});
+
+it("uses text-safe destructive roles at every remaining text site", () => {
+  const counts: Record<string, number> = { archive: 2, actionerror: 1, catchup: 1, blocks: 1, docreader: 3, ideas: 4, settings: 2, other: 3, pickhold: 1, notices: 1, update: 2, multipick: 1 };
+  for (const [name, count] of Object.entries(counts)) {
+    expect(source(name).split("text-[var(--destructive-text,var(--destructive))]").length - 1, name).toBe(count);
+    expect(source(name), name).not.toMatch(/text-destructive(?:["\s]|$)/);
+  }
+});
+it("gives every remaining text input the input surface and keyboard ring", () => {
+  for (const [name, count] of [["multipick", 1], ["settings", 4], ["ideas", 2]] as const) {
+    const sites = [...source(name).matchAll(/<(?:input|textarea|select)\b[\s\S]*?className="([^"]*)"/g)];
+    const textSites = sites.filter(m => !m[0].includes('type="radio"'));
+    expect(textSites.length, name).toBe(count);
+    for (const site of textSites) for (const token of ["border-input", "bg-transparent", "focus-visible:outline-none", "focus-visible:ring-2", "focus-visible:ring-ring"]) expect(site[1], name).toContain(token);
+  }
+});
+it("removes nested unreadable padding and the header's unused hover duration", () => {
+  expect(source("blocks")).toContain("[&>[data-unreadable]]:p-0");
+  expect(source("buttons").split('export const HEADER_CONTROL =')[1]?.split(';')[0]).not.toContain("hover:duration-0");
 });

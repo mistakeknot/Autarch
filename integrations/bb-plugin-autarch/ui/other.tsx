@@ -211,13 +211,13 @@ export function OtherBox({
           ))}
         </ul>
       ) : null}
-      {imgErr ? <p role="alert" className="mt-1 text-xs font-medium text-destructive" data-other-image-error>{imgErr}</p> : null}
+      {imgErr ? <p role="alert" className="mt-1 text-xs font-medium text-[var(--destructive-text,var(--destructive))]" data-other-image-error>{imgErr}</p> : null}
       <div className="mt-1 flex flex-wrap items-center gap-2">
         <label className="cursor-pointer text-xs text-muted-foreground underline">
           Attach image
           <input type="file" accept={IMG_TYPES.join(",")} multiple disabled={busy} className="sr-only" data-other-attach onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ""; addFiles(fs); }} />
         </label>
-        <span className={`text-xs ${over ? "font-medium text-destructive" : "text-muted-foreground"}`} data-other-counter aria-live="polite">{`${count} / ${OTHER_MAX}`}</span>
+        <span className={`text-xs ${over ? "font-medium text-[var(--destructive-text,var(--destructive))]" : "text-muted-foreground"}`} data-other-counter aria-live="polite">{`${count} / ${OTHER_MAX}`}</span>
         <ActionButton disabled={t === null || busy || loading > 0} onClick={() => void run(onNote, "Sent. The owner is woken; nothing was ruled or closed.", true)} data-other-note>Ask / note</ActionButton>
         {onAnswer || answerDisabledReason ? (
           <ActionButton
@@ -233,7 +233,7 @@ export function OtherBox({
       {busy || loading > 0 ? <p className="mt-1 text-xs text-muted-foreground" data-other-wait>{busy ? "Sending..." : "Reading an image..."}</p> : null}
       {answerDisabledReason ? <p className="mt-1 text-xs text-muted-foreground" data-other-answer-reason>{answerDisabledReason}</p> : null}
       {showHelp ? <p className="mt-1 text-xs text-muted-foreground" data-other-help>{otherHelpText(!!onAnswer)}</p> : null}
-      {msg ? <p role={msg.ok ? "status" : "alert"} className={`mt-1 text-xs ${msg.ok ? "text-muted-foreground" : "font-medium text-destructive"}`} data-other-result={msg.ok ? "ok" : "error"}>{msg.text}</p> : null}
+      {msg ? <p role={msg.ok ? "status" : "alert"} className={`mt-1 text-xs ${msg.ok ? "text-muted-foreground" : "font-medium text-[var(--destructive-text,var(--destructive))]"}`} data-other-result={msg.ok ? "ok" : "error"}>{msg.text}</p> : null}
     </div>
   );
 }

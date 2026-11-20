@@ -76,7 +76,7 @@ export function DocPane({ api, path, sha256, onClose }: { api: DocReaderApi; pat
 /** The pane's body for one read result: loading, the refusal, or the digest line over the rendered or raw text. */
 export function DocContent({ res, want, view }: { res: DocResultT | "loading"; want?: string; view: View }) {
   if (res === "loading") return <p className="p-3 text-sm text-muted-foreground">Loading…</p>;
-  if (!res.ok) return <p role="alert" className="p-3 text-sm text-destructive" data-doc-error>{res.error}</p>;
+  if (!res.ok) return <p role="alert" className="p-3 text-sm text-[var(--destructive-text,var(--destructive))]" data-doc-error>{res.error}</p>;
   return (
     <>
       <DigestLine r={res} want={want} />
@@ -94,7 +94,7 @@ function DigestLine({ r, want }: { r: Extract<DocResultT, { ok: true }>; want?: 
       r.matches === true ? (
         <span className="font-medium text-green-600" data-doc-match="yes">matches the sha256 on the card</span>
       ) : (
-        <span className="font-medium text-destructive" data-doc-match="no">does NOT match the sha256 on the card: the file changed</span>
+        <span className="font-medium text-[var(--destructive-text,var(--destructive))]" data-doc-match="no">does NOT match the sha256 on the card: the file changed</span>
       );
   }
   return (
@@ -130,7 +130,7 @@ export function DocReaderHost({ api, children }: { api: DocReaderApi; children: 
     <DocReaderContext.Provider value={ctx}>
       <div className={open === null ? "contents" : "grid h-full min-h-0 grid-cols-1 lg:grid-cols-2"}>
         <div className={open === null ? "contents" : "min-h-0 overflow-auto"}>{children}</div>
-        {fileError !== null ? <p role="alert" className="fixed bottom-2 right-2 z-10 m-0 rounded border border-border bg-background p-2 text-xs text-destructive" data-file-error>{fileError}</p> : null}
+        {fileError !== null ? <p role="alert" className="fixed bottom-2 right-2 z-10 m-0 rounded border border-border bg-background p-2 text-xs text-[var(--destructive-text,var(--destructive))]" data-file-error>{fileError}</p> : null}
         {open !== null ? <DocPane key={`${open.path}#${open.sha256 ?? ""}`} api={api} path={open.path} sha256={open.sha256} onClose={close} /> : null}
       </div>
     </DocReaderContext.Provider>
