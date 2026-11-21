@@ -1,0 +1,471 @@
+{
+  "go": {
+    "./": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "rune_width_guard_test.go"
+      ],
+      "reason": "rune_width_guard_test.go walks Go sources only."
+    },
+    "./cmd/autarch": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "needsmk_release_report_test.go",
+        "needsmk_test.go",
+        "serve_test.go",
+        "decide_test.go",
+        "migrate_test.go",
+        "needsmk_release_notes_test.go",
+        "needsmk_rules_test.go",
+        "needsmk_notice_test.go",
+        "needsmk_update_test.go",
+        "needsmk_evidence_test.go",
+        "needsmk_pilots_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./cmd/mycroft": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "main_test.go",
+        "signal_linux_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./docs/wiki": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "figures_test.go"
+      ],
+      "reason": "figures_test.go reads Go sources, ghsync.ts and wiki pages."
+    },
+    "./internal/backlogrun": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "run_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/bigend/aggregator": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "items_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/coldwine/cli": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "root_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/coldwine/epics": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "write_test.go",
+        "validate_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/coldwine/specs": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "create_test.go",
+        "review_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/door": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "display_test.go",
+        "foundation_test.go",
+        "registry_test.go",
+        "product_view_test.go",
+        "product_test.go",
+        "preferences_test.go",
+        "tmux_capture_test.go"
+      ],
+      "reason": "tmux_capture_test.go compiles cmd/autarch; remaining reads are generated fixtures."
+    },
+    "./internal/file": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "atomic_bench_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/gurgeh/brief": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "decompose_test.go",
+        "decompose_dispatch_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/gurgeh/cli/commands": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "validate_test.go",
+        "suggestions_cmd_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/gurgeh/research": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "research_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/gurgeh/specs": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "create_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/gurgeh/suggestions": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "suggestions_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/gurgeh/tui": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "suggestions_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/homeask": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "group_test.go",
+        "flock_unix_test.go",
+        "evidence_test.go",
+        "pilots_links_test.go",
+        "on_pick_vectors_test.go",
+        "card_test.go",
+        "release_notes_test.go",
+        "subject_key_test.go",
+        "evidence_root_unix_test.go",
+        "pilots_test.go",
+        "move_filer_test.go",
+        "model_test.go",
+        "filer_card_test.go",
+        "filing_boundary_unix_test.go",
+        "hash_golden_test.go",
+        "evidence_keys_test.go",
+        "pilots_retired_test.go",
+        "evidence_parity_test.go",
+        "pilots_review_test.go",
+        "filing_week_test.go"
+      ],
+      "reason": "card_test.go reads plugin card fixtures; model/hash tests read shared schemas and Go fixtures."
+    },
+    "./internal/homefooter": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "export_test.go",
+        "footer_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/homerun": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "store_test.go",
+        "fix1_test.go",
+        "live_test.go",
+        "cas_test.go",
+        "fixture_test.go",
+        "sigverify_test.go",
+        "audit_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/homerun/review": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "review_test.go",
+        "key_live_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/icdata": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "cost_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/mycroft/predispatch": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "check_linux_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/mycroft/spawn": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "spawner_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/reviewagent": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "runtime_test.go",
+        "auth_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/serve": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "regression_test.go",
+        "callerlog_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/tui/views": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "sprint_commands_dispatch_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./pkg/agenttargets": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "provision_test.go",
+        "process_linux_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./pkg/agenttransport": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "tmux_integration_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./pkg/callerlog": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "lock_test.go",
+        "regression_test.go",
+        "storage_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./pkg/compound": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "capture_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./pkg/mcp": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "decision_escalation_test.go",
+        "callerlog_test.go",
+        "server_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./pkg/review": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "visit_test.go"
+      ],
+      "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./scripts/verify": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "range_test.go",
+        "launch_test.go",
+        "review_test.go",
+        "oracle_test.go",
+        "verify_test.go"
+      ],
+      "reason": "oracle_test.go reads and mutates plugin UI/server/e2e sources; range tests build Go."
+    },
+    "./tests/orchcompat": {
+      "sides": [
+        "go"
+      ],
+      "evidence": [
+        "serve_test.go",
+        "needsmk_weekday_test.go",
+        "needsmk_footer_test.go",
+        "fakebb_test.go",
+        "harness_lock_test.go",
+        "harness_test.go"
+      ],
+      "reason": "harness and weekday tests build Go; file reads are generated state and fixtures."
+    }
+  },
+  "vitest": [
+    "__tests__/activation-refusal.test.ts",
+    "__tests__/approvals.test.ts",
+    "__tests__/backup.test.ts",
+    "__tests__/batch-a-buttons.test.tsx",
+    "__tests__/build-identity.test.ts",
+    "__tests__/card-integration.test.ts",
+    "__tests__/cards.test.ts",
+    "__tests__/check-e2e.test.ts",
+    "__tests__/cutover.test.ts",
+    "__tests__/delegation.test.ts",
+    "__tests__/deploy-tool/binding.test.ts",
+    "__tests__/deploy-tool/closure-paths.test.ts",
+    "__tests__/deploy-tool/commands.test.ts",
+    "__tests__/deploy-tool/data-rawbyte-names.test.ts",
+    "__tests__/deploy-tool/data-symlinks.test.ts",
+    "__tests__/deploy-tool/deploy.test.ts",
+    "__tests__/deploy-tool/lock.test.ts",
+    "__tests__/deploy-tool/pluginfile.test.ts",
+    "__tests__/deploy-tool/publish.test.ts",
+    "__tests__/deploy-tool/record.test.ts",
+    "__tests__/deploy-tool/recovery.test.ts",
+    "__tests__/deploy-tool/review-fixes.test.ts",
+    "__tests__/deploy-tool/round3.test.ts",
+    "__tests__/deploy-tool/round4.test.ts",
+    "__tests__/deploy-tool/round5.test.ts",
+    "__tests__/deploy-tool/trust.test.ts",
+    "__tests__/design-roles.test.tsx",
+    "__tests__/docs.test.ts",
+    "__tests__/event-loop-turns.test.ts",
+    "__tests__/evidence-parity.test.ts",
+    "__tests__/evidence.test.tsx",
+    "__tests__/export.test.ts",
+    "__tests__/fence.test.ts",
+    "__tests__/ghview.test.ts",
+    "__tests__/governor-golden.test.ts",
+    "__tests__/governor-runtime.test.ts",
+    "__tests__/group.test.tsx",
+    "__tests__/hash-golden.test.ts",
+    "__tests__/home-gates-parity.test.ts",
+    "__tests__/home-ui-engine.test.ts",
+    "__tests__/home-ui-install-build.test.ts",
+    "__tests__/home-ui-script.test.ts",
+    "__tests__/install-failure-paths.test.ts",
+    "__tests__/install-script.test.ts",
+    "__tests__/learn.test.tsx",
+    "__tests__/ledger.test.ts",
+    "__tests__/legacy-lock.test.ts",
+    "__tests__/lint-ratchet.test.ts",
+    "__tests__/migrations.test.ts",
+    "__tests__/model.test.ts",
+    "__tests__/move-filing.test.ts",
+    "__tests__/no-exec.test.ts",
+    "__tests__/onpick-ingest.test.ts",
+    "__tests__/onpick-vectors.test.ts",
+    "__tests__/other-images.test.ts",
+    "__tests__/ownership.test.ts",
+    "__tests__/pick-ledger-readback.test.ts",
+    "__tests__/pick-relay-core.test.ts",
+    "__tests__/pickhandler-native-races.test.ts",
+    "__tests__/pickhandler-recovery.test.ts",
+    "__tests__/pickhandler-rollback.test.ts",
+    "__tests__/pickhead.test.ts",
+    "__tests__/properties.test.ts",
+    "__tests__/restore-script.test.ts",
+    "__tests__/rig-acceptance.test.ts",
+    "__tests__/rig-isolation.test.ts",
+    "__tests__/rigexec.test.ts",
+    "__tests__/root-launcher.test.ts",
+    "__tests__/ruling-race.test.ts",
+    "__tests__/ruling.test.ts",
+    "__tests__/seams.test.ts",
+    "__tests__/service.test.ts",
+    "__tests__/settled.test.ts",
+    "__tests__/stopped.test.ts",
+    "__tests__/store-crash.test.ts",
+    "__tests__/subject-key.test.ts",
+    "__tests__/tasks.test.ts",
+    "__tests__/update-ui.test.tsx",
+    "__tests__/write-scope.test.ts"
+  ],
+  "unread_markdown": [
+    "README.md",
+    "docs/testing.md"
+  ]
+}
