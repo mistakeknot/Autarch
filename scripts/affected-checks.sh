@@ -88,7 +88,7 @@ if not reason and go_files:
 if (reason or go_files or ts_files):
     import re
     audit_go = re.compile(r'os\.ReadFile|os\.Open|filepath\.Walk|exec\.Command\("go"')
-    audit_ts = re.compile(r'readFileSync|readdirSync|execFileSync|spawnSync|copyFileSync|cpSync|static-scan')
+    audit_ts = re.compile('readFileSync|readdirSync|\\bexecFile(?:Sync)?\\b|\\bspawn(?:Sync)?\\b|copyFileSync|cpSync|new\\s+Worker\\s*\\(|fs/promises|v2build|v6build|hash-golden-helper|deploy-tool/rig|static-scan|["\']\\./rig(?:\\.js)?["\']')
     tracked = subprocess.check_output(['git', 'ls-files', '-z'], text=True).split('\0')
     for path in [Path(f) for f in tracked if f.endswith('_test.go')]:
         if any(x in path.parts for x in ('node_modules', 'build', '.git', 'vendor')):
@@ -102,6 +102,8 @@ if (reason or go_files or ts_files):
             reason = 'unlisted source reader: ' + path.as_posix()
             break
 
+selected_tests = set(readers['vitest'])
+selected_tests.update(f for f in ts_files if '.test.' in Path(f).name or '.spec.' in Path(f).name)
 full_vitest = bool(reason or go_files)
 vitest_reason = 'Go changes require cross-language binary checks' if go_files else 'full fallback'
 if ts_files and not full_vitest:
@@ -114,17 +116,23 @@ if ts_files and not full_vitest:
                 full_vitest = True
                 vitest_reason = 'no related tests for ' + file
                 break
-        except (OSError, subprocess.CalledProcessError, ValueError):
+            for spec in selected:
+                path = Path(spec)
+                if not path.is_absolute():
+                    path = Path(plugin).resolve() / path
+                selected_tests.add(path.resolve().relative_to(Path(plugin).resolve()).as_posix())
+        except (OSError, subprocess.CalledProcessError, ValueError, TypeError):
             full_vitest = True
             vitest_reason = 'related test discovery unavailable for ' + file
             break
 if reason or go_files or ts_files:
-    packages = sorted(set(packages) | set(readers['go']))
+    packages = sorted(set(packages) | {p for p, entry in readers['go'].items() if reason or go_files or 'plugin' in entry['sides']})
 mode = 'full' if reason else 'affected' if go_files or ts_files else 'none'
 print('mode: ' + mode, flush=True)
 print(('full: ' + reason) if reason else 'reason: ' + ('mapped source changes' if mode == 'affected' else 'docs-only or no changes; nothing to run'), flush=True)
 print('Go packages: ' + ('./...' if reason else ' '.join(packages) or '(none)'), flush=True)
-print('vitest files: ' + ('(full suite: ' + vitest_reason + ')' if full_vitest else ' '.join(shlex.quote(f) for f in ts_files) or '(none)'), flush=True)
+vitest_plan = '(full suite: ' + vitest_reason + ')' if full_vitest else ' '.join(shlex.quote(f) for f in sorted(selected_tests)) if ts_files else '(none)'
+print('vitest files: ' + vitest_plan, flush=True)
 if mode != 'none':
     print('source readers: ' + ' '.join(readers['vitest']), flush=True)
 commands = []
@@ -134,15 +142,10 @@ if mode != 'none':
         commands.append(('.', ['go', 'test', '-mod=readonly', '-race', '-p', '8', *(['./...'] if reason else packages)]))
     if mode != 'none':
         commands.append((plugin, ['node_modules/.bin/tsc', '-p', 'tsconfig.json']))
-        # Related selects importers; explicitly changed test files also run themselves.
-        tests = [f for f in ts_files if '.test.' in Path(f).name or '.spec.' in Path(f).name]
         if full_vitest:
             commands.append((plugin, ['node_modules/.bin/vitest', 'run', '--maxWorkers=2']))
         else:
-            commands.append((plugin, ['node_modules/.bin/vitest', 'run', '--maxWorkers=2', *['./' + f for f in readers['vitest']]]))
-            commands.append((plugin, ['node_modules/.bin/vitest', 'related', '--run', '--passWithNoTests', '--maxWorkers=2', *['./' + f for f in ts_files]]))
-            if tests:
-                commands.append((plugin, ['node_modules/.bin/vitest', 'run', '--maxWorkers=2', *['./' + f for f in tests]]))
+            commands.append((plugin, ['node_modules/.bin/vitest', 'run', '--maxWorkers=2', *['./' + f for f in sorted(selected_tests)]]))
 for directory, command in commands:
     print('command: (cd ' + shlex.quote(directory) + ' && GOWORK=off ' + shlex.join(command) + ')', flush=True)
     if run:

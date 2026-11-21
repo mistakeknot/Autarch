@@ -12,17 +12,22 @@ imports. Only metadata discovery (`go list`) disables VCS stamping. Builds
 always cover `./...` for non-doc runs. Any Go change also runs full Vitest:
 the build-identity tests compile and inspect the real Go binary.
 
-Plugin changes retain whole-program tsc and `vitest related --run`, plus an
-explicit run of changed test files. A metadata-only Vitest 3 query checks each
-changed source separately. An empty or failed query selects full Vitest and
+Plugin changes retain whole-program tsc. A single `vitest run` takes the
+deduplicated union of reader files, related specs and changed test files. A
+metadata-only Vitest 3 query checks each changed source separately. An empty or failed query selects full Vitest and
 prints why, so a tested neighbor cannot hide an untested source. The query uses
 the pinned Vitest specification API; an unavailable API fails safely to full.
 
 ## Tests outside import graphs
 
 [scripts/affected-readers.json](../scripts/affected-readers.json) is the explicit
-reader manifest, always run for any non-documentation change. It deliberately
-over-includes direct filesystem/process readers rather than assume a read is
+reader manifest. Vitest readers run for every non-documentation change.
+Each Go entry records its audited input sides, test evidence and rationale.
+Go changes retain all Go readers; plugin-only changes keep the entries with
+plugin inputs: docs/wiki (ghsync.ts), internal/homeask (plugin card fixtures),
+and scripts/verify (plugin UI/server/e2e sources). Other entries read Go
+sources, generated fixtures or local test outputs and do not read plugin inputs.
+The list deliberately over-includes direct filesystem/process readers rather than assume a read is
 only a fixture. It includes:
 
 - Go's root rune-width scan, docs/wiki's Go/TS/Markdown figure checks,
@@ -34,9 +39,11 @@ only a fixture. It includes:
 
 The audit searches tracked Go tests for os.ReadFile, os.Open, filepath.Walk
 and exec.Command("go"), and Vitest tests for readFileSync, readdirSync,
-execFileSync, spawnSync, copyFileSync, cpSync and static-scan. A new direct
-reader missing from the manifest selects full checks. Review indirect helper
-reads when maintaining this list; import graphs alone do not establish coverage.
+execFile/execFileSync, spawn/spawnSync, copyFileSync, cpSync, new Worker,
+fs/promises, and imports of v2build, v6build, hash-golden-helper, deploy-tool/rig
+and static-scan. A matching test missing from the manifest selects full checks.
+Review new helper designs when maintaining this audit; import graphs alone
+do not establish coverage.
 
 Shared inputs, configs, migrations, data, fixtures, scripts, CI files, unknown
 files, deleted/renamed files and unmappable Go packages select full checks.

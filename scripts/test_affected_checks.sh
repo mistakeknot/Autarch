@@ -38,7 +38,7 @@ SH
 cat > .checks/bin/node <<'SH'
 #!/usr/bin/env bash
 if [[ $1 == */affected-related.mjs ]]; then
-  if [[ ${AFFECTED_NO_RELATED:-} == yes ]]; then echo '[]'; else echo '["fixture.test.ts"]'; fi
+  if [[ ${AFFECTED_NO_RELATED:-} == yes ]]; then echo '[]'; else echo '["__tests__/docs.test.ts","value.test.ts","related.test.ts","__tests__/docs.test.ts"]'; fi
 else
   exec "$AFFECTED_REAL_NODE" "$@"
 fi
@@ -73,15 +73,16 @@ check leaf/leaf.go 'mode: affected'
 [[ $plan == *'./docs/wiki'* && $plan == *'./internal/door'* && $plan == *'./tests/orchcompat'* ]]
 [[ $plan == *'Go changes require cross-language binary checks'* ]]
 grep -q 'go list -buildvcs=false' "$AFFECTED_LOG"
-check integrations/bb-plugin-autarch/value.ts 'vitest related --run'
+check integrations/bb-plugin-autarch/value.ts 'vitest run --maxWorkers=2'
+go_plan=$(printf '%s\n' "$plan" | sed -n '/^Go packages:/p')
+[[ $go_plan == 'Go packages: ./docs/wiki ./internal/homeask ./scripts/verify' ]]
 for reader in no-exec.test.ts seams.test.ts write-scope.test.ts rigexec.test.ts docs.test.ts build-identity.test.ts design-roles.test.tsx; do
   [[ $plan == *"$reader"* ]]
 done
-check integrations/bb-plugin-autarch/value.test.ts 'vitest run --maxWorkers=2 ./value.test.ts'
+check integrations/bb-plugin-autarch/value.test.ts './value.test.ts'
 bash "$script" HEAD~1 HEAD --run > /dev/null
 grep -q 'tsc -p tsconfig.json' "$AFFECTED_LOG"
-grep -q 'vitest related --run' "$AFFECTED_LOG"
-grep -q 'vitest run --maxWorkers=2 ./value.test.ts' "$AFFECTED_LOG"
+[[ $(grep -c '^vitest run ' "$AFFECTED_LOG") == 1 ]]
 # Test the real Vitest parser against every generated test command.
 printf '%s\n' "$plan" > .checks/plan.txt
 python3 - "$scratch" <<'PYTEST'
@@ -102,13 +103,18 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parseCLI } from 'vitest/node';
 const commands = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-assert.equal(commands.length, 3);
+assert.equal(commands.length, 1);
 for (const command of commands) {
   const parsed = parseCLI([...command]);
   const files = command[1] === 'related' ? parsed.options.related : parsed.filter;
   assert.ok(files.length > 0);
 }
-assert.ok(commands.some(c => c[1] === 'related' && c.includes('./value.test.ts')));
+assert.equal(commands[0][1], 'run');
+const files = parseCLI([...commands[0]]).filter;
+assert.equal(new Set(files).size, files.length);
+assert.ok(files.includes('./value.test.ts'));
+assert.ok(files.includes('./related.test.ts'));
+assert.equal(files.filter(f => f === './__tests__/docs.test.ts').length, 1);
 JSTEST
 )
 check README.md 'mode: none'
@@ -134,13 +140,19 @@ AFFECTED_NO_RELATED=yes check integrations/bb-plugin-autarch/orphan.ts 'no relat
 [[ $plan == *'vitest run --maxWorkers=2)'* ]]
 # A source read without an import still schedules the audited readers.
 check integrations/bb-plugin-autarch/read-by-static-scan.ts 'source readers:'
-[[ $plan == *'./docs/wiki'* && $plan == *'./internal/door'* && $plan == *'./__tests__/no-exec.test.ts'* ]]
+[[ $plan == *'./docs/wiki'* && $plan != *'./internal/door'* && $plan == *'./__tests__/no-exec.test.ts'* ]]
 # New readers fail closed pending an explicit manifest audit.
 mkdir -p integrations/bb-plugin-autarch/__tests__
 printf '/* readFileSync */\n' > integrations/bb-plugin-autarch/__tests__/new-reader.test.ts
 git add .
 git commit -qm reader
 verify 'unlisted source reader'
+for snippet in 'new Worker(' 'execFile(' 'execFileSync(' 'spawn(' 'node:fs/promises' './v2build.js' './v6build.js' './hash-golden-helper.js' './deploy-tool/rig.js' './static-scan.js' "'./rig.js'"; do
+  printf '// %s\n' "$snippet" > integrations/bb-plugin-autarch/__tests__/new-reader.test.ts
+  git add integrations/bb-plugin-autarch/__tests__/new-reader.test.ts
+  git commit -qm mediated
+  verify 'unlisted source reader'
+done
 if AFFECTED_FAIL=yes bash "$script" HEAD~1 HEAD --run > /dev/null 2>&1; then exit 1; fi
 printf 'dirty\n' >> README.md
 if bash "$script" HEAD~1 HEAD --print > .checks/refusal 2>&1; then exit 1; fi
