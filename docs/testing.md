@@ -23,6 +23,9 @@ the pinned Vitest specification API; an unavailable API fails safely to full.
 [scripts/affected-readers.json](../scripts/affected-readers.json) is the explicit
 reader manifest. Vitest readers run for every non-documentation change.
 Each Go entry records its audited input sides, test evidence and rationale.
+A Go test mentioning `bb-plugin-autarch` or `integrations/` forces full checks
+unless its package explicitly lists the plugin side, even for existing Go-only
+entries. This also protects later TS-only changes after a test is added.
 Go changes retain all Go readers; plugin-only changes keep the entries with
 plugin inputs: docs/wiki (ghsync.ts), internal/homeask (plugin card fixtures),
 and scripts/verify (plugin UI/server/e2e sources). Other entries read Go
@@ -39,9 +42,12 @@ only a fixture. It includes:
 
 The audit searches tracked Go tests for os.ReadFile, os.Open, filepath.Walk
 and exec.Command("go"), and Vitest tests for readFileSync, readdirSync,
+callback readFile, createReadStream, existsSync, statSync, exec/execSync, fork,
 execFile/execFileSync, spawn/spawnSync, copyFileSync, cpSync, new Worker,
 fs/promises, and imports of v2build, v6build, hash-golden-helper, deploy-tool/rig
 and static-scan. A matching test missing from the manifest selects full checks.
+Existing filesystem/process consumers, including temporary-file writers and
+mocks, are conservatively listed rather than exempted.
 Review new helper designs when maintaining this audit; import graphs alone
 do not establish coverage.
 
