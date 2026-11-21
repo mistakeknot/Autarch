@@ -166,6 +166,7 @@ export class WakeLoop {
       // Diagnose the refused write from the fresh row; do not change the retarget predicates or retry it.
       const current = this.store.obligation(row.id);
       diagnostic = { reason: next === gone ? "same-thread"
+        : !current ? "obligation-missing"
         : current?.allow_reroute === 0 ? "reroute-not-allowed"
         : current?.state === "done" || current?.state === "dismissed" ? "row-closed" : "retarget-race" };
     }
