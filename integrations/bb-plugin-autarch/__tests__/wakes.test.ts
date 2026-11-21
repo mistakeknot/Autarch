@@ -1,3 +1,4 @@
+import { resolveWakeTarget } from "../wake-target.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Service } from "../service.js";
 import { framed, sdkAdapter, WakeLoop } from "../wakes.js";
@@ -685,6 +686,50 @@ describe("archived recipient routing (Stalled addendum)", () => {
 
   const evs = (type: string) => svc.store.events().filter((e) => e.type === type);
 
+  it.each(["no-live-target", "thread-list-error", "thread-list-unavailable", "vizier-error"])("records the resolver diagnostic in the event: %s", async reason => {
+    loop = new WakeLoop(svc, sdk, (gone, report) => resolveWakeTarget(gone,
+      async () => {
+        if (reason === "thread-list-error") throw new Error("list unavailable");
+        return [{ id: gone, title: "Worker", archivedAt: 1, pinnedAt: null }];
+      }, async () => {
+        if (reason === "vizier-error") throw new Error("lookup unavailable");
+        return { ok: false, status: reason === "thread-list-unavailable" ? 503 : 409, error: "No candidate" };
+      }, report));
+    const a = await wake("thr-a");
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    expect(JSON.parse(evs("reroute-failed")[0]!.detail_json)).toMatchObject({ reason, from: "thr-a", to: null });
+    expect(row(a.id)).toMatchObject({ recipient: "thr-a", state: "undeliverable" });
+    expect(states(a.id)).toEqual(["not-delivered"]);
+    expect(sdk.sent).toHaveLength(1);
+  });
+
+  it.each(["missing", "same", "throws", "race", "stranded"])("records why rerouting failed: %s", async mode => {
+    loop = new WakeLoop(svc, sdk, mode === "missing" ? undefined : async () => {
+      if (mode === "throws") throw new Error("  resolver unavailable  ");
+      return mode === "same" ? "thr-a" : mode === "race" ? "thr-b" : null;
+    });
+    const a = await wake("thr-a");
+    if (mode === "race") {
+      const original = svc.store.retarget.bind(svc.store);
+      svc.store.retarget = (...args) => { original(args[0], args[1], "thr-c"); return false; };
+    }
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    if (mode === "stranded") {
+      svc.store.db.prepare("DELETE FROM events WHERE type = 'reroute-failed'").run();
+      await loop.drain();
+    }
+    const failure = JSON.parse(evs("reroute-failed")[0]!.detail_json);
+    expect(failure).toMatchObject({ obligation: a.id, from: "thr-a", to: null,
+      reason: ({ missing: "resolver-unavailable", same: "same-thread", throws: "resolver-error", race: "retarget-race", stranded: "no-target" })[mode] });
+    if (mode === "throws") expect(failure.error).toBe("resolver unavailable");
+    expect(row(a.id)).toMatchObject({ state: "undeliverable", recipient: mode === "race" ? "thr-c" : "thr-a" });
+    expect(states(a.id)).toEqual(["not-delivered"]);
+    expect(sdk.sent).toHaveLength(1);
+    expect(evs("rerouted")).toHaveLength(0);
+  });
+
   it("a reroute is recorded on the decision, with where it went", async () => {
     loop = new WakeLoop(svc, sdk, async () => "thr-succ");
     const a = await wake("thr-a");
@@ -692,7 +737,7 @@ describe("archived recipient routing (Stalled addendum)", () => {
     await loop.drain();
     const [e] = evs("rerouted");
     expect(e!.decision_id).toBe(a.decision_id);
-    expect(JSON.parse(e!.detail_json)).toMatchObject({ from: "thr-a", to: "thr-succ" });
+    expect(JSON.parse(e!.detail_json)).toEqual({ obligation: a.id, from: "thr-a", to: "thr-succ" });
   });
 
   it("a queued answer whose thread is then archived goes to the successor", async () => {

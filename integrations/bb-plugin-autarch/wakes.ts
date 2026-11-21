@@ -4,6 +4,7 @@
 // request provably never reached the server; everything else is an unknown outcome that is
 // reconciled against the recipient's queued rows and accepted turn events, and otherwise
 // left `uncertain` until mk picks Resend.
+import { rerouteError, type ReportReroute, type RerouteDiagnostic } from "./wake-target.js";
 import type { AttemptRow, ObligationRow, ObligationState } from "./store.js";
 import type { Service } from "./service.js";
 import { THREAD_EVENT_PAGE_CAP, threadEventLimit } from "./hostLimits.js";
@@ -88,7 +89,7 @@ export class WakeLoop {
      * Where a wake to an archived or deleted thread goes instead: the live title-successor, else the vizier, else
      * null (nowhere, so the row stalls). Called only after the host said the thread is gone.
      */
-    private readonly resolveRecipient?: (gone: string) => Promise<string | null>,
+    private readonly resolveRecipient?: (gone: string, report?: ReportReroute) => Promise<string | null>,
   ) {}
 
   private get store() {
@@ -151,15 +152,19 @@ export class WakeLoop {
    */
   private async reroute(row: ObligationRow, gone: string): Promise<boolean> {
     let next: string | null = null;
+    let diagnostic: RerouteDiagnostic = { reason: this.resolveRecipient ? "no-target" : "resolver-unavailable" };
     if (this.resolveRecipient) {
       try {
-        next = await this.resolveRecipient(gone);
-      } catch {
+        next = await this.resolveRecipient(gone, detail => { diagnostic = detail; });
+      } catch (err) {
         next = null;
+        diagnostic = { reason: "resolver-error", error: rerouteError(err) };
       }
     }
     const moved = !!next && next !== gone && this.store.retarget(row.id, gone, next);
-    this.store.recordEvent(moved ? "rerouted" : "reroute-failed", row.decision_id, { obligation: row.id, from: gone, to: moved ? next : null });
+    if (next && !moved) diagnostic = { reason: next === gone ? "same-thread" : "retarget-race" };
+    this.store.recordEvent(moved ? "rerouted" : "reroute-failed", row.decision_id,
+      { obligation: row.id, from: gone, to: moved ? next : null, ...(!moved ? diagnostic : {}) });
     return moved;
   }
 
