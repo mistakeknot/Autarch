@@ -2,6 +2,7 @@ package homeask
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -9,7 +10,7 @@ import (
 
 // Home indexes a card after the filer exits; the filer polls briefly so the caller sees card_key.
 func TestFileCardPollsUntilHomeHasTheCardKey(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	polls := 0
 	f.fail = func(args []string) *BBResult {
 		if strings.Join(args[:min(len(args), 3)], " ") != "home get --card" {
@@ -19,7 +20,7 @@ func TestFileCardPollsUntilHomeHasTheCardKey(t *testing.T) {
 		if polls < 3 {
 			return badRes(1, "unknown card")
 		}
-		r := okRes(map[string]any{"task_id": args[3], "card_key": "ck-1"})
+		r := okRes(map[string]any{"task_id": args[3], "project_id": "P1", "card_key": "ck-1"})
 		return &r
 	}
 	fl := f.filer()
@@ -30,9 +31,9 @@ func TestFileCardPollsUntilHomeHasTheCardKey(t *testing.T) {
 	}
 }
 
-// The poll is bounded: a Home that never indexes the card leaves card_key empty and does not fail the filing.
+// The poll is bounded: a Home that never indexes the card returns an ambiguous outcome with the retry request key.
 func TestFileCardReadbackIsBounded(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.fail = func(args []string) *BBResult {
 		if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
 			return badRes(1, "unknown card")
@@ -43,7 +44,7 @@ func TestFileCardReadbackIsBounded(t *testing.T) {
 	fl.ReadbackTimeout, fl.ReadbackInterval = 30*time.Millisecond, 5*time.Millisecond
 	start := time.Now()
 	res, err := fl.FileCard(context.Background(), testReq())
-	if err != nil || res.ID != "T1" || res.CardKey != "" {
+	if !errors.Is(err, ErrOutcomeUnknown) || res.ID != "T1" || !strings.Contains(err.Error(), res.Key) {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	if time.Since(start) > 2*time.Second {
@@ -53,7 +54,7 @@ func TestFileCardReadbackIsBounded(t *testing.T) {
 
 // A read that stalls is cut off at ReadbackTimeout, not left to the per-call timeout.
 func TestFileCardReadbackBoundsAStalledRead(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	base := f.run
 	fl := f.filer()
 	fl.Run = func(ctx context.Context, env []string, args ...string) BBResult {
@@ -70,7 +71,7 @@ func TestFileCardReadbackBoundsAStalledRead(t *testing.T) {
 	fl.ReadbackTimeout, fl.ReadbackInterval = 100*time.Millisecond, 10*time.Millisecond
 	start := time.Now()
 	res, err := fl.FileCard(context.Background(), testReq())
-	if err != nil || res.ID != "T1" || res.CardKey != "" {
+	if !errors.Is(err, ErrOutcomeUnknown) || res.ID != "T1" || !strings.Contains(err.Error(), res.Key) {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	if d := time.Since(start); d > 2*time.Second {
@@ -80,11 +81,191 @@ func TestFileCardReadbackBoundsAStalledRead(t *testing.T) {
 
 // With no ReadbackTimeout the filer reads nothing back.
 func TestFileCardWithoutReadbackTimeoutDoesNotPoll(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	if _, err := f.filer().FileCard(context.Background(), testReq()); err != nil {
 		t.Fatal(err)
 	}
 	if n := f.count("home", "get", "--card"); n != 0 {
 		t.Fatalf("%d card reads", n)
+	}
+}
+
+func TestCardReadbackWithLegacyPlugin(t *testing.T) {
+	f := newFake(t, registryOnCreate)
+	f.fail = func(args []string) *BBResult {
+		if strings.Join(args[:min(len(args), 3)], " ") != "home get --card" {
+			return nil
+		}
+		for _, arg := range args {
+			if arg == "--project" {
+				return badRes(2, "unknown option --project")
+			}
+		}
+		r := okRes(CardView{TaskID: args[3], ProjectID: "P1", CardKey: "P1-1"})
+		return &r
+	}
+	fl := f.filer()
+	fl.ReadbackTimeout = 20 * time.Millisecond
+	fl.ReadbackInterval = time.Millisecond
+	res, err := fl.FileCard(context.Background(), testReq())
+	if err != nil || res.CardKey != "P1-1" {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+}
+
+func TestCardReadbackProjectCheck(t *testing.T) {
+	for _, project := range []string{"P1", "other", ""} {
+		t.Run("project="+project, func(t *testing.T) {
+			fl := CardFiler{Run: func(context.Context, []string, ...string) BBResult {
+				return okRes(CardView{TaskID: "T1", ProjectID: "P1", CardKey: "P1-1"})
+			}}
+			view, err := fl.cardInProject(context.Background(), "T1", project)
+			if project == "other" {
+				if !errors.Is(err, ErrCardProjectMismatch) || !errors.Is(err, ErrInvalid) || errors.Is(err, ErrHomeDown) {
+					t.Fatalf("accepted a card from project %q", view.ProjectID)
+				}
+			} else if err != nil || view.CardKey != "P1-1" {
+				t.Fatalf("view=%+v err=%v", view, err)
+			}
+		})
+	}
+}
+
+func TestFileCardReadbackProjectMismatchStopsImmediately(t *testing.T) {
+	f := newFake(t, registryOnCreate)
+	f.fail = func(args []string) *BBResult {
+		if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
+			r := okRes(CardView{TaskID: args[3], ProjectID: "P2", CardKey: "P2-1"})
+			return &r
+		}
+		return nil
+	}
+	fl := f.filer()
+	fl.ReadbackTimeout, fl.ReadbackInterval = 30*time.Millisecond, time.Millisecond
+	for attempt := 1; attempt <= 2; attempt++ {
+		res, err := fl.FileCard(context.Background(), testReq())
+		if !errors.Is(err, ErrCardProjectMismatch) || !errors.Is(err, ErrInvalid) || errors.Is(err, ErrOutcomeUnknown) || errors.Is(err, ErrHomeDown) {
+			t.Errorf("attempt %d: expected permanent invalid scope, got %v", attempt, err)
+		}
+		if err == nil || !strings.Contains(err.Error(), `"P1"`) || !strings.Contains(err.Error(), `"P2"`) {
+			t.Errorf("error must report both project IDs: %v", err)
+		}
+		if res.CardKey != "" || f.count("home", "get", "--card") != attempt || f.cards() != 1 || f.count("tasks", "create") != 1 || f.count("tasks", "update") != 0 {
+			t.Fatalf("res=%+v polls=%d creates=%d updates=%d", res, f.count("home", "get", "--card"), f.count("tasks", "create"), f.count("tasks", "update"))
+		}
+	}
+}
+
+func TestFileCardReadbackWithoutProjectRetriesToDeadline(t *testing.T) {
+	f := newFake(t, registryOnCreate)
+	f.fail = func(args []string) *BBResult {
+		if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
+			return &BBResult{Stdout: []byte(`{"card_key":""}`)}
+		}
+		return nil
+	}
+	fl := f.filer()
+	fl.ReadbackTimeout, fl.ReadbackInterval = 30*time.Millisecond, time.Millisecond
+	res, err := fl.FileCard(context.Background(), testReq())
+	if !errors.Is(err, ErrOutcomeUnknown) || errors.Is(err, ErrCardProjectMismatch) || res.CardKey != "" || f.count("home", "get", "--card") < 2 || f.cards() != 1 {
+		t.Fatalf("res=%+v err=%v polls=%d cards=%d", res, err, f.count("home", "get", "--card"), f.cards())
+	}
+}
+
+func TestCardReadbackWithoutProjectIsTransient(t *testing.T) {
+	for _, key := range []string{"", "P1-1"} {
+		t.Run("key="+key, func(t *testing.T) {
+			fl := CardFiler{Run: func(context.Context, []string, ...string) BBResult {
+				return okRes(map[string]any{"card_key": key})
+			}}
+			_, err := fl.cardInProject(context.Background(), "T1", "P1")
+			if err == nil || errors.Is(err, ErrCardProjectMismatch) || errors.Is(err, ErrInvalid) {
+				t.Fatalf("expected transient missing-project error, got %v", err)
+			}
+		})
+	}
+}
+
+// Polling can stop before the caller context expires when another interval
+// would cross its deadline. Report the limit, and retain safe replay advice.
+func TestFileCardReadbackCallerDeadlineBeforeNextPoll(t *testing.T) {
+	f := newFake(t, registryOnCreate)
+	polls := 0
+	f.fail = func(args []string) *BBResult {
+		if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
+			polls++
+			return badRes(1, "unknown card")
+		}
+		return nil
+	}
+	fl := f.filer()
+	// Leave ample setup headroom, but make another interval cross the caller's
+	// deadline even if setup completes immediately. No interval should be slept.
+	fl.ReadbackTimeout, fl.ReadbackInterval = 10*time.Second, 6*time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := fl.FileCard(ctx, testReq())
+	if !errors.Is(err, ErrOutcomeUnknown) || res.ID != "T1" || polls != 1 {
+		t.Fatalf("res=%+v err=%v polls=%d", res, err, polls)
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("caller context already expired: %v", ctx.Err())
+	}
+	if !strings.Contains(err.Error(), "before the caller's deadline") ||
+		!strings.Contains(err.Error(), "re-run with --request "+res.Key+" and unchanged input") ||
+		strings.Contains(err.Error(), "within 10s") {
+		t.Fatalf("message=%q", err)
+	}
+}
+
+// Cancellation must take precedence over an earlier caller deadline.
+func TestFileCardReadbackInterrupted(t *testing.T) {
+	for _, mode := range []string{"cancelled", "deadline"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newFake(t, registryOnCreate)
+			// Cancellation needs setup headroom; the deadline case intentionally waits
+			// for expiry and stays below the package's elapsed-time bounds.
+			callerTimeout := 5 * time.Second
+			if mode == "deadline" {
+				callerTimeout = 250 * time.Millisecond
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), callerTimeout)
+			defer cancel()
+			polls := 0
+			f.fail = func(args []string) *BBResult {
+				if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
+					polls++
+					if mode == "cancelled" {
+						cancel()
+					} else {
+						<-ctx.Done()
+					}
+					return badRes(1, "unknown card")
+				}
+				return nil
+			}
+			fl := f.filer()
+			fl.ReadbackTimeout, fl.ReadbackInterval = 10*time.Second, 6*time.Second
+			res, err := fl.FileCard(ctx, testReq())
+			if !errors.Is(err, ErrOutcomeUnknown) || res.ID != "T1" || polls != 1 {
+				t.Fatalf("res=%+v err=%v polls=%d", res, err, polls)
+			}
+			want := "before the caller's deadline"
+			if mode == "cancelled" {
+				want = "wait was cancelled"
+			}
+			if !strings.Contains(err.Error(), want) ||
+				!strings.Contains(err.Error(), "re-run with --request "+res.Key+" and unchanged input") ||
+				strings.Contains(err.Error(), "within 10s") {
+				t.Fatalf("message=%q", err)
+			}
+			wantErr := context.DeadlineExceeded
+			if mode == "cancelled" {
+				wantErr = context.Canceled
+			}
+			if !errors.Is(ctx.Err(), wantErr) {
+				t.Fatalf("context=%v", ctx.Err())
+			}
+		})
 	}
 }

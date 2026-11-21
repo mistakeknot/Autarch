@@ -23,6 +23,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { spawnChild } from "../rig.js";
+import { pickHandlerScenarios } from "./pick-handler.js";
 
 export interface Ctx {
   /** Path of the autarch binary under test (built from the product commit). */
@@ -131,6 +132,7 @@ const needsMkCards = (r: Rig) => r.fake.tasks.filter((t) => t.labelIds.includes(
 const agentComments = (r: Rig, card: string) => r.fake.comments.filter((c) => c.taskId === card && c.kind === "agent");
 
 export const scenarios: Record<string, Scenario> = {
+  ...pickHandlerScenarios,
   // ---- card lifecycle ----------------------------------------------------------------
   "card-ingest": () =>
     withRig(async (r) => {

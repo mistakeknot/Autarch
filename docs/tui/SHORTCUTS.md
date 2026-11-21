@@ -11,7 +11,7 @@ behavior consistent across tools.
 ## Safe Defaults (Low Collision Risk)
 - Navigation: arrows, PageUp/PageDown, Home/End
 - Actions: Enter (activate), Esc (cancel/back), Tab/Shift+Tab (focus)
-- Function keys: F1–F12 (e.g., F2 for model selector)
+- Function keys: F1–F12 (e.g., F2 for Dispatch agent)
 
 ## Printable Key Policy (Unified UI)
 - Printable keys (letters, digits, symbols, space) are **not** bound anywhere
@@ -34,7 +34,7 @@ behavior consistent across tools.
 - `ctrl+c` should always quit from any screen.
 
 ## Checklist for New Shortcuts
-- Consistent with existing TUI Keybindings in `AGENTS.md`.
+- Consistent with existing [TUI Keybindings](../../agents/tui-keybindings.md).
 - No conflicts with terminal-reserved keys.
-- Documented in the tool help overlay and `AGENTS.md`.
+- Documented in the tool help overlay and [TUI Keybindings](../../agents/tui-keybindings.md).
 - Manually tested in a real terminal (not just IDE terminal).

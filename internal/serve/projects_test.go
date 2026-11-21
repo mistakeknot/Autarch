@@ -145,6 +145,7 @@ func TestBigendMountDoesNotListEscapingSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer s2.Close()
 	ts2 := httptest.NewServer(s2.Handler())
 	defer ts2.Close()
 	_ = ts

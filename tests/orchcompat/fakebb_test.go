@@ -127,7 +127,22 @@ func fbSave(dir string, s *fbState) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(sp, raw, 0o600)
+	// A cancelled readback can leave a writer running after autarch exits.
+	// Harness reads and updates share fbLock with writers. Still publish a
+	// complete snapshot atomically, including for the unlocked persistence probe.
+	f, err := os.CreateTemp(dir, ".state-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.Write(raw); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), sp)
 }
 
 func fbLock(dir string) (func(), error) {
@@ -323,6 +338,8 @@ func fbDispatch(s *fbState, args []string, call *fbCall) (int, string, string) {
 		}
 		s.Labels[n] = true
 		return 0, fbJSON(map[string]any{"label": map[string]string{"name": n}}), ""
+	case head == "thread list --json":
+		return 0, "[]", ""
 	case head == "tasks project list":
 		if s.NoProjectList {
 			return 1, "", "projects unavailable\n"

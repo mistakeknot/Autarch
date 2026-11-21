@@ -181,17 +181,18 @@ type result struct {
 }
 
 type env struct {
-	t      *testing.T
-	root   string
-	home   string
-	run    string
-	state  string
-	tmp    string
-	bin    string
-	fbdir  string
-	thread string
-	cwd    string
-	vars   map[string]string
+	t       *testing.T
+	root    string
+	home    string
+	run     string
+	state   string
+	tmp     string
+	bin     string
+	fbdir   string
+	thread  string
+	cwd     string
+	command string // optional test-built binary with an injected filing clock
+	vars    map[string]string
 }
 
 func newEnv(t *testing.T) *env {
@@ -212,6 +213,7 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	e.update(func(s *fbState) {
+		s.Threads["thr_a"] = "live"
 		s.Projects = []fbProject{{ID: "P1", Name: "P1", Prefix: "P1"}}
 		s.Bindings["P1"] = fbBinding{Home: "alpha", State: "confirmed"}
 	})
@@ -220,6 +222,11 @@ func newEnv(t *testing.T) *env {
 
 func (e *env) update(fn func(*fbState)) {
 	e.t.Helper()
+	unlock, err := fbLock(e.fbdir)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer unlock()
 	s, err := fbLoad(e.fbdir)
 	if err != nil {
 		e.t.Fatal(err)
@@ -232,6 +239,11 @@ func (e *env) update(fn func(*fbState)) {
 
 func (e *env) st() *fbState {
 	e.t.Helper()
+	unlock, err := fbLock(e.fbdir)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer unlock()
 	s, err := fbLoad(e.fbdir)
 	if err != nil {
 		e.t.Fatal(err)
@@ -241,6 +253,11 @@ func (e *env) st() *fbState {
 
 func (e *env) calls() []fbCall {
 	e.t.Helper()
+	unlock, err := fbLock(e.fbdir)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer unlock()
 	_, cp, _ := fbPaths(e.fbdir)
 	raw, err := os.ReadFile(cp)
 	if err != nil {
@@ -296,9 +313,25 @@ func (e *env) environ() []string {
 
 func (e *env) autarch(args ...string) result {
 	e.t.Helper()
+	if len(args) > 1 && args[0] == "needs-mk" && args[1] == "file" {
+		hasOwner := false
+		for _, a := range args {
+			if a == "--owner-thread" || a == "--vizier-owned" {
+				hasOwner = true
+			}
+		}
+		if !hasOwner {
+			e.update(func(s *fbState) { s.Threads[e.thread] = "live" })
+			args = append(args, "--owner-thread", e.thread)
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), subprocessDeadline)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, autarchBin, args...)
+	bin := autarchBin
+	if e.command != "" {
+		bin = e.command
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.WaitDelay = 5 * time.Second
 	cmd.Dir = e.root
 	if e.cwd != "" {

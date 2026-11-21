@@ -45,9 +45,11 @@ type RootRun struct {
 
 // Card is a parsed card description.
 type Card struct {
-	Question string      `json:"question"`
-	Blocks   []BlockRef  `json:"blocks"`
-	Request  RequestLine `json:"request"`
+	SubjectKey *SubjectKey `json:"subject_key,omitempty"`
+	Signals    *Signals    `json:"signals,omitempty"`
+	Question   string      `json:"question"`
+	Blocks     []BlockRef  `json:"blocks"`
+	Request    RequestLine `json:"request"`
 	// Pull is "mycroft" for a threadless card, otherwise "".
 	Pull    string         `json:"pull"`
 	RootRun *RootRun       `json:"root_run"`
@@ -75,7 +77,7 @@ const (
 
 var (
 	v2Allowed = map[string]bool{"schema": true, "project": true, "project_root": true, "question": true,
-		"options": true, "questions": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true, "urgency": true}
+		"options": true, "questions": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true, "urgency": true, "stopped": true, "evidence": true, "group": true, subjectKeyMetadata: true, signalsMetadata: true}
 	v1Only = map[string]bool{"v": true, "kind": true, "thread": true, "asker": true, "request_id": true,
 		"supersedes": true, "mention_of": true, "steps": true, "machine": true}
 	countedKinds = map[string]bool{"bead": true, "thread": true, "project": true}
@@ -195,6 +197,14 @@ func ParseCard(description string) (Card, error) {
 		return Card{}, errors.New("more than one home-move block")
 	}
 
+	if c.SubjectKey != nil && c.SubjectKey.Type == "script" {
+		if c.RootRun == nil || c.SubjectKey.ScriptSHA != c.RootRun.SHA256 {
+			return Card{}, errors.New("subject_key script_sha must equal root-run digest")
+		}
+		if key, _ := c.Ask["ask_key"].(string); key == "" {
+			return Card{}, errors.New("script subject_key requires ask_key")
+		}
+	}
 	// The ask must survive the unchanged rev-4 parser, so every v1 rule (approval
 	// tokens, option bounds, ...) applies to a card. The thread is a stand-in:
 	// routing comes from the card's comments, never from its text.
@@ -202,8 +212,16 @@ func ParseCard(description string) (Card, error) {
 	if c.Pull != "" {
 		thread = ""
 	}
-	if _, err := c.ToV1(thread); err != nil {
+	a, err := c.ToV1(thread)
+	if err != nil {
 		return Card{}, err
+	}
+	for _, o := range a.Options {
+		if len(o.OnPick) > 0 {
+			if _, err := ValidateOnPick(o.OnPick, o, CardValidationContext{Source: "card", RootRun: c.RootRun != nil, Move: c.Move != nil, Artifact: c.SubjectKey != nil || c.Ask["auto_close"] != nil}); err != nil {
+				return Card{}, err
+			}
+		}
 	}
 	return c, nil
 }
@@ -245,6 +263,15 @@ func parseWireAsk(body string, c *Card) error {
 	if !ok {
 		return errors.New("home-ask must be a JSON object")
 	}
+	if options, ok := m["options"].([]any); ok {
+		for _, raw := range options {
+			if option, ok := raw.(map[string]any); ok {
+				if _, present := option["on_pick"]; present && !scalarJSON([]byte(body)) {
+					return errors.New("on_pick: invalid Unicode scalar text")
+				}
+			}
+		}
+	}
 	if s, _ := m["schema"].(string); s != v2Schema {
 		return errors.New("schema must be " + v2Schema)
 	}
@@ -272,12 +299,48 @@ func parseWireAsk(body string, c *Card) error {
 			return errors.New(`urgency must be "blocker" when set`)
 		}
 	}
+	if err := checkStopped(m, false); err != nil {
+		return err
+	}
 	if ac, present := m["auto_close"]; present {
 		if err := parseAutoClose(ac, m["options"]); err != nil {
 			return err
 		}
 	}
+	if err := exactCardNestedKeys(m); err != nil {
+		return err
+	}
+	if raw, ok := m[subjectKeyMetadata]; ok {
+		var err error
+		c.SubjectKey, err = parseSubjectKey(raw)
+		if err != nil {
+			return err
+		}
+		delete(m, subjectKeyMetadata)
+	}
+	if raw, ok := m[signalsMetadata]; ok {
+		var err error
+		c.Signals, err = parseSignals(raw)
+		if err != nil {
+			return err
+		}
+		delete(m, signalsMetadata)
+	}
 	c.Ask = m
+	if raw, ok := m["group"]; ok {
+		group, err := groupFromWire(raw)
+		if err != nil {
+			return err
+		}
+		c.Ask["group"] = group
+	}
+	if raw, ok := m["evidence"]; ok {
+		evidence, err := evidenceFromWire(raw)
+		if err != nil {
+			return err
+		}
+		c.Ask["evidence"] = evidence
+	}
 	return nil
 }
 
@@ -382,7 +445,7 @@ func parseAutoClose(raw any, options any) error {
 func (c Card) ToV1(thread string) (Ask, error) {
 	v1 := make(map[string]any, len(c.Ask)+4)
 	for k, v := range c.Ask {
-		if k != "schema" && k != "pull" && k != "auto_close" {
+		if k != "schema" && k != "pull" && k != "auto_close" && k != subjectKeyMetadata && k != signalsMetadata {
 			v1[k] = v
 		}
 	}
@@ -398,7 +461,7 @@ func (c Card) ToV1(thread string) (Ask, error) {
 	if err != nil {
 		return Ask{}, err
 	}
-	a, err := Parse(raw)
+	a, err := parseAskSource(raw, false, true)
 	if err != nil {
 		return Ask{}, fmt.Errorf("home-ask: %w", err)
 	}
@@ -468,6 +531,7 @@ func validRootScript(s string) bool {
 
 // Comment is the slice of a tasks comment AskingThread reads.
 type Comment struct {
+	Body      string `json:"body"`
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
 	ThreadID  string `json:"threadId"`

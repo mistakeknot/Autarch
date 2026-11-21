@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -27,47 +26,11 @@ var newCardFiler = func() *homeask.CardFiler {
 }
 
 // readbackTimeout bounds how long a filing waits for Home to index the new card and report its card_key.
-const readbackTimeout = 5 * time.Second
+const readbackTimeout = 30 * time.Second
 
 // checkFilingPreconditions runs before anything is created: serve must be up and the ask's
 // project_root must be the root it resolves for the ask's project. Tests replace it.
-var checkFilingPreconditions = func(project, root string) error {
-	ps, err := serve.FetchProjects(serveURL(), serveTokenPath(), serveProbeTimeout)
-	if err != nil {
-		hint := ""
-		if errors.Is(err, serve.ErrNotRunning) {
-			hint = "; start `autarch serve` (see AGENTS.md)"
-		}
-		return fmt.Errorf("%w: %v%s: nothing was filed", homeask.ErrHomeDown, err, hint)
-	}
-	if err := serve.CheckAsk(ps, project, root); err != nil {
-		return fmt.Errorf("%w: %v", homeask.ErrInvalid, err)
-	}
-	return nil
-}
-
-// serveProbeTimeout bounds the serve probe so a dead serve costs seconds, not a minute.
-const serveProbeTimeout = 3 * time.Second
-
-// serveURL is where `autarch serve` listens (AUTARCH_SERVE_URL, default the serve address).
-func serveURL() string {
-	if u := os.Getenv("AUTARCH_SERVE_URL"); u != "" {
-		return u
-	}
-	return "http://" + serve.DefaultAddr
-}
-
-// serveTokenPath is serve's bearer token (AUTARCH_SERVE_TOKEN_FILE, default ~/.autarch/serve.token).
-func serveTokenPath() string {
-	if p := os.Getenv("AUTARCH_SERVE_TOKEN_FILE"); p != "" {
-		return p
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".autarch", "serve.token")
-}
+var checkFilingPreconditions = serve.CheckFiling
 
 func needsMkCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -77,8 +40,15 @@ func needsMkCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 	cmd.AddCommand(needsMkFileCmd())
+	cmd.AddCommand(needsMkReleaseCmd())
+	cmd.AddCommand(needsMkCancelHeldCmd())
+	cmd.AddCommand(needsMkDismissOwnerNoticeCmd())
+	cmd.AddCommand(needsMkBudgetCmd())
 	cmd.AddCommand(needsMkAdoptMoveCmd())
 	cmd.AddCommand(needsMkFooterCmd())
+	cmd.AddCommand(needsMkExportCmd())
+	cmd.AddCommand(needsMkPilotsCmd())
+	cmd.AddCommand(needsMkRecheckLinksCmd())
 	return cmd
 }
 
@@ -108,12 +78,11 @@ func parseRootRunFlag(v string) (*homeask.RootRun, error) {
 	if !filepath.IsAbs(vals["script"]) {
 		return nil, &usageError{"--root-run script must be an absolute path"}
 	}
-	raw, err := os.ReadFile(vals["script"])
+	digest, err := homeask.HashRootRunScript(vals["script"])
 	if err != nil {
-		return nil, &usageError{"--root-run script is not readable: " + err.Error()}
+		return nil, &usageError{"--root-run " + strings.TrimPrefix(err.Error(), "root-run ")}
 	}
-	sum := sha256.Sum256(raw)
-	return &homeask.RootRun{Script: vals["script"], SHA256: hex.EncodeToString(sum[:]), Timeout: n, Set: vals["set"]}, nil
+	return &homeask.RootRun{Script: vals["script"], SHA256: digest, Timeout: n, Set: vals["set"]}, nil
 }
 
 // readMoveFile reads a home-move/v1 JSON file (at most 1 MiB) and validates it with the strict parser the
@@ -256,14 +225,50 @@ func commandWarning(question string) string {
 }
 
 func needsMkFileCmd() *cobra.Command {
-	var project, title, askFile, rootRun, request, moveFile, ownerThread, urgency string
+	var project, title, askFile, rootRun, request, moveFile, ownerThread, urgency, stopped, prFlag, supersedes string
 	var blocks []string
+	var vizierOwned, checkOnly bool
+	var cardType string
+	var ui, urgent, nonBlocking bool
+	var keepList string
+	var attachments []string
 	cmd := &cobra.Command{
 		Use:   "file",
 		Short: "File a needs-mk card from the asking thread; prints the card as one JSON line",
 		Long: `Run inside the asking thread ($BB_THREAD_ID is required): the filer posts the
-routing comment from it. --project is the tasks project. --ask-file is a JSON object with
+routing comment from it. Legacy card count environment settings are ignored.
+The reporting week starts Thursday 12:00 America/Los_Angeles; needs-mk budget shows
+the current Pacific start and end. Legacy ISO records appear in reports for both
+overlapping weeks when their filing time is unknown.
+AUTARCH_CARD_STATE_DIR overrides the local XDG state directory.
+--non-blocking queues a card until needs-mk release.
+Ordinary cards filed Monday 00:00 through Thursday before 12:00 Pacific are also
+held for the Thursday batch. Urgent, keep-list, merge and root-run cards bypass
+this weekday hold. Release inside that window leaves ordinary cards queued;
+schedule release at Thursday noon or later. Reporting retains each request’s filing week.
+--urgent and --keep-list add labels. Exit 0 means filed: JSON has a non-empty card_key.
+Held cards exit 6, with queued:true, the request key and no card_key on stdout
+(--json is also accepted). Treat exit 6 as queued, not as a filed card or an uncertain write.
+--urgency blocker controls phone push.
+needs-mk budget reports ordinary and labeled (exempt) counts without a limit.
+After filing, waits up to 30 seconds for Home's index. If the key remains missing, exits 4
+with no success JSON: the card may have been filed. The error gives the request key;
+re-run with that same --request and unchanged input to replay without duplicating it.
+Readback clears ambient project context and checks the card's Tasks project in Go,
+independent of the working directory; it also works with older Home plugins.
+If Tasks returns no project id, readback does not filter by project.
+--project is the tasks project. --ask-file is a JSON object with
 question, options and optionally subject, recommendation, ask_key, project and project_root.
+Optional evidence: at most 6 items, each with caption (1-200 characters) and one HTTPS url,
+image reference {sha256,mime}, or before/after pair of those sources. URLs are at most 2048
+characters, without credentials or controls.
+URLs use lowercase ASCII LDH hosts or canonical dotted IPv4 and optional decimal port 1-65535;
+userinfo, IPv6, xn-- labels and non-ASCII are refused. Paths/query/fragments use ASCII URI
+characters and checked %HH escapes. Empty or relative AUTARCH_HOME_EVIDENCE selects the default.
+At filing time, use image_path instead of image to copy a regular local PNG/JPEG/GIF/WebP
+(not symbolic links, devices or FIFOs; magic checked, 2 MB each, 8 MB per card) into the private
+store (AUTARCH_HOME_EVIDENCE, default ~/.autarch/home-evidence). Only hash and MIME are stored.
+Evidence is excluded from hashes; changing only evidence is a no-op.
 --move is a home-move/v1 JSON file (script, pr, read or context): the card carries it as a home-move block
 and gets the mk-move label. With --move, --ask-file may be left out and the card carries a Done / Not now
 ask whose question says what the move asks of mk. Nothing in the move is executed; Home derives commands from its validated fields.
@@ -271,13 +276,38 @@ ask whose question says what the move asks of mk. Nothing in the move is execute
 --owner-thread names the thread that answers the card: the routing comment is posted as that thread, so
 Home routes mk's pick to it, not to the filer. It must be a live, unarchived thread, else the filing is
 refused (exit 2) and nothing is created. A later claim comment never re-routes a card.
+The vizier must give exactly one of --owner-thread (another thread owns follow-through) or
+--vizier-owned (its own ruling, root run or scope). Both flags together, or --vizier-owned from
+any other thread, are refused with exit 2 before filing. Other threads need neither flag.
 
-Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created), 4 card created
-but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request).
+Re-filing the same ask_key updates its open, unanswered card in this project, preserving its key and routing.
+--supersedes CARD also updates in place when ask_key changed; a closed, foreign-project or foreign-owner
+card is refused (exit 2). An answered card remains already ruled (exit 5).
+A picked closed card with the same ask_key exits 5 too; a new ask needs a new ask_key.
+For closed or reopened cards that Home no longer reports as picked, the same decision
+at the same pinned head is refused (exit 5) for 24 hours after its last pick. Change the
+ask or pinned head to re-file during that window. An unreadable pick time also refuses
+the unchanged decision. Cards Home reports as picked remain refused regardless of age
+or changes to the ask, including with --supersedes.
+
+Exit codes: 2 usage or refused, 3 Home or tasks unavailable (nothing created or edited;
+includes an update's pre-edit readback with no indexed project_id), 4 card created
+but the routing comment failed (re-run the same command), 5 already ruled (mk picked an option for this request),
+6 accepted but held (no card filed; JSON on stdout carries queued:true and the request key).
+
+The optional ask JSON group {key, order} links cards for display. Set it at first filing:
+a group-only re-file does not change Home's stored group. A substantive edit can create a new
+generation carrying a different group. Request keys and group keys are global, not project-scoped;
+use specific keys.
+
+Cards whose options are all notice acknowledgments (read, ok, close and similar labels) are
+refused with exit 2: notices belong in the vizier inbox or digest. --move and --root-run are exempt.
 
 --urgency blocker (or "urgency": "blocker" in the ask JSON) asks Home to send mk a phone push once, when the
-card is first filed. Use it only when work is stopped until mk answers. It is optional, any other value is
-refused, and it works on every kind of card; a machine blocker alone never pushes.`,
+card is first filed. It requires --stopped (or "stopped" in JSON): a non-blank single line of at most
+200 characters saying what work is stopped until mk answers. Omit blocker urgency for no phone push.
+A blocker is still held Monday through Thursday morning unless --urgent is passed.
+Any other urgency is refused. It works on every kind of card; a machine blocker alone never pushes.`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -316,12 +346,18 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 				if len(raw) > maxCardFileBytes {
 					return &usageError{"--ask-file is over 1 MiB"}
 				}
+				if err := homeask.ValidateOnPickJSON(raw); err != nil {
+					return &usageError{err.Error()}
+				}
 				if err := json.Unmarshal(raw, &ask); err != nil {
 					return &usageError{"--ask-file is not a JSON object: " + err.Error()}
 				}
 				if ask == nil {
 					return &usageError{"--ask-file is not a JSON object: got null"}
 				}
+			}
+			if err := homeask.PrepareEvidence(ask); err != nil {
+				return &usageError{err.Error()}
 			}
 			if cmd.Flags().Changed("urgency") {
 				if urgency != "blocker" {
@@ -331,14 +367,17 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 			} else if u, ok := ask["urgency"]; ok && u != "blocker" {
 				return &usageError{`"urgency" in the ask must be "blocker" when set`}
 			}
+			if cmd.Flags().Changed("stopped") {
+				ask["stopped"] = stopped
+			}
+			if err := homeask.CheckStopped(ask); err != nil {
+				return &usageError{err.Error()}
+			}
 			if _, ok := ask["project_root"]; !ok {
 				ask["project_root"] = gitRoot()
 			}
-			if _, ok := ask["project"]; !ok {
-				ask["project"] = filepath.Base(fmt.Sprint(ask["project_root"]))
-			}
-			if err := homeask.CheckOptionIDs(ask); err != nil {
-				return err
+			if move == nil && rootRun == "" && noticeOnlyOptions(ask) {
+				return &usageError{"card has no decision: a notice belongs in the vizier's inbox or digest"}
 			}
 			if w := commandWarning(fmt.Sprint(ask["question"])); w != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", w)
@@ -348,20 +387,42 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 				ctx = context.Background()
 			}
 			filer := newCardFiler()
-			// Resolve the bound Home project first: serve lists projects by that name, so the root check
-			// below must see it, not the tasks-key alias the ask may carry.
-			bound, warn, err := filer.ResolveAskProject(ctx, project, fmt.Sprint(ask["project"]))
-			if err != nil {
-				return err
+			filer.Warn = func(w string) { fmt.Fprintln(cmd.ErrOrStderr(), "warning:", w) }
+			if _, ok := ask["project"]; !ok {
+				// The board's binding names the project; the folder name is wrong in a bb worktree.
+				ask["project"] = filer.FolderOrBound(ctx, project, fmt.Sprint(ask["project_root"]))
 			}
+			// Resolve the bound Home project first: serve lists projects by that name, so the root check
+			// must see it, not the tasks-key alias the ask may carry.
+			filer.Check = checkFilingPreconditions
+			var failures []error
+			bound, warn, prepErr := filer.PrepareAsk(ctx, project, fmt.Sprint(ask["project"]), fmt.Sprint(ask["project_root"]))
 			if warn != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warn)
 			}
-			ask["project"] = bound
-			if err := checkFilingPreconditions(bound, fmt.Sprint(ask["project_root"])); err != nil {
-				return err
+			if prepErr == nil {
+				ask["project"] = bound
 			}
-			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread}
+			mergeErr := guardMergeBase(cmd, ask, move, append([]string{title, rootRun, ownerThread, request}, blocks...), prFlag, cmd.Flags().Changed("pr"))
+			if mergeErr != nil {
+				failures = append(failures, mergeErr)
+			}
+			mergeAsk := prFlag != "" || homeask.IsMergeAsk(ask)
+			if mergeAsk {
+				if cmd.Flags().Changed("card-type") && cardType != "merge" {
+					failures = append(failures, &usageError{"--card-type conflicts with merge ask; use --card-type merge or omit it"})
+				} else if !cmd.Flags().Changed("card-type") {
+					cardType = "merge"
+				}
+			}
+			if err := filer.CheckVizierOwnership(ctx, thread, ownerThread, vizierOwned); err != nil {
+				failures = append(failures, err)
+			}
+			if vizierOwned && cmd.Flags().Changed("owner-thread") {
+				failures = append(failures, &usageError{"give exactly one of --owner-thread or --vizier-owned"})
+			}
+			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread, VizierOwned: vizierOwned, Type: cardType, UI: ui, Attachments: attachments, Urgent: urgent, NonBlocking: nonBlocking, KeepList: keepList}
+			var err error
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
 					return err
@@ -374,18 +435,52 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 				}
 				req.Key = homeask.DerivedKey(thread, ident)
 			}
-			res, err := filer.FileCard(ctx, req)
-			if err != nil {
+			if err := filer.Preflight(ctx, req); err != nil {
+				failures = append(failures, err)
+			}
+			if err := errors.Join(failures...); err != nil {
 				return err
 			}
-			if filer.ReadbackTimeout > 0 && res.CardKey == "" {
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: card %s is filed but Home has not indexed it yet (card_key not indexed within %s); read it with `bb home get --card %s --json`\n", res.ID, filer.ReadbackTimeout, res.ID)
+			if checkOnly {
+				fmt.Fprintln(cmd.OutOrStdout(), `{"checked":true}`)
+				return nil
 			}
-			out, _ := json.Marshal(res)
-			fmt.Fprintln(cmd.OutOrStdout(), string(out))
+			if filer.ReadbackTimeout <= 0 {
+				filer.ReadbackTimeout = readbackTimeout
+			}
+			res, err := filer.FileOrUpdateCard(ctx, req, supersedes)
+			if err != nil {
+				// needs-mk silences Cobra errors, so print recovery details explicitly.
+				if res.ID != "" && res.CardKey == "" {
+					fmt.Fprintln(cmd.ErrOrStderr(), err)
+				}
+				return err
+			}
+			if !res.Queued && strings.TrimSpace(res.CardKey) == "" {
+				err := fmt.Errorf("%w: card may have been filed; card_key is missing; re-run with --request %s", homeask.ErrOutcomeUnknown, res.Key)
+				fmt.Fprintln(cmd.ErrOrStderr(), err)
+				return err
+			}
+			if budget, e := filer.BudgetStatus(fmt.Sprint(ask["project"])); e == nil {
+				res.Budget = &budget
+			}
+			if err := json.NewEncoder(cmd.OutOrStdout()).Encode(res); err != nil {
+				return err
+			}
+			if res.Queued {
+				return &homeask.HeldError{RequestKey: res.Key, Reason: res.HoldReason}
+			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&urgent, "urgent", false, "Label this card urgent")
+	cmd.Flags().BoolVar(&nonBlocking, "non-blocking", false, "Hold for needs-mk release")
+	cmd.Flags().StringVar(&keepList, "keep-list", "", "Label: spend, credentials, sign-ins/payments, tags/releases/publishes, force-pushes, standing-approvals")
+	cmd.Flags().BoolVar(&ui, "ui", false, "Mark a UI card; play and merge require a screenshot or video")
+	cmd.Flags().StringArrayVar(&attachments, "attach", nil, "Non-symlink, non-empty png/jpg/jpeg/webp/gif/mp4/webm media file; repeatable")
+	cmd.Flags().BoolVar(&checkOnly, "check", false, "Run all preflight checks without submitting")
+	cmd.Flags().StringVar(&cardType, "card-type", "other", "Card type: product, design, play, merge or other (merge inferred only when omitted; conflicting types refused)")
+	cmd.Flags().Bool("json", false, "Print JSON (the default and only format); success always includes a non-empty card_key")
 	cmd.Flags().StringVar(&project, "project", "", "Tasks project (id, key or name)")
 	cmd.Flags().StringVar(&title, "title", "", "Card title")
 	cmd.Flags().StringArrayVar(&blocks, "blocks", nil, "Blocks ref (bead:ID, thread:thr_ID, project:ID); repeatable")
@@ -393,7 +488,72 @@ refused, and it works on every kind of card; a machine blocker alone never pushe
 	cmd.Flags().StringVar(&moveFile, "move", "", "home-move/v1 JSON file: what mk owes (script, pr, read or context); adds the mk-move label")
 	cmd.Flags().StringVar(&rootRun, "root-run", "", "script=<abs path>,timeout=<seconds>,set=<name>")
 	cmd.Flags().StringVar(&request, "request", "", "Request key (default: derived from thread and ask); when given it must be non-empty and match the Request line key pattern")
-	cmd.Flags().StringVar(&urgency, "urgency", "", `Optional: "blocker" asks Home to push mk's phone once when the card is first filed`)
+	cmd.Flags().StringVar(&stopped, "stopped", "", "Work stopped until the answer (required with blocker urgency, single line, at most 200 characters)")
+	cmd.Flags().StringVar(&urgency, "urgency", "", `Optional: "blocker" requires --stopped and asks Home to push once; still held Monday through Thursday morning unless --urgent is passed; omit urgency for no phone push`)
+	cmd.Flags().StringVar(&prFlag, "pr", "", "PR URL this ask merges: refused (exit 2) unless the PR's base is the repo's default branch or --into explicitly opts in to its non-default base; a \"Manually merge it at ...\" option implies it")
+	cmd.Flags().StringVar(&supersedes, "supersedes", "", "Update this open, unanswered card in the same project; it must belong to this thread or --owner-thread")
+	cmd.Flags().BoolVar(&vizierOwned, "vizier-owned", false, "Vizier only: this is its own ruling, root run or scope card; mutually exclusive with --owner-thread")
+	cmd.Flags().String("into", "", "Explicitly accept the PR's base branch: must match exactly; required for a non-default base")
 	cmd.Flags().StringVar(&ownerThread, "owner-thread", "", "Route the card's answer to this live thread instead of the filing thread (the routing comment is posted as it)")
+	return cmd
+}
+
+// noticeOnlyOptions checks labels rather than ids; punctuation and case do not
+// turn an acknowledgment into a decision. Malformed or empty options are left
+// to the existing schema validator.
+func noticeOnlyOptions(ask map[string]any) bool {
+	opts, _ := ask["options"].([]any)
+	if len(opts) == 0 {
+		return false
+	}
+	for _, o := range opts {
+		m, _ := o.(map[string]any)
+		label, _ := m["label"].(string)
+		label = regexp.MustCompile(`^\s*[A-Za-z]\)\s*`).ReplaceAllString(label, "")
+		label = strings.Map(func(r rune) rune {
+			if unicode.IsPunct(r) || unicode.IsSpace(r) {
+				return -1
+			}
+			return unicode.ToLower(r)
+		}, label)
+		switch label {
+		case "read", "ok", "okay", "close", "closed", "gotit", "noted", "acknowledge", "acknowledged", "seen", "dismiss":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func needsMkReleaseCmd() *cobra.Command {
+	return &cobra.Command{Use: "release", Short: "Send held cards grouped by type; ordinary cards wait until Thursday noon Pacific", SilenceUsage: true, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		f := newCardFiler()
+		f.Check = checkFilingPreconditions
+		report, err := f.ReleaseDetailed(cmd.Context())
+		var entries *homeask.ReleaseEntryErrors
+		if errors.As(err, &entries) && entries.DataOnly() {
+			err = nil
+		}
+		printErr := json.NewEncoder(cmd.OutOrStdout()).Encode(report)
+		return errors.Join(err, printErr)
+	}}
+}
+func needsMkCancelHeldCmd() *cobra.Command {
+	return &cobra.Command{Use: "cancel-held REQUEST", Short: "Cancel an unsent card", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return newCardFiler().CancelHeld(args[0]) }}
+}
+
+func needsMkBudgetCmd() *cobra.Command {
+	var project string
+	cmd := &cobra.Command{Use: "budget", Short: "Show the Pacific Thursday-noon week bounds and ordinary/exempt card counts", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if project == "" {
+			return &usageError{"--project must name the Home project"}
+		}
+		status, err := newCardFiler().BudgetStatus(project)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(status)
+	}}
+	cmd.Flags().StringVar(&project, "project", "", "Home project name (case-insensitive)")
 	return cmd
 }

@@ -3,21 +3,27 @@
 // are checked loosely (see `result`) and pass through as JSON.
 import { z } from "zod";
 import { ArchiveQuery } from "./archive.js";
+import { PickActionQuerySchema } from "./pickquery.js";
 
 // Outputs are checked only for the shape every caller relies on, and every object passes extra fields
 // through, so a service that adds a field never breaks a panel. Most write methods answer with the
 // `{ ok }` envelope; the read models answer with the one key their panel reads.
 const result = z.object({ ok: z.boolean() }).passthrough();
 const readModel = z.custom<object>((v) => typeof v === "object" && v !== null && !Array.isArray(v), "expected an object");
+// Normalize optional fields recursively before the RPC host checks JSON values.
+const jsonReadModel = readModel.transform((value): unknown => JSON.parse(JSON.stringify(value))).pipe(readModel);
 const list = z.array(z.unknown());
 const docResult = z.union([
   z.object({ ok: z.literal(true), path: z.string(), size: z.number(), sha256: z.string(), text: z.string(), markdown: z.boolean(), matches: z.boolean().nullable() }),
   z.object({ ok: z.literal(false), error: z.string() }),
 ]);
 const conversationView = z.object({ task_id: z.string(), comments: list, unread: z.number(), stale: z.boolean(), last_ok_at: z.string().nullable(), options: list });
-const moveGroups = z.object({ yourMove: list, reported: list, later: list, hidden: list, audit: z.unknown() });
 
 export const homeMethods = {
+  pilotMetrics: { input: z.null(), output: z.object({ metrics: list }) },
+  quotaGovernor: { input: z.union([z.null(), z.object({ history: z.literal("full") }).strict()]), output: jsonReadModel },
+  pickAction: { input: PickActionQuerySchema, output: result },
+  evidenceImage: { input: z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict(), output: result },
   listAsks: { input: z.null(), output: readModel },
   // The blocks panel's read model (plan 1.4). `thread` pins the cards that involve that thread.
   queue: { input: z.object({ thread: z.string().min(1).max(128).optional() }), output: readModel },
@@ -50,9 +56,6 @@ export const homeMethods = {
     }),
     output: result,
   },
-  // Your move was retired (bead mk-1k8pg): the page no longer shows or acts on moves. `moves` stays as the read behind
-  // the CLI `moves` rollback export.
-  moves: { input: z.null(), output: moveGroups },
   // Later (bead mk-8741): set an open card aside, below the active ones and outside the Waiting count; undo moves it back.
   // `ref` is a task id or a tasks key. Neither rules, closes or refuses a pick.
   later: { input: z.object({ ref: z.string().min(1).max(128) }).strict(), output: result },
@@ -80,7 +83,10 @@ export const homeMethods = {
   clearIdeaDigest: { input: z.null(), output: result },
   dismiss: { input: z.object({ decision_id: z.string().min(1), obligation_id: z.string().min(1) }), output: result },
   override: { input: z.object({ decision_id: z.string().min(1) }), output: result },
-  bringBack: { input: z.object({ task_id: z.string().min(1).max(64), decision_id: z.string().min(1).max(200) }).strict(), output: result },
+  bringBack: { input: z.union([
+    z.object({ task_id: z.string().min(1).max(64), decision_id: z.string().min(1).max(200), confirmed: z.literal(true) }).strict(),
+    z.object({ task_id: z.string().min(1).max(64), decision_id: z.string().min(1).max(200), by: z.literal("waiting-sweep") }).strict(),
+  ]), output: result },
   setDelegation: {
     input: z.object({
       vizierThreadId: z.string().min(1),
@@ -111,8 +117,11 @@ export const homeMethods = {
 export type CliMapping = { verb: string; summary: string } | { rpcOnly: string };
 
 export const homeCliMap = {
+  pilotMetrics: { rpcOnly: "read-only pilot pick observations from the plugin store for reports" },
+  quotaGovernor: { rpcOnly: "read-only quota governor status for Citadel" },
+  pickAction: { verb: "pick-action", summary: "Read the original pick action and delivery evidence for one exact generation" },
+  evidenceImage: { rpcOnly: "read-only local evidence image by content hash" },
   listAsks: { verb: "list", summary: "List the asks waiting for a ruling" },
-  moves: { verb: "moves", summary: "Every Your move row with its claim, report and closing evidence (rollback export)" },
   stats: { verb: "stats", summary: "Picks, delegation and filing counts over a window" },
   listRecent: { verb: "feed", summary: "The recent-rulings feed a thread sees" },
   queue: { rpcOnly: "the panel's read model" },
@@ -137,7 +146,7 @@ export const homeCliMap = {
   clearIdeaDigest: { rpcOnly: "the Idea box" },
   dismiss: { rpcOnly: "mk's own choice" },
   override: { rpcOnly: "delegation settings are never reachable from the CLI" },
-  bringBack: { rpcOnly: "the Archive tab; the vizier's sweep calls the same RPC" },
+  bringBack: { rpcOnly: "the Archive tab (confirmed: true) and the hourly waiting sweep (by: waiting-sweep)" },
   setDelegation: { rpcOnly: "delegation settings are never reachable from the CLI" },
   revokeApproval: { rpcOnly: "mk's own choice" },
   setViewing: { rpcOnly: "the panel reports what it shows; the CLI reads it with `viewing`" },
@@ -155,8 +164,9 @@ export const homeCliMap = {
 
 /** CLI verbs with no RPC twin: lookups, machine-blocker lifecycle, and the vizier-only writes. */
 export const cliOnlyVerbs = [
-  "ask", "get", "viewing", "progress", "resolve", "withdraw", "binding", "bind", "hold", "unhold",
-  "unbind", "rule", "handoff", "approval check", "report", "note", "pushes",
+  "capabilities", "target",
+  "ask", "get", "viewing", "progress", "resolve", "withdraw", "binding", "bind", "hold", "hold-ended", "unhold",
+  "unbind", "rule", "handoff", "approval check", "report", "note", "pushes", "moves",
 ] as const;
 
 /** The summary of a verb that mirrors an RPC method. */

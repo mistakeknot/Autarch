@@ -7,13 +7,21 @@ import { CardConversation } from "./conversation.js";
 import { clickStarted, paintDone } from "./clicktiming.js";
 import { splitCommands, type CommandRole } from "./commandtext.js";
 import { CommandBlock } from "./copy.js";
-import { glance, GlanceBlock, type GlanceAnswer } from "./glance.js";
+import { glance, GlanceBlock } from "./glance.js";
 import { GH_REF_SRC, refNodes, URL_SRC } from "./links.js";
 import { DocLink } from "./docreader.js";
+import { HoldEndLine } from "./holdendline.js";
+import type { HoldEnd } from "../holdend.js";
 import type { Question } from "../model.js";
 import { freeOwnWordsId } from "../ownwords.js";
 import { MultiPick } from "./multipick.js";
+import { UnreadableCard, unreadableLabel } from "./unreadable.js";
+import { neighborAfterRemoval } from "./nextcard.js";
 import { OtherBox, otherHelpText, type OtherImage, type OtherOutcome } from "./other.js";
+import { EvidenceBlock } from "./evidence.js";
+import type { Evidence } from "../evidence.js";
+import type { MergeGroup } from "../group.js";
+import { orderedGroups } from "./mergegroups.js";
 
 /** What a pick hands back to the card: not ok means the card stays open and shows the error. */
 export type PickOutcome = { ok: boolean; error?: string };
@@ -68,11 +76,22 @@ export async function runLater(onLater: OnLater, taskId: string, on: boolean, se
 /** The short inline error under a Later or Move back tap that did not go through. */
 export function LaterFailure({ error }: { error: string | null }) {
   if (error === null) return null;
-  return <p role="alert" className="mt-2 w-full text-xs font-medium text-destructive" data-later-failure>{`The card did not move: ${error}. Try again.`}</p>;
+  return <p role="alert" className="mt-2 w-full text-xs font-medium text-[var(--destructive-text,var(--destructive))]" data-later-failure>{`The card did not move: ${error}. Try again.`}</p>;
 }
 
 export type ApprovalSpec = { kind: string; target: string; identity: string; ttl?: number };
-export type Option = { id: string; label: string; kind: string; reversible?: boolean; instruction?: string; approval?: ApprovalSpec };
+export type Option = { id: string; label: string; kind: string; reversible?: boolean; instruction?: string; approval?: ApprovalSpec; on_pick?: import("../onpick").OnPick };
+type PickPresentation = { target: import("../picktarget").TargetEvidence; cross_project: boolean };
+export function PickTargetPresentation({ option, evidence }: { option: Option; evidence?: PickPresentation }) {
+  if (!option.on_pick) return null;
+  const subject = option.on_pick.subject;
+  return <div data-pick-target className="mt-2 text-xs">
+    <p>{evidence ? `${evidence.cross_project ? "Cross-project: " : ""}${evidence.target.title} — ${evidence.target.project_name} (${evidence.target.thread_id})` : "Target evidence unavailable"}</p>
+    <p>{subject.kind === "none" ? "No artifact. The fourth check means we verify the filed revision when this choice acts on a versioned artifact. If the choice acts on no artifact, there is no revision to compare, so we record ‘not applicable’. That is different from not knowing the revision. An unknown or unreadable revision still stops automatic handling." : `${subject.repo}#${subject.number} at ${subject.head}`}</p>
+    <p>Filed relay text (declaration only; automatic handling is not active):</p>
+    <pre className="whitespace-pre-wrap [overflow-wrap:anywhere]">{option.kind === "instruction" ? option.instruction : option.on_pick.notification}</pre>
+  </div>;
+}
 export type ApprovalRecord = { approval_id: string; decision_id: string; kind: string; target: string; identity: string; minted_at: string; expires_at: string };
 export type OwedAsk = {
   id: string;
@@ -90,20 +109,26 @@ export type OwedAsk = {
   /** The tasks card behind this ask, when it is a card: the conversation reads its comments. */
   task_id?: string | null;
   /** Set while the vizier holds the card: shown greyed under "On hold", with no pick buttons. */
-  held?: { reason: string; by: string; at: string } | null;
+  held?: { reason: string; by: string; at: string; end?: HoldEnd | null } | null;
   /** Set while mk has set the card aside for later: it stays open and unruled, in the Later group, outside the Waiting count. */
   later?: { at: string; by: string } | null;
-  ask: { question: string; recommendation?: string; options: Option[]; questions?: Question[] };
+  ask: { question: string; recommendation?: string; options: Option[]; questions?: Question[]; evidence?: Evidence[]; group?: MergeGroup };
+  pick_targets?: Record<string, PickPresentation>;
+  /** The stored ask could not be read: `ask` is then empty, and the card is shown marked with nothing to answer. */
+  unreadable?: boolean;
 };
 export type Lane = { id: string; subject: string; thread: string; owner: string | null; detail: string; updated_at: string; label?: string };
 export type RunbookGroup = { thread: string; items: { id: string; subject: string; question: string; steps: string[]; filed_at: string }[] };
 export type Obl = { id: string; decision_id?: string; kind?: string; recipient?: string; last_error?: string | null; state?: string };
 export type Delegation = { settings: { vizierThreadId?: string; projects?: string[]; dailyCap?: number }; suspended: boolean };
 export type AsksData = {
+  pick_actions?: import("../pickquery.js").PickActionSummary[];
   owed: OwedAsk[];
   runbook: RunbookGroup[];
   lane: Lane[];
   asks: Lane[];
+  /** Cards filed but not yet delivered to Decide: listed read-only under Stalled as "Not delivered yet: <subject>". */
+  notDelivered?: { id: string; subject: string; reason: string; thread: string }[];
   undeliverable: Obl[];
   failures: Obl[];
   uncertain: Obl[];
@@ -112,7 +137,18 @@ export type AsksData = {
   machineOwners: Record<string, string>;
 };
 
-export type ViewItem = { id: string; title: string; detail?: string; thread?: string; /** Set on an undeliverable wake: the Dismiss button's target. */ dismiss?: { decision_id: string; obligation_id: string } };
+export function PickActionStatus({ status: s }: { status: import("../pickquery.js").PickActionSummary }) {
+  return <details data-pick-action={s.decision_id} className="rounded border border-border p-3 text-sm">
+    <summary>{s.status}{s.observation_only ? " — Observation only" : ""}{s.ordinary_continuation ? "; ordinary continuation applies" : ""}</summary>
+    <p>Decision {s.decision_id}; generation {s.generation}. {s.target ?? "Target evidence unavailable"}</p>
+    <p>Evaluation deadline: {s.deadline ?? "unavailable"} ({s.deadline_outcome})</p>
+    {s.first_failure ? <p>Ruling file failed; later success does not revive automatic handling.</p> : null}
+    {s.status === "already relayed" ? <p>Already relayed; do not act.</p> : s.status === "delivery uncertain" || s.status === "data unavailable" ? <p>Read the recovery evidence; do not relay blindly.</p> : null}
+    <pre className="whitespace-pre-wrap [overflow-wrap:anywhere]">{s.readback}</pre>
+  </details>;
+}
+
+export type ViewItem = { id: string; title: string; detail?: string; thread?: string; /** Read-only item: a file path in its text stays plain text, with no read or open button. */ readOnly?: boolean; /** Set on an undeliverable wake: the Dismiss button's target. */ dismiss?: { decision_id: string; obligation_id: string } };
 // operator-action items come first and stay first: Decide, Runbook, then Stalled, then Waiting.
 export type Section = { key: "stalled" | "decide" | "runbook" | "waiting"; title: string; items: ViewItem[] };
 
@@ -127,6 +163,8 @@ export function buildAsksView(d: AsksData): Section[] {
     ...d.uncertain.map((o) => ({ id: `uncertain:${o.id}`, title: `Uncertain ${o.kind ?? "wake"} to ${o.recipient ?? "?"}` })),
     ...d.failures.map((o) => ({ id: `failure:${o.id}`, title: `Ruling file failed for ${o.decision_id ?? o.id}`, detail: o.last_error ?? undefined })),
     ...d.asks.map((a) => ({ id: a.id, title: `${a.label ?? "stalled"}: ${a.subject}`, detail: a.detail, thread: a.thread })),
+    // Read-only: no dismiss and no action. The card moves to Decide by itself once it is delivered.
+    ...(d.notDelivered ?? []).map((n) => ({ id: n.id, title: `Not delivered yet: ${n.subject}`, detail: n.reason, readOnly: true, ...(n.thread ? { thread: n.thread } : {}) })),
   ];
   const sections: Section[] = [
     { key: "decide", title: "Decide", items: d.owed.map((o) => ({ id: o.id, title: o.subject, thread: o.thread })) },
@@ -225,7 +263,8 @@ export function pairDigests(parts: readonly string[]): Map<number, string> {
   return out;
 }
 
-export function RefText({ text }: { text: string }) {
+/** `docLinks` false leaves a path as plain text: no read or open button beside it (the phone's read-only lists). */
+export function RefText({ text, docLinks = true }: { text: string; docLinks?: boolean }) {
   const parts = text.split(REF);
   const digests = pairDigests(parts);
   return (
@@ -239,7 +278,7 @@ export function RefText({ text }: { text: string }) {
             <code className={`select-all rounded bg-muted px-1 font-mono text-xs ${SHA_ONLY.test(part) ? "inline-block max-w-full overflow-x-auto whitespace-nowrap align-bottom" : "[overflow-wrap:anywhere]"}`} data-ref>
               {part}
             </code>
-            {part.startsWith("/") ? <DocLink path={part} sha256={digests.get(i)} /> : null}
+            {docLinks && part.startsWith("/") ? <DocLink path={part} sha256={digests.get(i)} /> : null}
           </Fragment>
         );
       })}
@@ -264,7 +303,11 @@ export type OnLater = (taskId: string, on: boolean) => void | Promise<unknown>;
 /** What a card calls its asking thread: the title when there is one, else the id. */
 export const threadName = (a: { thread: string; thread_title?: string | null }): string => a.thread_title?.trim() || a.thread;
 
-export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound = false }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean }) {
+export function AskCard(props: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean }) {
+  return props.ask.unreadable ? <UnreadableCard id={props.ask.id} cardKey={props.ask.key} /> : <ReadableAskCard {...props} />;
+}
+
+function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound = false }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean }) {
   const [failure, setFailure] = useState<string | null>(null);
   const [laterError, setLaterError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -281,14 +324,10 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
   const n = ask.mentions ?? 0;
   const hasRealOther = ask.ask.options.some((o) => o.id === "other");
   const anyInstruction = ask.ask.options.some((o) => o.kind === "instruction" && (o.instruction ?? "").trim() !== "");
-  // A play or walk card gets its link, time, what is judged and what each answer does above the full text.
+  // Link, time and judging criteria stay above the full text; answer effects stay with their buttons.
   const glanceOf = glance(ask);
-  // Each answer shows in full what it sends; a ruling-only answer has no line.
-  const glanceAnswers: GlanceAnswer[] = glanceOf
-    ? ask.ask.options.map((o) => ({ id: o.id, label: o.label, recommended: ask.ask.recommendation === o.id, effect: optionEffect(o, threadName(ask), true) || null }))
-    : [];
   return (
-    <article className="min-w-0 rounded-lg border border-border bg-card p-4" data-decision={ask.id}>
+    <article className="min-w-0 bg-transparent p-4" data-decision={ask.id}>
       <h3 className="text-sm font-medium [overflow-wrap:anywhere]">
         {ask.key ? <span className="mr-2 select-all rounded bg-muted px-1.5 font-mono text-xs font-semibold" data-task-key>{ask.key}</span> : null}
         <RefText text={ask.subject} />
@@ -299,8 +338,9 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
         <button type="button" className="inline-flex min-h-11 items-center underline sm:min-h-0" onClick={() => onOpen(ask.thread)}>{threadName(ask)}</button>
         {n > 0 ? ` - ${`also mentioned in ${n} ${n === 1 ? "thread" : "threads"}`}` : ""}
       </p>
-      {glanceOf ? <GlanceBlock g={glanceOf} answers={glanceAnswers} /> : null}
+      {glanceOf ? <GlanceBlock g={glanceOf} /> : null}
       <QuestionText text={ask.ask.question} />
+      <EvidenceBlock items={ask.ask.evidence} />
       {ask.ask.questions && ask.ask.questions.length > 0 ? (
         <MultiPick
           questions={ask.ask.questions}
@@ -315,7 +355,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
         {ask.ask.options.map((o) => {
           const recommended = ask.ask.recommendation === o.id;
           return (
-            <li key={o.id} className={`rounded border p-2 ${recommended ? "border-primary" : "border-border"}`} data-reversible={o.reversible === true ? "true" : "false"}>
+            <li key={o.id} className="border-b border-border py-3" data-reversible={o.reversible === true ? "true" : "false"}>
               {o.approval ? (
                 <p className="mb-1 text-xs" data-approval={o.approval.kind}>
                   {`Records your approval to ${o.approval.kind} ${o.approval.target} at ${o.approval.identity}; ${approvalExpiry(o.approval.ttl)}. This is a record only and does not authorize anything.`}
@@ -334,6 +374,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
                 {recommended ? <RecommendedMark /> : null}
               </div>
               {optionEffect(o, threadName(ask), true) !== "" ? <p className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]" data-effect>{optionEffect(o, threadName(ask), true)}</p> : null}
+              <PickTargetPresentation option={o} evidence={ask.pick_targets?.[o.id]} />
             </li>
           );
         })}
@@ -348,7 +389,7 @@ export function AskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound =
         </div>
       ) : null}
       <LaterFailure error={laterError} />
-      {failure !== null ? <p role="alert" className="mt-2 text-xs font-medium text-destructive" data-pick-failure>{`Your pick did not go through: ${failure}. The ask is still open; try again.`}</p> : null}
+      {failure !== null ? <p role="alert" className="mt-2 text-xs font-medium text-[var(--destructive-text,var(--destructive))]" data-pick-failure>{`Your pick did not go through: ${failure}. The ask is still open; try again.`}</p> : null}
       {onNote ? (
         <OtherBox
           onNote={(t, im) => onNote(ask.id, t, im)}
@@ -400,19 +441,21 @@ export function optionEffect(o: { kind: string; instruction?: string; reversible
 
 /** The Decide queue: a short row per ask on the left, the selected ask in full on the right (below when narrow). */
 export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onView }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void }) {
+  owed = orderedGroups(owed);
   const [selected, setSelected] = useState<string | null>(null);
-  const current = currentAsk(owed, selected);
+  // When the card on screen leaves the list (answered, set aside), show the one that was below it, else the one above
+  // (bead mk-c0mka). `seen` is the list and card as of the last render, so the position is that of the list as it was; cards
+  // that came or went since do not move it. Adjusted during render, so the new card paints in the same frame as the old one goes.
+  const ids = owed.map((o) => o.id);
+  const [seen, setSeen] = useState<{ ids: string[]; shown: string | null }>({ ids, shown: null });
+  const left = seen.shown !== null && !ids.includes(seen.shown);
+  const heir = left ? neighborAfterRemoval(seen.ids, seen.shown!, ids) : selected;
+  const current = currentAsk(owed, heir);
   const viewingId = current?.id ?? null;
-  // Tell the plugin which ask is on screen, so `bb home viewing` can answer "which card is mk looking at".
-  useEffect(() => {
-    onView?.(viewingId);
-    paintDone();
-  }, [viewingId]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (heir !== selected) setSelected(heir);
+  if (seen.shown !== viewingId || seen.ids.length !== ids.length || seen.ids.some((x, i) => x !== ids[i])) setSeen({ ids, shown: viewingId });
   const cardRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLOListElement>(null);
-  if (current === undefined) return null;
-  // The project line says nothing when every ask is from the same project.
-  const showProject = new Set(owed.map((o) => o.project ?? "")).size > 1;
   // When the layout wraps (narrow window or narrow panel) the card sits below the whole list; bring it into view on selection.
   const reveal = () => {
     const list = listRef.current;
@@ -420,15 +463,33 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
     // Stacked means the card starts below the list's end; side by side it does not (any window width).
     if (list && card && card.getBoundingClientRect().top >= list.getBoundingClientRect().bottom - 1) card.scrollIntoView({ block: "start" });
   };
+  // Tell the plugin which ask is on screen, so `bb home viewing` can answer "which card is mk looking at".
+  const lastShown = useRef<string | null>(null);
+  useEffect(() => {
+    onView?.(viewingId);
+    paintDone();
+    const before = lastShown.current;
+    lastShown.current = viewingId;
+    // The card on screen left and another took its place: bring the new row (and a stacked card) into view at once, with
+    // no animation, since this happens every time mk answers.
+    if (before !== null && viewingId !== null && before !== viewingId && !ids.includes(before)) {
+      listRef.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
+      reveal();
+    }
+  }, [viewingId]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (current === undefined) return null;
+  // The project line says nothing when every ask is from the same project.
+  const showProject = new Set(owed.map((o) => o.project ?? "")).size > 1;
   return (
     <div className="flex flex-wrap items-start gap-2 sm:gap-4">
-      <ol ref={listRef} className="m-0 min-w-0 shrink-0 grow basis-64 list-none space-y-1 p-0 max-sm:[font-family:ui-sans-serif,system-ui,sans-serif]" data-decide-list>
+      <ol ref={listRef} className="m-0 min-w-0 shrink-0 grow basis-64 list-none space-y-1 p-0" data-decide-list>
         {owed.map((o) => {
           const old = isOldAsk(o.filed_at, nowMs);
           const rec = o.ask.options.find((x) => x.id === o.ask.recommendation);
           return (
             <li key={o.id}>
               <button
+                data-queue-id={o.id} data-merge-group={o.ask.group?.key} data-group-order={o.ask.group?.order}
                 type="button"
                 aria-current={o.id === current.id ? "true" : undefined}
                 className={`min-h-11 w-full rounded border px-2 py-1.5 text-left ${o.id === current.id ? "border-primary bg-muted" : "border-border"}`}
@@ -438,9 +499,10 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
                   reveal();
                 }}
               >
+                {o.ask.group ? <span className="block text-xs text-muted-foreground">{`Linked merges · ${o.ask.group.key} · step ${o.ask.group.order}`}</span> : null}
                 <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
-                  {o.key ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
-                  <span className="min-w-0 [overflow-wrap:anywhere] max-sm:line-clamp-3 sm:truncate">{o.subject}</span>
+                  {o.key && !o.unreadable ? <span className="shrink-0 select-all font-mono text-xs font-semibold" data-task-key>{o.key}</span> : null}
+                  <span className="min-w-0 [overflow-wrap:anywhere] max-sm:line-clamp-3 sm:truncate">{o.unreadable ? unreadableLabel(o.key) : o.subject}</span>
                 </span>
                 {showProject && o.project ? <span className="block truncate text-xs text-muted-foreground" data-ask-project>{o.project}</span> : null}
                 <span data-ask-meta className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">
@@ -469,10 +531,10 @@ export function expiryText(expiresAt: string, nowMs: number): string {
 }
 
 /** Without `onRevoke` the list is read-only: no Revoke button is drawn, so none can do nothing. */
-export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now() }: { approvals: ApprovalRecord[]; onRevoke?: (approvalId: string) => void; nowMs?: number }) {
+export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now(), bare = false }: { approvals: ApprovalRecord[]; onRevoke?: (approvalId: string) => void; nowMs?: number; /** Leave out the heading, for a caller that draws its own (the phone's More waiting row). */ bare?: boolean }) {
   return (
     <section data-section="approvals">
-      <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Recorded approvals</h2>
+      {bare ? null : <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Recorded approvals</h2>}
       <p className="mb-2 text-xs text-muted-foreground">Records of what you approved. They do not authorize a merge, deploy or release.</p>
       <ul className="space-y-2">
         {approvals.map((a) => (
@@ -480,7 +542,7 @@ export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now() }: { app
             <span className="min-w-0 [overflow-wrap:anywhere]" title={a.expires_at}>{`${a.kind} ${a.target} at ${a.identity}, ${expiryText(a.expires_at, nowMs)}`}</span>
             {onRevoke ? <ConfirmTap needsConfirm onConfirmed={() => onRevoke(a.approval_id)} resetKey={a.approval_id}>
               {({ armed, onClick, onBlur }) => (
-                <button type="button" className={`min-h-11 text-xs underline sm:min-h-0${armed ? " font-medium text-destructive" : ""}`} onClick={onClick} onBlur={onBlur} {...(armed ? { "data-confirming": "true" } : {})}>{armed ? CONFIRM_LABEL : "Revoke"}</button>
+                <button type="button" className={`min-h-11 text-xs underline sm:min-h-0${armed ? " font-medium text-[var(--destructive-text,var(--destructive))]" : ""}`} onClick={onClick} onBlur={onBlur} {...(armed ? { "data-confirming": "true" } : {})}>{armed ? CONFIRM_LABEL : "Revoke"}</button>
               )}
             </ConfirmTap> : null}
           </li>
@@ -516,7 +578,7 @@ export function owedTasks(data: AsksData): Set<string> {
   return new Set(data.owed.map((o) => o.task_id).filter((t): t is string => typeof t === "string"));
 }
 
-export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, hideHeld, nowMs = Date.now() }: { /** Which part of the panel shows: the decide list alone, or Later alone. Unset shows both, as a card-key link does. */ part?: "decide" | "later"; hideHeld?: boolean; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
+export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, hideHeld, emptyText, nowMs = Date.now() }: { /** Which part of the panel shows: the decide list alone, or Later alone. Unset shows both, as a card-key link does. */ part?: "decide" | "later"; hideHeld?: boolean; /** What an empty list says, in place of its own words: the project filter uses it when it emptied the list. */ emptyText?: string; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
   // In the Queue the held cards show under "Blocked on others"; shown here only on a card-key link.
   const held = hideHeld ? [] : data.owed.filter((o) => o.held);
   // Later cards leave the Decide list for their own group below it; a held card stays held even if it was also set aside.
@@ -525,21 +587,25 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
   const onlyLater = part === "later";
   const view = onlyLater ? [] : buildAsksView(live);
   const approvals = onlyLater ? [] : data.approvals ?? [];
-  if (onlyLater && later.length === 0) return <p className="p-4 text-sm text-muted-foreground">Nothing is set aside.</p>;
-  if (view.length === 0 && approvals.length === 0 && held.length === 0 && (part === "decide" || later.length === 0)) return <p className="p-4 text-sm text-muted-foreground">Nothing needs you.</p>;
+  const history = (data.pick_actions ?? []).slice(0, 20);
+  const earlier = (history[0]?.earlier_count ?? 0) + Math.max(0, (data.pick_actions?.length ?? 0) - history.length);
+  const empty = view.length === 0 && approvals.length === 0 && held.length === 0 && (part === "decide" || later.length === 0);
+  if (onlyLater && later.length === 0) return <p className="p-4 text-sm text-muted-foreground">{emptyText ?? "Nothing is set aside."}</p>;
+  if (view.length === 0 && approvals.length === 0 && held.length === 0 && (data.pick_actions?.length ?? 0) === 0 && (part === "decide" || later.length === 0)) return <p className="p-4 text-sm text-muted-foreground">{emptyText ?? "Nothing needs you."}</p>;
   return (
     <div className="space-y-3 p-2 sm:space-y-4 sm:p-3">
+      {!onlyLater && empty ? <p className="p-4 text-sm text-muted-foreground">{emptyText ?? "Nothing needs you."}</p> : null}
       {view.map((s) => (
         <section key={s.key} data-section={s.key}>
-          <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2>
+          {!part || s.key !== "decide" ? <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2> : null}
           {s.key === "decide" ? (
             <DecideQueue owed={live.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} {...(onView ? { onView } : {})} />
           ) : (
             <div className="space-y-3">
               {s.items.map((i) => (
                 <div key={i.id} className="rounded border border-border p-3 text-sm [overflow-wrap:anywhere]">
-                  <div><RefText text={i.title} /></div>
-                  {i.detail ? <div className="text-xs text-muted-foreground"><RefText text={i.detail} /></div> : null}
+                  <div><RefText text={i.title} docLinks={i.readOnly !== true} /></div>
+                  {i.detail ? <div className="text-xs text-muted-foreground"><RefText text={i.detail} docLinks={i.readOnly !== true} /></div> : null}
                   {s.key === "stalled" && i.dismiss && onDismiss ? (
                     <div className="mt-2">
                       <ActionButton onClick={() => onDismiss(i.dismiss!.decision_id, i.dismiss!.obligation_id)} data-dismiss={i.dismiss.obligation_id}>Dismiss</ActionButton>
@@ -575,12 +641,18 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
                   <span className="min-w-0 truncate">{o.subject}</span>
                 </span>
                 <span className="block text-xs [overflow-wrap:anywhere]" data-hold-reason>{`On hold: ${o.held!.reason}`}</span>
+                <HoldEndLine held={o.held!} />
               </li>
             ))}
           </ul>
         </section>
       ) : null}
       {approvals.length > 0 ? <ApprovalsList approvals={approvals} {...(onRevoke ? { onRevoke } : {})} nowMs={nowMs} /> : null}
+      {!onlyLater && history.length > 0 ? <section data-section="pick-history">
+        <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Recent pick history</h2>
+        {history.map(s => <PickActionStatus key={s.decision_id} status={s} />)}
+        {earlier > 0 ? <p className="text-sm text-muted-foreground">{`${earlier} earlier picks. Use the original pick or generation to read their history.`}</p> : null}
+      </section> : null}
     </div>
   );
 }

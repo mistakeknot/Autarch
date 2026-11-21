@@ -1,6 +1,6 @@
 // The stack: panels open to the right, the newest at full size, older ones collapsed to spines.
 
-export type PanelKind = "decision" | "thread" | "vizier" | "catchup" | "ideas" | "learn" | "archive" | "settings" | "map";
+export type PanelKind = "decision" | "thread" | "vizier" | "catchup" | "ideas" | "learn" | "archive" | "settings";
 export type Panel = { id: string; kind: PanelKind; title: string; ref?: string; part?: "decide" | "later" };
 export type WidthName = "quarter" | "third" | "half";
 export type StackState = { panels: Panel[]; width: WidthName };
@@ -47,15 +47,13 @@ export function layoutStack(s: StackState): Placed[] {
 /** Keyboard map; null means the key is not ours and must fall through. Only keys Home acts on are here. */
 export type KeyIntent =
   | { type: "close" }
-  | { type: "lens"; lens: number }
   | { type: "width"; key: "[" | "]" };
 
-/** 1-4 pick the Map lens only while Map is the top panel, so a stray digit never changes a lens mk cannot see. */
-export function keyAction(key: string, target: { editable: boolean; mapOnTop?: boolean }): KeyIntent | null {
+/** Digits fall through; the retired Map has no remaining keyboard actions. */
+export function keyAction(key: string, target: { editable: boolean }): KeyIntent | null {
   if (target.editable) return null;
   if (key === "Escape") return { type: "close" };
   if (key === "[" || key === "]") return { type: "width", key };
-  if (target.mapOnTop && /^[1-4]$/.test(key)) return { type: "lens", lens: Number(key) };
   return null;
 }
 
@@ -75,7 +73,7 @@ export function StackView({ placed, render, onExpand }: { placed: Placed[]; rend
             {panel.title}
           </button>
         ) : (
-          <section key={panel.id} style={grow ? { minWidth: width, flex: "1 1 0%" } : { width, flex: "none" }} className="min-w-0 min-h-0 overflow-y-auto border-r border-border">
+          <section key={panel.id} style={grow ? { minWidth: width, flex: "1 1 0%" } : { width, flex: "none" }} className="min-w-0 min-h-0 overflow-y-auto border-r border-border last:border-r-0">
             {render(panel)}
           </section>
         ),

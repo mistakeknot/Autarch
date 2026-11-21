@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { execViolations, parse, parseFile, rel, serverSources } from "./static-scan.js";
 
 const ROOT = join(import.meta.dirname, "..");
-const EXEMPT_IMPORT = /movepoll\.ts:\d+ import of node:child_process$/;
+const EXEMPT_IMPORT = /(?:ghview|governor-runtime)\.ts:\d+ import of node:child_process$/;
 
 describe("no process execution in server code (plan Task 2.7)", () => {
   it("scans a real set of server sources, and none of them spawns or forks", () => {
@@ -12,13 +12,13 @@ describe("no process execution in server code (plan Task 2.7)", () => {
     expect(files.map(rel)).toEqual(expect.arrayContaining(["server.ts", "serve.ts", "service.ts", "store.ts", "cli.ts"]));
     expect(files.map(rel).filter((f) => /^(ui|__tests__|e2e|scripts)\//.test(f))).toEqual([]);
     const bad = files.flatMap((f) => execViolations(parseFile(f)));
-    // One audited exception (Your move, plan D2): the PR poller runs read-only `gh pr view` through execFile with
-    // an argv array (never a shell). Only that file, only that import; any other hit in it still fails.
+    // Audited adapters: read-only PR rechecks, and bounded governor orchestration (bead mk-z0lht.1).
+    // Only those files and imports are exempt; every other process API still fails.
     expect(bad.filter((b) => !EXEMPT_IMPORT.test(b))).toEqual([]);
   });
 
-  it("the one exempt file imports only execFile, and uses no shell, spawn or exec", () => {
-    const text = readFileSync(join(ROOT, "movepoll.ts"), "utf8");
+  it.each(["ghview.ts", "governor-runtime.ts"])("%s imports only execFile, and uses no shell, spawn or exec", (file) => {
+    const text = readFileSync(join(ROOT, file), "utf8");
     expect(text.match(/import \{([^}]*)\} from "node:child_process"/)![1]!.trim()).toBe("execFile");
     expect(text).not.toMatch(/\bspawn(Sync)?\b|\bexec(Sync)?\(|shell\s*:/);
   });

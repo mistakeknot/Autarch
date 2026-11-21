@@ -4,7 +4,6 @@ import { Catchup } from "../catchup.js";
 import { homeCli } from "../cli.js";
 import { cliOnlyVerbs, homeCliMap, homeMethods } from "../contract.js";
 import { conversationView } from "../conversation.js";
-import { moveViews } from "../moveview.js";
 import { makeEnv, type Env, verifiedDelegation } from "./service-helpers.js";
 
 let env: Env;
@@ -25,6 +24,23 @@ const mirrored = Object.entries(homeCliMap).flatMap(([method, m]) => ("verb" in 
 const rpcOnly = Object.entries(homeCliMap).flatMap(([method, m]) => ("rpcOnly" in m ? [{ method, why: m.rpcOnly }] : []));
 
 describe("the CLI and the RPC contract", () => {
+  it("advertises version 1 only with enforced ingest and a target adapter", async () => {
+    const readTargetEvidence = async () => { throw new Error("unused"); };
+    const svc = env.open({ readTargetEvidence });
+    const dele = verifiedDelegation(svc);
+    const enabled = homeCli({ svc, readTargetEvidence, asks: new Asks(svc), catchup: new Catchup(svc, dele), rule: () => ({ ok: false, status: 400, error: "unused" }), isVizier: () => false });
+    expect(JSON.parse((await enabled.run(["capabilities", "--json"], {})).stdout!)).toEqual({ schema: 1, on_pick: [1], target_lookup: [1], pick_action: [1], live_delivery: false });
+  });
+  it("does not advertise on_pick before ingest enforcement or an absent target adapter", async () => {
+    const result = await cli.run(["capabilities", "--json"], {});
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout!)).toEqual({ schema: 1, on_pick: [], target_lookup: [], pick_action: [1], live_delivery: false });
+  });
+  it("target lookup refuses unavailable host evidence", async () => {
+    const result = await cli.run(["target", "--thread", "thr_target", "--json"], {});
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("unavailable");
+  });
   it("map every RPC method exactly once, and nothing else", () => {
     expect(Object.keys(homeCliMap).sort()).toEqual(Object.keys(homeMethods).sort());
   });
@@ -77,9 +93,6 @@ describe("RPC outputs", () => {
     const conv = conversationView(svc, "no-such-task", null);
     expect(homeMethods.conversation.output.parse(conv)).toEqual(conv);
     expect(Object.keys(conv)).toEqual(expect.arrayContaining(["comments", "unread", "stale", "last_ok_at", "options"]));
-    const mv = moveViews(svc);
-    expect(homeMethods.moves.output.parse(mv)).toEqual(mv);
-    expect(Object.keys(mv)).toEqual(expect.arrayContaining(["yourMove", "reported", "later", "hidden", "audit"]));
     const health = { ready: true, error: null, source_sha256: "x", build: {}, projects: null, projects_error: null };
     expect(homeMethods.health.output.parse(health)).toEqual(health);
     expect(homeMethods.health.output.safeParse({ ready: "yes" }).success).toBe(false);

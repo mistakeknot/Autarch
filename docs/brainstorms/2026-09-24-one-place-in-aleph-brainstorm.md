@@ -4,6 +4,10 @@ bead: none
 stage: discover
 ---
 
+> Historical Mycroft references below are superseded by bead mk-ddtv5.7.13.1.
+> Mycroft now provides only `mycroft spawn` and `mycroft pre-dispatch`; coordinators select work.
+> The former orchestration code and TUI tab have been removed. See [the current spawner guide](../mycroft-bb-spawner.md).
+
 # One place in Aleph to direct attention, intention and thinking
 
 Builds on: [attention map brainstorm](2026-09-22-autarch-attention-map-brainstorm.md)
@@ -305,7 +309,7 @@ Gurgeh and Pollard stay as tools that agents call through the CLI and MCP.
 
     mk ruled on the rest one by one (2026-09-25):
     - **One queue.** Mycroft's in-process `DecisionQueue`
-      (`internal/mycroft/escalate/escalate.go`) files decision beads
+      (`[removed Mycroft orchestration code]`) files decision beads
       through the filing helper instead of keeping its own queue. The rail
       is the only queue.
     - **What the hash freezes.** The command string, its working

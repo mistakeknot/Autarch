@@ -190,8 +190,8 @@ describe("Queue tabs", () => {
       expect(html).toMatch(new RegExp(`<button[^>]*data-queue-tab="${id}"[^>]*>${label.replace(/[()]/g, "\\$&")}</button>`));
     }
     expect(html.match(/aria-selected="true"/g)?.length).toBe(1);
-    expect(html.match(/min-h-11/g)?.length).toBe(4);
-    expect(renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} />)).toContain(">Later</button>");
+    expect(html.match(/data-queue-tab="[^"]+" class="[^"]*min-h-11/g)).toHaveLength(4);
+    expect(renderToStaticMarkup(<QueueTabs tab="decide" onTab={noop} counts={null} />)).toContain('aria-label="Later"');
   });
   it("the tablist follows the W3C pattern: one tab stop, panel link, arrow, Home and End keys wrap", () => {
     const html = renderToStaticMarkup(<QueueTabs tab="later" onTab={noop} counts={null} />);

@@ -87,10 +87,12 @@ func guard(token string, allowOrigins []string, listenAddr string, next http.Han
 	want := []byte(token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if o := r.Header.Get("Origin"); o != "" && !origins[strings.TrimRight(o, "/")] {
+			recordGuard(r, "origin")
 			http.Error(w, "forbidden origin", http.StatusForbidden)
 			return
 		}
 		if !hostOK(r.Host) {
+			recordGuard(r, "host")
 			http.Error(w, "forbidden host", http.StatusForbidden)
 			return
 		}
@@ -98,6 +100,7 @@ func guard(token string, allowOrigins []string, listenAddr string, next http.Han
 			got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 			if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") ||
 				subtle.ConstantTimeCompare([]byte(got), want) != 1 {
+				recordGuard(r, "token")
 				w.Header().Set("WWW-Authenticate", "Bearer")
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return

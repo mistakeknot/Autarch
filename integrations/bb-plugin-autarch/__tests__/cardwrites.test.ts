@@ -20,6 +20,32 @@ describe("card write-back", () => {
     expect(r.fake.comments.at(-1)!.body).toContain("Ruled: Per project (Home, advisory; ruled by: mk)");
   });
 
+  it("a needs-context pick queues the comment and unlabel rows like any other pick", async () => {
+    const r = rig();
+    const t = r.card({ ask: { options: [{ id: "a", label: "Need info", kind: "needs-context" }, { id: "b", label: "Per day", kind: "instruction", instruction: "Group per day.", reversible: true }] } });
+    await r.poll();
+    expect(r.mkPick(`card-${t.id}-g1`, "p1", "a")).toMatchObject({ ok: true });
+    expect(writes(r).map((w: any) => w.kind)).toEqual(["comment", "unlabel"]);
+  });
+
+  it("a home-move block on a card opens no move; the card is still one decision", async () => {
+    const r = rig();
+    const t = r.card({});
+    t.description += "```home-move\n" + JSON.stringify({ schema: "home-move/v1", kind: "pr", pr: { url: "https://github.com/o/r/pull/12" } }) + "\n```\n";
+    await r.poll();
+    expect(r.gens(t.id)).toHaveLength(1);
+    expect(r.svc.store.moves()).toEqual([]);
+  });
+
+  it("a pick on an unbound card is refused for the option, and nothing is recorded or queued", async () => {
+    const r = rig();
+    const { t, g1 } = await opened(r);
+    r.db.prepare("UPDATE cards SET root_state = 'unverified' WHERE task_id = ?").run(t.id);
+    expect(r.mkPick(g1.id)).toMatchObject({ ok: false, status: 403, error: "Project not bound: add a root to rule this" });
+    expect(r.svc.store.pick(g1.id)).toBeUndefined();
+    expect(writes(r)).toEqual([]);
+  });
+
   it("ruling a card closes its task when no thread is working on it", async () => {
     const r = rig();
     const { t, g1 } = await opened(r);

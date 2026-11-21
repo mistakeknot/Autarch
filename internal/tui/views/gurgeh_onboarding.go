@@ -16,6 +16,7 @@ import (
 	"github.com/mistakeknot/autarch/internal/gurgeh/exploration"
 	"github.com/mistakeknot/autarch/internal/pollard/research"
 	"github.com/mistakeknot/autarch/internal/tui"
+	"github.com/mistakeknot/autarch/pkg/agenttargets"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -42,6 +43,7 @@ type GurgehOnboardingView struct {
 	// Dependencies (from GurgehConfig)
 	researchCoord *research.Coordinator
 	codingAgent   *agent.Agent
+	explore       func(context.Context, string, agenttargets.DispatchConfig) (map[string]any, string, error)
 	client        *autarch.Client
 	agentSelector *pkgtui.AgentSelector
 	selectedAgent string
@@ -99,6 +101,7 @@ func NewGurgehOnboardingView(cfg tui.GurgehConfig) *GurgehOnboardingView {
 	return &GurgehOnboardingView{
 		researchCoord: cfg.ResearchCoord,
 		codingAgent:   cfg.CodingAgent,
+		explore:       exploration.ExploreWithConfig,
 		client:        cfg.Client,
 		agentSelector: cfg.AgentSelector,
 		selectedAgent: cfg.SelectedAgent,
@@ -342,6 +345,14 @@ func (v *GurgehOnboardingView) State() tui.OnboardingState {
 func (v *GurgehOnboardingView) SetAgentSelector(selector *pkgtui.AgentSelector) {
 	v.agentSelector = selector
 	v.attachAgentSelector(v.currentView)
+}
+
+// SetCodingAgent updates the agent used by scan and generation.
+func (v *GurgehOnboardingView) SetCodingAgent(a *agent.Agent) {
+	v.codingAgent = a
+	if setter, ok := v.currentView.(interface{ SetCodingAgent(*agent.Agent) }); ok {
+		setter.SetCodingAgent(a)
+	}
 }
 
 // SetAgentName sets the selected agent name.
@@ -815,6 +826,7 @@ func (v *GurgehOnboardingView) navigateToStep(state tui.OnboardingState) tea.Cmd
 // --- Generation methods ---
 
 func (v *GurgehOnboardingView) generateSuggestions() tea.Cmd {
+	ag, ctx, desc := v.codingAgent.Clone(), v.ctx, v.projectDesc
 	if v.codingAgent == nil {
 		// No agent available, user will type manually
 		return nil
@@ -830,12 +842,13 @@ func (v *GurgehOnboardingView) generateSuggestions() tea.Cmd {
 			"List the key requirements (one per line).",
 		}
 
-		suggestions, err := agent.SuggestAnswers(v.ctx, v.codingAgent, v.projectDesc, questions)
+		suggestions, err := agent.SuggestAnswers(ctx, ag, desc, questions)
 		return tui.SuggestionsReadyMsg{Suggestions: suggestions, Error: err}
 	}
 }
 
 func (v *GurgehOnboardingView) generateEpicsWithAgent(spec tui.SpecAcceptedMsg) tea.Cmd {
+	ag, ctx := v.codingAgent.Clone(), v.ctx
 	if v.codingAgent == nil {
 		// No agent - show error with instructions
 		return func() tea.Msg {
@@ -852,7 +865,7 @@ func (v *GurgehOnboardingView) generateEpicsWithAgent(spec tui.SpecAcceptedMsg) 
 		Problem:      spec.Problem,
 		Platform:     spec.Platform,
 		Language:     spec.Language,
-		Requirements: spec.Requirements,
+		Requirements: append([]string(nil), spec.Requirements...),
 	}
 
 	stream := make(chan agentStreamEvent, 100)
@@ -869,7 +882,7 @@ func (v *GurgehOnboardingView) generateEpicsWithAgent(spec tui.SpecAcceptedMsg) 
 			}
 		}
 
-		proposals, err := agent.GenerateEpicsWithOutput(v.ctx, v.codingAgent, input, outputCallback)
+		proposals, err := agent.GenerateEpicsWithOutput(ctx, ag, input, outputCallback)
 		if err != nil {
 			stream <- agentStreamEvent{err: err}
 			return
@@ -884,6 +897,12 @@ func (v *GurgehOnboardingView) generateEpicsWithAgent(spec tui.SpecAcceptedMsg) 
 }
 
 func (v *GurgehOnboardingView) generateTasksWithAgent() tea.Cmd {
+	ag, ctx := v.codingAgent.Clone(), v.ctx
+	epicList := append([]epics.EpicProposal(nil), v.generatedEpics...)
+	for i := range epicList {
+		epicList[i].Dependencies = append([]string(nil), epicList[i].Dependencies...)
+		epicList[i].Stories = append([]epics.StoryProposal(nil), epicList[i].Stories...)
+	}
 	if v.codingAgent == nil {
 		// No agent - show error with instructions
 		return func() tea.Msg {
@@ -908,7 +927,7 @@ func (v *GurgehOnboardingView) generateTasksWithAgent() tea.Cmd {
 			}
 		}
 
-		taskList, err := agent.GenerateTasksWithOutput(v.ctx, v.codingAgent, v.generatedEpics, outputCallback)
+		taskList, err := agent.GenerateTasksWithOutput(ctx, ag, epicList, outputCallback)
 		if err != nil {
 			stream <- agentStreamEvent{err: err}
 			return
@@ -925,19 +944,25 @@ func (v *GurgehOnboardingView) generateTasksWithAgent() tea.Cmd {
 // --- Scan methods ---
 
 func (v *GurgehOnboardingView) scanCodebase(path string) tea.Cmd {
+	cfg := v.codingAgent.ApplyDispatchConfig(exploration.Config(path))
+	ctx, explore := v.ctx, v.explore
+	name := cfg.PreferredAgent
+	if name == "" {
+		name = "coding agent"
+	}
 	// Create a channel for progress updates
 	progressChan := make(chan agent.ScanProgress, 100)
 
-	// Start exploration in a goroutine (Claude Code is the primary scan method)
+	// Start exploration with the resolved scan configuration.
 	// Progress is reported via slog, which appears in the log pane
 	go func() {
 		defer close(progressChan)
 
 		// Send initial progress to TUI
-		progressChan <- agent.ScanProgress{Step: "Exploring", Details: "Running Claude Code..."}
+		progressChan <- agent.ScanProgress{Step: "Exploring", Details: "Running " + name + "..."}
 
-		// Run Claude Code exploration (progress logged via slog)
-		exploreResult, sessionID, err := exploration.Explore(v.ctx, path)
+		// Run exploration (progress logged via slog)
+		exploreResult, sessionID, err := explore(ctx, path, cfg)
 
 		if err != nil {
 			progressChan <- agent.ScanProgress{Step: "_error", Details: err.Error()}
@@ -1125,6 +1150,9 @@ func (v *GurgehOnboardingView) attachAgentSelector(view tui.View) {
 		if setter, ok := view.(onboardingAgentSelectorSetter); ok {
 			setter.SetAgentSelector(v.agentSelector)
 		}
+	}
+	if setter, ok := view.(interface{ SetCodingAgent(*agent.Agent) }); ok {
+		setter.SetCodingAgent(v.codingAgent)
 	}
 	v.attachAgentName(view)
 	v.attachChatSettings(view)

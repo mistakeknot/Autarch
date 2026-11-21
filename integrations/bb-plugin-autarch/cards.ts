@@ -1,3 +1,5 @@
+import { validateOnPickJSON } from "./onpick.js";
+import { parseSubjectKey, parseSignals, type SubjectKey, type Signals } from "./card-metadata.js";
 // The card convention (v1): how a tasks card's description text carries a Home ask.
 //
 // Twin of internal/homeask/card.go. Both read the shared vectors in
@@ -6,9 +8,13 @@
 // display-only, and the thrown message is the reason shown. A card is untrusted,
 // mutable input.
 
+import { validateStopped } from "./stopped.js";
 import { createHash } from "node:crypto";
-import { canonicalJson, normalizedJson, parseAsk, type Ask } from "./model.js";
+import { canonicalJson, normalizedJson, parseStoredCardAsk, type Ask } from "./model.js";
 import { parseMove, type Move } from "./moves.js";
+import { validateEvidence } from "./evidence.js";
+import { validateGroup } from "./group.js";
+import { parseOnPick } from "./onpick.js";
 
 export interface BlockRef {
   ref: string;
@@ -30,6 +36,8 @@ export interface RootRun {
 }
 
 export interface Card {
+  subject_key?: SubjectKey;
+  signals?: Signals;
   question: string;
   blocks: BlockRef[];
   request: RequestLine;
@@ -56,7 +64,7 @@ const MAX_ROOT_SCRIPT = 4096;
 const MAX_ROOT_TIMEOUT = 3600;
 const PLACEHOLDER_THREAD = "thr_placeholder";
 
-const V2_ALLOWED = new Set(["schema", "project", "project_root", "question", "options", "questions", "ask_key", "subject", "recommendation", "pull", "auto_close", "urgency"]);
+const V2_ALLOWED = new Set(["schema", "project", "project_root", "question", "options", "questions", "ask_key", "subject", "recommendation", "pull", "auto_close", "urgency", "stopped", "evidence", "group", "subject_key", "signals"]);
 const V1_ONLY = new Set(["v", "kind", "thread", "asker", "request_id", "supersedes", "mention_of", "steps", "machine"]);
 /** Block-ref kinds that count toward the Blocks count; others are shown but not counted. */
 export const COUNTED = new Set(["bead", "thread", "project"]);
@@ -115,7 +123,7 @@ export function parseCard(description: string): Card {
 
   if (askBodies.length === 0) fail("missing home-ask block");
   if (askBodies.length > 1) fail("more than one home-ask block");
-  const { ask, pull } = parseWireAsk(askBodies[0]!);
+  const { ask, pull, subject_key, signals } = parseWireAsk(askBodies[0]!);
 
   if (rootBodies.length > 1) fail("more than one root-run block");
   const root_run = rootBodies.length === 1 ? parseRootRun(rootBodies[0]!) : null;
@@ -123,11 +131,18 @@ export function parseCard(description: string): Card {
   if (moveBodies.length > 1) fail("more than one home-move block");
   const move = moveBodies.length === 1 ? parseMove(moveBodies[0]!) : null;
 
-  const card: Card = { question, blocks, request, pull, root_run, move, ask };
+  const card: Card = { question, blocks, request, pull, root_run, move, ask, ...(subject_key ? { subject_key } : {}), ...(signals ? { signals } : {}) };
+  if (subject_key?.type === "script") {
+    if (!root_run || root_run.sha256 !== subject_key.script_sha) fail("subject_key script_sha must equal root-run digest");
+    if (typeof ask.ask_key !== "string" || !ask.ask_key) fail("script subject_key requires ask_key");
+  }
   // The ask must survive the unchanged rev-4 parser, so every v1 rule (approval tokens,
   // option bounds, ...) applies to a card. The thread is a stand-in: routing comes from
   // the card's comments, never from its text.
-  toV1(card, pull === "" ? PLACEHOLDER_THREAD : "");
+  const parsed = toV1(card, pull === "" ? PLACEHOLDER_THREAD : "");
+  for (const option of parsed.options ?? []) {
+    if (option.on_pick) parseOnPick(option.on_pick, option, { source: "card", rootRun: !!root_run, move: !!move, artifact: !!subject_key || !!ask.auto_close });
+  }
   return card;
 }
 
@@ -150,9 +165,10 @@ function parseBlocks(texts: string[]): BlockRef[] {
   return refs;
 }
 
-function parseWireAsk(body: string): { ask: Record<string, unknown>; pull: "" | "mycroft" } {
+function parseWireAsk(body: string): { ask: Record<string, unknown>; pull: "" | "mycroft";  subject_key?: SubjectKey; signals?: Signals } {
   let v: unknown;
   try {
+    validateOnPickJSON(body);
     v = JSON.parse(body);
   } catch (e) {
     return fail(`invalid home-ask JSON: ${(e as Error).message}`);
@@ -170,8 +186,15 @@ function parseWireAsk(body: string): { ask: Record<string, unknown>; pull: "" | 
     pull = "mycroft";
   }
   if (Object.prototype.hasOwnProperty.call(m, "urgency") && m.urgency !== "blocker") fail('urgency must be "blocker" when set');
+  const stopped = validateStopped(m, false);
+  if (stopped !== undefined) m.stopped = stopped;
+  if (Object.prototype.hasOwnProperty.call(m, "evidence")) validateEvidence(m.evidence);
+  if (Object.prototype.hasOwnProperty.call(m, "group")) m.group = validateGroup(m.group);
   if (Object.prototype.hasOwnProperty.call(m, "auto_close")) parseAutoClose(m.auto_close, m.options);
-  return { ask: m, pull };
+  const subject_key = Object.hasOwn(m, "subject_key") ? parseSubjectKey(m.subject_key) : undefined;
+  const signals = Object.hasOwn(m, "signals") ? parseSignals(m.signals) : undefined;
+  delete m.subject_key; delete m.signals;
+  return { ask: m, pull, subject_key, signals };
 }
 
 const AC_REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
@@ -227,7 +250,7 @@ export function parseAutoClose(raw: unknown, options: unknown): AutoClose {
  */
 export function toV1(card: Pick<Card, "ask" | "pull">, thread: string): Ask {
   const v1: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(card.ask)) if (k !== "schema" && k !== "pull" && k !== "auto_close") v1[k] = v;
+  for (const [k, v] of Object.entries(card.ask)) if (k !== "schema" && k !== "pull" && k !== "auto_close" && k !== "subject_key" && k !== "signals") v1[k] = v;
   v1.v = 1;
   v1.kind = "decide";
   if (card.pull === "mycroft") v1.asker = "mycroft";
@@ -236,7 +259,7 @@ export function toV1(card: Pick<Card, "ask" | "pull">, thread: string): Ask {
     v1.thread = thread;
   }
   try {
-    return parseAsk(v1);
+    return parseStoredCardAsk(v1);
   } catch (e) {
     return fail(`home-ask: ${(e as Error).message}`);
   }

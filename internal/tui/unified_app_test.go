@@ -1,10 +1,16 @@
 package tui
 
 import (
+	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	"github.com/mistakeknot/autarch/internal/testutil"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mistakeknot/autarch/pkg/agenttargets"
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	pkgtui "github.com/mistakeknot/autarch/pkg/tui"
 )
@@ -375,4 +381,343 @@ func TestSignalsOverlayBlocksKeysToView(t *testing.T) {
 	if view.seen {
 		t.Fatal("expected overlay to consume key, but view saw it")
 	}
+}
+
+func TestAgentSelectorUsesDispatchPreference(t *testing.T) {
+	for _, tc := range []struct{ name, env, config, want, source string }{
+		{"environment", "codex", "", "codex", "AUTARCH_DISPATCH_AGENT"},
+		{"project", "", "[dispatch]\npreferred_agent = \"codex\"\n", "codex", "project config"},
+		{"automatic", "", "", "claude", "automatic detection"},
+		{"unknown", "unavailable-agent", "", "unavailable-agent", "AUTARCH_DISPATCH_AGENT"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			isolateSelectorEnvironment(t)
+			t.Chdir(root)
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("PATH", t.TempDir())
+			t.Setenv("AUTARCH_DISPATCH_AGENT", tc.env)
+			if err := os.MkdirAll(filepath.Join(root, ".gurgeh"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, ".gurgeh", "agents.toml"), []byte(tc.config), 0600); err != nil {
+				t.Fatal(err)
+			}
+			app := NewUnifiedApp(nil)
+			app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
+			initAgentSelectorWithoutDetection(t, app)
+			if app.selectedAgent != tc.want {
+				t.Fatalf("selected = %q, want %q", app.selectedAgent, tc.want)
+			}
+			source := tc.source
+			if app.agentSelector == nil || !strings.Contains(app.agentSelector.View(), tc.want) || !strings.Contains(app.agentSelector.View(), source) {
+				t.Fatal("selector does not display dispatch preference")
+			}
+		})
+	}
+}
+
+func TestAgentSelectionFailureKeepsEffectiveLabel(t *testing.T) {
+	isolateSelectorEnvironment(t)
+	t.Setenv("AUTARCH_DISPATCH_AGENT", "codex")
+	app := NewUnifiedApp(nil)
+	app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
+	app.selectedAgent = "codex"
+	app.agentSelector = pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "codex", Source: "AUTARCH_DISPATCH_AGENT"}, {Name: "missing-agent"}})
+	app.agentSelector.Index = 1 // navigation has already moved the cursor
+	app.Update(pkgtui.AgentSelectedMsg{Name: "missing-agent"})
+	if app.selectedAgent != "codex" || app.agentSelector.Index != 0 || !strings.Contains(app.agentSelector.View(), "AUTARCH_DISPATCH_AGENT") {
+		t.Fatal("failed selection changed effective label:", app.agentSelector.View())
+	}
+}
+
+func TestAgentSelectorConfiguredOptionsWithoutDetection(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AUTARCH_DISPATCH_AGENT", "")
+	if err := os.MkdirAll(".gurgeh", 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(".gurgeh/agents.toml", []byte("[targets.codex]\ntype = \"command\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := NewUnifiedApp(nil)
+	initAgentSelectorWithoutDetection(t, app)
+	if app.agentSelector == nil {
+		t.Fatal("configured options lost without detection")
+	}
+	if !strings.Contains(app.agentSelector.View(), "configured, not detected") {
+		t.Fatal("undetected configured option mislabeled:", app.agentSelector.View())
+	}
+}
+
+func TestAgentSelectionLabelsUIChoice(t *testing.T) {
+	if os.Getenv("AUTARCH_SELECTION_TEST_CHILD") == "1" {
+		app := NewUnifiedApp(nil)
+		app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
+		app.agentSelector = pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
+		t.Setenv("AUTARCH_DISPATCH_AGENT", "")
+		receiver := &agentReceivingView{}
+		app.currentView = receiver
+		app.Update(pkgtui.AgentSelectedMsg{Name: "codex"})
+		if receiver.codingAgent != app.codingAgent {
+			t.Fatal("pick did not reach view")
+		}
+		name, source := app.codingAgent.DispatchPreference(".")
+		if name != "codex" || source != "explicit agent selection" || !strings.Contains(app.agentSelector.View(), "explicit agent selection") {
+			t.Fatalf("UI choice mislabeled: %s %s %s", name, source, app.agentSelector.View())
+		}
+		app.Update(pkgtui.AgentSelectedMsg{Name: "codex"})
+		if !strings.Contains(app.agentSelector.View(), "explicit agent selection") {
+			t.Fatal("lost explicit source")
+		}
+		t.Setenv("AUTARCH_DISPATCH_AGENT", "codex")
+		app.Update(pkgtui.AgentSelectedMsg{Name: "codex"})
+		if !strings.Contains(app.agentSelector.View(), "AUTARCH_DISPATCH_AGENT") {
+			t.Fatal("lost environment source")
+		}
+		app.initAgentSelectorWithOptions(t.TempDir(), []pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
+		if !strings.Contains(app.agentSelector.View(), "AUTARCH_DISPATCH_AGENT") {
+			t.Fatal("reload lost matching environment source")
+		}
+		return
+	}
+	isolateSelectorEnvironment(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte("#!/bin/sh\necho test-version\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAgentSelectionLabelsUIChoice$")
+	cmd.Env = append(os.Environ(), "AUTARCH_SELECTION_TEST_CHILD=1", "AUTARCH_DISPATCH_AGENT=claude", "PATH="+dir, "HOME="+t.TempDir(), "XDG_CONFIG_HOME="+t.TempDir())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("child: %v %s", err, out)
+	}
+}
+
+func TestAgentSelectorMatchesPreferenceIgnoringCase(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AUTARCH_DISPATCH_AGENT", "Codex")
+	if err := os.MkdirAll(".gurgeh", 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(".gurgeh/agents.toml", []byte("[targets.codex]\ntype = \"command\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := NewUnifiedApp(nil)
+	initAgentSelectorWithoutDetection(t, app)
+	count := 0
+	for _, opt := range app.agentSelector.Options {
+		if strings.EqualFold(opt.Name, "codex") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("got %d codex options", count)
+	}
+}
+
+func isolateSelectorEnvironment(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+}
+
+// Supply only fixture registries so fallback install paths cannot discover host CLIs.
+func initAgentSelectorWithoutDetection(t *testing.T, app *UnifiedApp) {
+	t.Helper()
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	global, project, err := agenttargets.Load(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "autarch", "agents.toml"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.initAgentSelectorWithOptions(root, buildAgentOptionsFromRegistry(agenttargets.Merge(global, project)))
+}
+
+type agentReceivingView struct {
+	noopDashboardView
+	codingAgent *agent.Agent
+}
+
+func (v *agentReceivingView) SetCodingAgent(a *agent.Agent) { v.codingAgent = a }
+
+func TestSelectorResolvesScannedProject(t *testing.T) {
+	isolateSelectorEnvironment(t)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("AUTARCH_DISPATCH_AGENT", "")
+	t.Chdir(t.TempDir())
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".gurgeh"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gurgeh", "agents.toml"), []byte("[dispatch]\npreferred_agent = \"codex\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := NewUnifiedApp(nil)
+	app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
+	app.initAgentSelectorWithOptions(root, []pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
+	if app.codingAgent.ProjectRoot != root {
+		t.Fatal("generation root differs from label root")
+	}
+	if app.selectedAgent != "codex" {
+		t.Fatal("label used current directory instead of scanned project")
+	}
+}
+
+type selectorReceivingView struct {
+	agentReceivingView
+	selector *pkgtui.AgentSelector
+}
+
+func (v *selectorReceivingView) SetAgentSelector(s *pkgtui.AgentSelector) { v.selector = s }
+
+func TestScanSelectorReloadFailureKeepsViewsConsistent(t *testing.T) {
+	isolateSelectorEnvironment(t)
+	t.Setenv("PATH", t.TempDir())
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".gurgeh"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gurgeh", "agents.toml"), []byte("invalid = ["), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := NewUnifiedApp(nil)
+	old := pkgtui.NewAgentSelector([]pkgtui.AgentOption{{Name: "claude"}})
+	app.agentSelector = old
+	view := &selectorReceivingView{selector: old}
+	app.currentView = view
+	app.Update(ScanCodebaseMsg{Path: root})
+	if app.agentSelector != view.selector {
+		t.Fatal("app and view have different selectors")
+	}
+}
+
+// Run in a child so the process-wide detector cache cannot reuse a host CLI.
+// Both detector names resolve in the fixture PATH before fallback probe dirs.
+func TestScanReloadPreservesAgentPickAcrossTabs(t *testing.T) {
+	if os.Getenv("AUTARCH_RELOAD_PICK_CHILD") != "1" {
+		bin := t.TempDir()
+		for _, name := range []string{"claude", "codex"} {
+			if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\necho fixture-version\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		cmd := exec.Command(os.Args[0], "-test.run=^TestScanReloadPreservesAgentPickAcrossTabs$", "-test.count=1")
+		cmd.Env = append(os.Environ(), "AUTARCH_RELOAD_PICK_CHILD=1", "PATH="+bin, "HOME="+t.TempDir(), "XDG_CONFIG_HOME="+t.TempDir())
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("child: %v\n%s", err, out)
+		}
+		return
+	}
+	t.Chdir(t.TempDir())
+	t.Setenv("AUTARCH_DISPATCH_AGENT", "claude")
+	t.Setenv("AUTARCH_DISPATCH_BACKEND", "")
+	for _, failReload := range []bool{false, true} {
+		name := "success"
+		if failReload {
+			name = "failure"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.Mkdir(filepath.Join(root, ".gurgeh"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			config := "[dispatch]\npreferred_agent = \"claude\"\n"
+			if failReload {
+				config = "invalid = ["
+			}
+			if err := os.WriteFile(filepath.Join(root, ".gurgeh", "agents.toml"), []byte(config), 0600); err != nil {
+				t.Fatal(err)
+			}
+			app := NewUnifiedApp(nil)
+			app.codingAgent = &agent.Agent{Type: agent.TypeClaude}
+			app.initAgentSelectorWithOptions(".", []pkgtui.AgentOption{{Name: "claude"}, {Name: "codex"}})
+			views := []*reloadPickView{{}, {}, {}, {}}
+			app.tabs = NewTabBar([]string{"Bigend", "Gurgeh", "Coldwine", "Pollard"})
+			for _, view := range views {
+				app.dashViews = append(app.dashViews, view)
+			}
+			app.currentView = views[0]
+			app.Update(pkgtui.AgentSelectedMsg{Name: "codex"})
+			if app.selectedAgent != "codex" {
+				t.Fatal("fixture pick failed")
+			}
+			oldAgent, oldSelector := app.codingAgent, app.agentSelector
+			// Check that the fixture exercises the intended reload outcome.
+			if _, err := LoadAgentOptions(root); (err != nil) != failReload {
+				t.Fatalf("reload error = %v, want failure %v", err, failReload)
+			}
+			app.Update(ScanCodebaseMsg{Path: root})
+			if app.codingAgent == oldAgent {
+				t.Fatal("scan did not replace agent snapshot")
+			}
+			if (app.agentSelector == oldSelector) != failReload {
+				t.Fatal("unexpected selector reload outcome")
+			}
+			// Tab switching does not reattach state: inactive views must already
+			// have received the scan's new project and selection snapshot.
+			for i, view := range views {
+				app.switchToTab(i)
+				if app.currentView != view {
+					t.Fatalf("tab %d did not activate", i)
+				}
+				if view.selector != app.agentSelector {
+					t.Fatalf("tab %d retained a different selector after reload", i)
+				}
+				if view.name != "codex" || view.selector == nil || !strings.Contains(view.selector.View(), "codex") || !strings.Contains(view.selector.View(), "explicit agent selection") {
+					t.Fatalf("tab %d label lost pick: %q, %+v", i, view.name, view.selector)
+				}
+				if view.codingAgent == nil || view.codingAgent.ProjectRoot != root {
+					t.Fatalf("tab %d has stale dispatch project", i)
+				}
+				cfg := view.codingAgent.ApplyDispatchConfig(agenttargets.LoadDispatchConfig(view.codingAgent.ProjectRoot))
+				if cfg.PreferredAgent != "codex" || cfg.PreferredAgentSource != "explicit agent selection" {
+					t.Fatalf("tab %d dispatch config: %+v", i, cfg)
+				}
+			}
+		})
+	}
+}
+
+type reloadPickView struct {
+	selectorReceivingView
+	name string
+}
+
+func (v *reloadPickView) SetAgentName(name string) { v.name = name }
+
+func (v *reloadPickView) Update(tea.Msg) (pkgtui.View, tea.Cmd) { return v, nil }
+
+func TestDispatchPaletteLabelsDescribeModes(t *testing.T) {
+	app := NewUnifiedApp(nil)
+	app.initPaletteCommands()
+	assertDispatch := func(want string) {
+		t.Helper()
+		for _, cmd := range app.palette.commands {
+			if cmd.Name == cmd.Description {
+				t.Errorf("palette repeats name as description: %q", cmd.Name)
+			}
+		}
+		for _, cmd := range app.palette.commands {
+			if cmd.Name == want {
+				msg := cmd.Action()()
+				if key, ok := msg.(tea.KeyMsg); !ok || key.Type != tea.KeyF2 {
+					t.Fatalf("%s action = %#v", want, msg)
+				}
+				return
+			}
+		}
+		t.Errorf("missing palette label %q", want)
+	}
+	assertDispatch("Choose Dispatch agent (Ctrl+G / F2)")
+	app.updateCommands()
+	assertDispatch("Choose Dispatch agent (Ctrl+G / F2)")
 }

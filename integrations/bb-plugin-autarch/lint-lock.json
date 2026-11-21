@@ -26,9 +26,6 @@
   "__tests__/model.test.ts": {
     "as_any": 4
   },
-  "__tests__/move-flow.test.ts": {
-    "lint_disable": 1
-  },
   "__tests__/other-box.test.ts": {
     "as_any": 5
   },
@@ -71,10 +68,6 @@
   },
   "model.ts": {
     "as_unknown_as": 1
-  },
-  "movereport.ts": {
-    "as_unknown_as": 1,
-    "lint_disable": 2
   },
   "server.ts": {
     "as_unknown_as": 5

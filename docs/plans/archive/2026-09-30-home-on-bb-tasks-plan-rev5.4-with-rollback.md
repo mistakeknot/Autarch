@@ -1,3 +1,7 @@
+> Historical Mycroft references below are superseded by bead mk-ddtv5.7.13.1.
+> Mycroft now provides only `mycroft spawn` and `mycroft pre-dispatch`; coordinators select work.
+> The former orchestration code and TUI tab have been removed. See [the current spawner guide](../../mycroft-bb-spawner.md).
+
 # Home S1, revision 5: Home on bb tasks
 
 **Bead:** mk-okek (S1). Re-scopes mk-okek.8 and mk-okek.16.
@@ -1283,7 +1287,7 @@ This compiles, because ExecFiler still exists.
 - `pkg/mcp/handlers.go`, `pkg/mcp/server.go`, and the tests in `pkg/mcp` that reach the
   default filer (asserting a CardFiler call sequence through a fake `bb`);
 - `cmd/mycroft/main.go`;
-- `internal/mycroft/escalate/escalate.go`;
+- `[removed Mycroft orchestration code]`;
 - **then** delete `ExecFiler` from `internal/homeask/filer.go` and its tests from
   `filer_test.go`.
 
@@ -1762,10 +1766,10 @@ files, 2026-10-01):
 | `internal/homeask/filer.go:49-206` | definition (`File`, `recover`, `List`) | deleted after callers move (Task 2.10) |
 | `internal/homeask/filer_test.go:49-50` | test constructor | ExecFiler tests deleted; CardFiler tests added (Task 2.9) |
 
-Interface-only users need no change: `internal/mycroft/escalate/escalate.go:77,187,198`,
+Interface-only users need no change: `[removed Mycroft orchestration code]:77,187,198`,
 `pkg/mcp/server.go:22,44`, and the test doubles `recFiler` (`cmd/mycroft/wiring_test.go`,
-`internal/mycroft/scheduler/escalate_wiring_test.go`) and `fakeFiler`
-(`internal/mycroft/escalate/home_test.go`, `pkg/mcp/decision_test.go`). Outside Go, only
+`[removed Mycroft orchestration code]`) and `fakeFiler`
+(`[removed Mycroft orchestration code]`, `pkg/mcp/decision_test.go`). Outside Go, only
 the rev-4 plan docs mention ExecFiler.
 
 **Every hash used for generation identity** (§1.3.4 table):

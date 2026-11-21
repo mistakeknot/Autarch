@@ -15,6 +15,10 @@ type StreamingRunner interface {
 // using the cached multi-method detector, applies the config, and returns
 // a StreamHandle for consuming events.
 func Dispatch(ctx context.Context, cfg DispatchConfig, workDir, prompt string) (*StreamHandle, error) {
+	// Only subscription CLI dispatch is implemented; never turn a preference into API spend.
+	if cfg.PreferredBackend != "" && cfg.PreferredBackend != BackendSubscriptionCLI {
+		return nil, fmt.Errorf("unsupported dispatch backend %q: only subscription-cli is implemented", cfg.PreferredBackend)
+	}
 	agent := cfg.PreferredAgent
 	if agent == "" {
 		if tool, found := DetectPreferredTool(ctx); found {
@@ -30,6 +34,13 @@ func Dispatch(ctx context.Context, cfg DispatchConfig, workDir, prompt string) (
 		backend := &CodexBackend{}
 		return backend.RunStreaming(ctx, cfg, workDir, prompt)
 	default:
+		if agent != "" {
+			source := cfg.PreferredAgentSource
+			if source == "" {
+				source = "dispatch config"
+			}
+			return nil, fmt.Errorf("unsupported dispatch agent %q from %s (supported: claude, codex)", agent, source)
+		}
 		return nil, fmt.Errorf("no supported agent available (tried claude, codex)")
 	}
 }
@@ -60,8 +71,16 @@ func CollectResult(handle *StreamHandle) (string, string, error) {
 		}
 	}
 
+	_, processErr := handle.Wait()
+
 	if resultIsError {
+		if processErr != nil {
+			return "", sessionID, fmt.Errorf("agent returned error: %s: %w", resultText, processErr)
+		}
 		return "", sessionID, fmt.Errorf("agent returned error: %s", resultText)
+	}
+	if processErr != nil {
+		return "", sessionID, processErr
 	}
 	if sawResult {
 		return resultText, sessionID, nil

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mistakeknot/autarch/internal/homeask"
 )
@@ -47,7 +48,7 @@ func decisionArgs() map[string]any {
 }
 
 func TestMCPToolsListIncludesFileDecision(t *testing.T) {
-	resp := runServerRequest(t, NewServer(t.TempDir()), `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`+"\n")
+	resp := runServerRequest(t, newTestServer(t.TempDir()), `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`+"\n")
 	tools := resp.Result.(map[string]any)["tools"].([]any)
 	for _, tool := range tools {
 		if tool.(map[string]any)["name"] == "autarch_file_decision" {
@@ -59,7 +60,7 @@ func TestMCPToolsListIncludesFileDecision(t *testing.T) {
 
 func TestMCPFileDecisionRequiresWriteScope(t *testing.T) {
 	f := &fakeFiler{}
-	s := NewServer(t.TempDir()).WithFiler(f)
+	s := newTestServer(t.TempDir()).WithFiler(f)
 	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "r", Scopes: []string{"read"}})
 	resp := callTool(t, s, ctx, "autarch_file_decision", decisionArgs())
 	if resp.Error == nil || !strings.Contains(resp.Error.Message, "Forbidden") || f.runs != 0 {
@@ -70,7 +71,7 @@ func TestMCPFileDecisionRequiresWriteScope(t *testing.T) {
 func TestMCPFileDecisionFilesWithProjectDefaultsAndThread(t *testing.T) {
 	root := t.TempDir()
 	f := &fakeFiler{}
-	s := NewServer(root).WithFiler(f)
+	s := newTestServer(root).WithFiler(f)
 	t.Setenv("BB_THREAD_ID", "")
 	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
 	resp := callTool(t, s, ctx, "autarch_file_decision", decisionArgs())
@@ -87,7 +88,7 @@ func TestMCPFileDecisionFilesWithProjectDefaultsAndThread(t *testing.T) {
 
 func TestMCPFileDecisionThreadMustMatchTheCallerThread(t *testing.T) {
 	f := &fakeFiler{}
-	s := NewServer(t.TempDir()).WithFiler(f)
+	s := newTestServer(t.TempDir()).WithFiler(f)
 	t.Setenv("BB_THREAD_ID", "thr-real")
 	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
 	resp := callTool(t, s, ctx, "autarch_file_decision", decisionArgs())
@@ -102,7 +103,7 @@ func marshal(v any) string { b, _ := json.Marshal(v); return string(b) }
 func TestMCPFileDecisionWithoutACallerIsDenied(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "")
 	f := &fakeFiler{}
-	s := NewServer(t.TempDir()).WithFiler(f)
+	s := newTestServer(t.TempDir()).WithFiler(f)
 	resp := callTool(t, s, context.Background(), "autarch_file_decision", decisionArgs())
 	if resp.Error == nil || !strings.Contains(resp.Error.Message, "Forbidden") || f.runs != 0 {
 		t.Fatalf("a write tool ran without a caller: %+v runs %d", resp, f.runs)
@@ -116,7 +117,7 @@ func TestMCPStdioCallerIsExplicitAndBounded(t *testing.T) {
 		t.Fatalf("stdio caller = %+v", c)
 	}
 	f := &fakeFiler{}
-	s := NewServer(t.TempDir()).WithFiler(f)
+	s := newTestServer(t.TempDir()).WithFiler(f)
 	resp := callTool(t, s, WithCaller(context.Background(), c), "autarch_file_decision", decisionArgs())
 	if resp.Error != nil || f.runs != 1 {
 		t.Fatalf("stdio caller could not file: %+v runs %d", resp, f.runs)
@@ -126,7 +127,7 @@ func TestMCPStdioCallerIsExplicitAndBounded(t *testing.T) {
 func TestMCPFileDecisionNonStringProjectFieldsAreErrorsNotPanics(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "")
 	f := &fakeFiler{}
-	s := NewServer(t.TempDir()).WithFiler(f)
+	s := newTestServer(t.TempDir()).WithFiler(f)
 	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
 	for _, bad := range []map[string]any{{"project_root": 5}, {"project_root": nil}, {"project_root": "/tmp/x", "project": []string{"a"}}} {
 		args := decisionArgs()
@@ -148,7 +149,7 @@ func TestMCPDefaultFilerIsACardFiler(t *testing.T) {
 	old := newDefaultFiler
 	t.Cleanup(func() { newDefaultFiler = old })
 	newDefaultFiler = func() homeask.Filer {
-		return &homeask.CardFiler{LockDir: t.TempDir(), TasksProject: "P1", Run: func(_ context.Context, e []string, args ...string) homeask.BBResult {
+		return &homeask.CardFiler{Now: func() time.Time { return time.Date(2026, 11, 13, 20, 0, 0, 0, time.UTC) }, LockDir: t.TempDir(), TasksProject: "P1", Run: func(_ context.Context, e []string, args ...string) homeask.BBResult {
 			calls = append(calls, args)
 			j := func(v string) homeask.BBResult { return homeask.BBResult{Stdout: []byte(v)} }
 			switch strings.Join(args[:min(len(args), 3)], " ") {
@@ -174,7 +175,7 @@ func TestMCPDefaultFilerIsACardFiler(t *testing.T) {
 		}}
 	}
 	t.Setenv("BB_THREAD_ID", "")
-	s := NewServer(t.TempDir())
+	s := newTestServer(t.TempDir())
 	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
 	resp := callTool(t, s, ctx, "autarch_file_decision", decisionArgs())
 	if resp.Error != nil || !strings.Contains(marshal(resp.Result), "T1") {
@@ -189,5 +190,62 @@ func TestMCPDefaultFilerIsACardFiler(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(seq, ","), "tasks create,tasks comment") || len(env) != 1 || env[0] != "BB_THREAD_ID=thr-m" {
 		t.Fatalf("seq %v env %v", seq, env)
+	}
+}
+
+// boundBB answers only the binding reads for tasks board P1 bound to the Home project
+// "shadow-work" and records every call, so a test can tell whether filing went any further.
+type boundBB struct{ calls []string }
+
+func (b *boundBB) run(_ context.Context, _ []string, args ...string) homeask.BBResult {
+	b.calls = append(b.calls, strings.Join(args, " "))
+	switch strings.Join(args[:min(len(args), 3)], " ") {
+	case "tasks project list":
+		return homeask.BBResult{Stdout: []byte(`{"projects":[{"id":"P1","name":"Shadow","prefix":"SHWK"}]}`)}
+	case "home binding P1":
+		return homeask.BBResult{Stdout: []byte(`{"home_project":"shadow-work","state":"confirmed"}`)}
+	}
+	return homeask.BBResult{Code: 1, Stderr: []byte("unexpected: " + strings.Join(args, " "))}
+}
+
+// B4: a project that is not the one bound to the card's task board is hidden by Home, so the
+// tool must refuse it with the expected project and reach no filing call.
+func TestMCPFileDecisionRefusesAProjectHomeWouldHide(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "")
+	bb := &boundBB{}
+	s := newTestServer(t.TempDir()).WithFiler(&homeask.CardFiler{Run: bb.run, LockDir: t.TempDir(), TasksProject: "P1"})
+	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
+	args := decisionArgs()
+	args["project"], args["project_root"] = "shadow-workipedia", "/srv/shadow"
+	resp := callTool(t, s, ctx, "autarch_file_decision", args)
+	result, _ := resp.Result.(map[string]any)
+	if resp.Error == nil && result["isError"] != true {
+		t.Fatalf("filed a card Home would hide: %+v", resp)
+	}
+	if !strings.Contains(marshal(resp), `expected project \"shadow-work\"`) {
+		t.Fatalf("refusal does not name the bound project: %s", marshal(resp))
+	}
+	for _, c := range bb.calls {
+		if !strings.HasPrefix(c, "tasks project list") && !strings.HasPrefix(c, "home binding") {
+			t.Fatalf("filing went on after the check: %v", bb.calls)
+		}
+	}
+}
+
+// boundDefaultFiler is a filer that knows the Home project its task board is bound to.
+type boundDefaultFiler struct{ fakeFiler }
+
+func (*boundDefaultFiler) DefaultAskProject(context.Context) string { return "shadow-work" }
+
+// B5: with no project, the tool takes the board's bound project, not the folder name.
+func TestMCPFileDecisionDefaultsTheProjectToTheBoardBinding(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "")
+	root := t.TempDir() + "/Autarch-project-visit"
+	f := &boundDefaultFiler{}
+	s := newTestServer(root).WithFiler(f)
+	ctx := WithCaller(context.Background(), CallerInfo{AgentID: "w", Scopes: []string{"write"}})
+	resp := callTool(t, s, ctx, "autarch_file_decision", decisionArgs())
+	if resp.Error != nil || f.got.Project != "shadow-work" {
+		t.Fatalf("resp=%+v project=%q", resp, f.got.Project)
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,25 +56,36 @@ type BBRunner func(ctx context.Context, env []string, args ...string) BBResult
 
 // CardFiler files cards. The zero value works: it runs `bb` from PATH.
 type CardFiler struct {
-	Bin     string        // default "bb"
-	Timeout time.Duration // per bb call, default 10 s
-	Run     BBRunner      // default: exec Bin
-	LockDir string        // default ${XDG_RUNTIME_DIR:-/tmp}/autarch-needsmk-<uid>
+	pilotSnapshot Pilots // release-scoped configuration, nil outside release
+	ColdReader    ColdReader
+	Links         LinkChecker
+	StateDir      string           // persistent filing state; default XDG_STATE_HOME/autarch/needsmk
+	WeeklyBudget  int              // Deprecated: ignored; retained for caller compatibility.
+	Now           func() time.Time // test clock; default time.Now
+	Bin           string           // default "bb"
+	Timeout       time.Duration    // per bb call, default 10 s
+	Run           BBRunner         // default: exec Bin
+	LockDir       string           // default ${XDG_RUNTIME_DIR:-/tmp}/autarch-needsmk-<uid>
 	// TasksProjects maps a Home project name (case-insensitive) to the tasks project (id, key
-	// prefix or name) File and FileForPull file its cards into. It is the operator's binding:
+	// prefix or name) File files its cards into. It is the operator's binding:
 	// the filer never guesses a tasks project from names (a name match is only the poller's
 	// "suggested" binding, which mk confirms in Home Settings).
 	TasksProjects map[string]string
 	// TasksProject is the tasks project used for a Home project with no TasksProjects entry.
 	TasksProject string
-	// ConfigErr, when set, makes File and FileForPull refuse (ErrInvalid): the binding config was
+	// ConfigErr, when set, makes File refuse (ErrInvalid): the binding config was
 	// unreadable, so nothing may be filed against a guess.
 	ConfigErr error
 	// ReadbackTimeout bounds how long FileCard polls `bb home get --card` for the card's card_key after
-	// filing it (Home indexes a card shortly after it exists). Zero reads nothing back.
+	// filing it (Home indexes a card shortly after it exists). Zero reads nothing back. A missing key after a configured wait returns ErrOutcomeUnknown.
 	ReadbackTimeout time.Duration
 	// ReadbackInterval is the pause between polls, default 200 ms.
 	ReadbackInterval time.Duration
+	// Check, when set, vets the (project, root) pair a File call will file under, after the project
+	// has been resolved against the board binding (see PrepareAsk). Nil skips the check.
+	Check ProjectCheck
+	// Warn, when set, receives the non-fatal warning PrepareAsk returns during File. Nil drops it.
+	Warn func(string)
 }
 
 // Environment variables CardFilerFromEnv reads.
@@ -123,11 +135,23 @@ type RootRunSpec = RootRun
 
 // CardRequest is one filing.
 type CardRequest struct {
-	Project string         // tasks project: id, key prefix or name; always passed as --project
-	Title   string         // the card title
-	Blocks  []string       // Blocks refs (bead:, thread:, project:)
-	Ask     map[string]any // the home-ask/v2 object; schema is filled in
-	RootRun *RootRunSpec
+	replayEntry  *filingEntry           // internal verified replay target
+	replacesHeld string                 // internal escalation source, never part of the wire or saved JSON
+	beforeCreate func(string) error     // record an update falling back to create
+	afterUpdate  func(CardResult) error // persist a successful edit before its ruling read
+
+	Urgent      bool
+	KeepList    string
+	NonBlocking bool
+	UI          bool
+	Attachments []string
+	Type        string         // filing category: product, design, play, merge or other
+	VizierOwned bool           // explicit ownership declaration for CLI preflight
+	Project     string         // tasks project: id, key prefix or name; always passed as --project
+	Title       string         // the card title
+	Blocks      []string       // Blocks refs (bead:, thread:, project:)
+	Ask         map[string]any // the home-ask/v2 object; schema is filled in
+	RootRun     *RootRunSpec
 	// Move is an optional home-move/v1 object (what mk owes). It is validated by ParseMove, written as a fenced
 	// block, and the card is labelled mk-move. Home never executes it.
 	Move   map[string]any
@@ -142,13 +166,17 @@ type CardRequest struct {
 
 // CardResult is what a successful filing returns.
 type CardResult struct {
-	ID      string `json:"card"`
-	Key     string `json:"request"`
-	Project string `json:"project,omitempty"`
+	ownerAttention string      // successful recovery can still need owner handoff
+	Budget         *CardBudget `json:"budget,omitempty"`
+	Queued         bool        `json:"queued,omitempty"`
+	HoldReason     string      `json:"-"` // delivery metadata for the typed held outcome
+	ID             string      `json:"card"`
+	Key            string      `json:"request"`
+	Project        string      `json:"project,omitempty"`
 	// Replay is true when the card already existed (a routing comment may still have been repaired).
-	Replay bool `json:"replay"`
-	// CardKey is Home's card_key for the card, read back after filing. Empty when readback is off or Home had
-	// not indexed the card within ReadbackTimeout.
+	Replay  bool `json:"replay"`
+	Updated bool `json:"updated,omitempty"`
+	// CardKey is Home's card_key for the card, read back after filing. Empty on success when readback is off or skipped for a pull.
 	CardKey string `json:"card_key,omitempty"`
 }
 
@@ -178,16 +206,34 @@ var _ CardLister = (*CardFiler)(nil)
 
 // ---- identity and description -------------------------------------------------------
 
+// readOnlyAskMetadata is excluded from request identity and refused by the
+// description writer until metadata writing is supported. Keep both consumers
+// on this policy when enabling a metadata field.
+var readOnlyAskMetadata = [...]string{subjectKeyMetadata, signalsMetadata}
+
+// Shared wire names keep parsing and the read-only writing policy aligned.
+const (
+	subjectKeyMetadata = "subject_key"
+	signalsMetadata    = "signals"
+)
+
 // RequestIdentity is hash H1 (plan 1.2): the first 16 hex characters of the sha256 of the
 // canonical JSON of {project, title, blocks sorted, ask, root_run}. The tasks project is not
 // part of it, so the same ask filed into two tasks projects is one Request. It is compared
 // only by the filer.
 func RequestIdentity(r CardRequest) (string, error) {
+	r.Ask = maps.Clone(r.Ask)
+	for _, key := range readOnlyAskMetadata {
+		delete(r.Ask, key)
+	}
 	ask, err := r.wireAsk()
 	if err != nil {
 		return "", err
 	}
 	blocks := dedupe(r.Blocks)
+	// Delivery evidence never changes the Request identity or an evidence-only update.
+	delete(ask, "evidence")
+	delete(ask, "group")
 	sort.Strings(blocks)
 	node := map[string]any{"project": ask["project"], "title": r.Title, "blocks": toAny(blocks), "ask": ask}
 	if r.RootRun != nil {
@@ -233,6 +279,11 @@ func (r CardRequest) wireAsk() (map[string]any, error) {
 	if r.Ask == nil {
 		return nil, fmt.Errorf("%w: no ask", ErrInvalid)
 	}
+	for _, key := range readOnlyAskMetadata {
+		if _, ok := r.Ask[key]; ok {
+			return nil, fmt.Errorf("%w: %s is not writable yet", ErrInvalid, key)
+		}
+	}
 	m := make(map[string]any, len(r.Ask)+2)
 	for k, v := range r.Ask {
 		m[k] = v
@@ -241,6 +292,20 @@ func (r CardRequest) wireAsk() (map[string]any, error) {
 		return nil, fmt.Errorf("%w: ask schema must be home-ask/v2", ErrInvalid)
 	}
 	m["schema"] = "home-ask/v2"
+	if raw, ok := m["group"]; ok {
+		group, err := groupFromWire(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		m["group"] = group
+	}
+	if raw, ok := m["evidence"]; ok {
+		evidence, err := evidenceFromWire(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		m["evidence"] = evidence
+	}
 	if r.Pull {
 		m["pull"] = "mycroft"
 	} else if _, ok := m["pull"]; ok {
@@ -400,7 +465,11 @@ func (f *CardFiler) exec(ctx context.Context, env []string, args ...string) BBRe
 	}
 	bin := f.Bin
 	if bin == "" {
-		bin = "bb"
+		resolved, err := ResolveBBBinary()
+		if err != nil {
+			return BBResult{Err: err}
+		}
+		bin = resolved
 	}
 	ctx, cancel := context.WithTimeout(ctx, f.timeout())
 	defer cancel()
@@ -443,7 +512,8 @@ func (r BBResult) text() string {
 	return s
 }
 
-// call runs bb and decodes its JSON stdout into out. Any failure is "unavailable".
+// call runs bb and decodes its JSON stdout into out. Failures are unavailable
+// unless a label lookup explicitly identifies a missing project.
 func (f *CardFiler) call(ctx context.Context, thread string, out any, args ...string) error {
 	return f.callEnv(ctx, cardEnv(thread), out, args...)
 }
@@ -451,6 +521,17 @@ func (f *CardFiler) call(ctx context.Context, thread string, out any, args ...st
 func (f *CardFiler) callEnv(ctx context.Context, env []string, out any, args ...string) error {
 	r := f.exec(ctx, env, args...)
 	if r.failed() {
+		// Only a completed label lookup with an explicit project diagnostic proves
+		// this request fault; timeouts and execution failures remain outages.
+		if r.Err == nil && !r.TimedOut && len(args) >= 5 &&
+			strings.Join(args[:3], " ") == "tasks label list" && args[3] == "--project" {
+			text := strings.TrimPrefix(strings.ToLower(r.text()), "error: ")
+			// This depends on bb's exact "project not found: <p>" wording.
+			// Anything else deliberately falls back to ErrHomeDown.
+			if text == "project not found: "+strings.ToLower(args[4]) {
+				return fmt.Errorf("%w: %q", ErrProjectNotFound, args[4])
+			}
+		}
 		return fmt.Errorf("%w: bb %s: %s", ErrHomeDown, strings.Join(args[:min(len(args), 3)], " "), r.text())
 	}
 	if out == nil {
@@ -532,10 +613,12 @@ func (f *CardFiler) registry(ctx context.Context, key string) (registryAnswer, e
 // ---- tasks reads ---------------------------------------------------------------------
 
 type taskRow struct {
+	Title       string `json:"title"`
 	ID          string `json:"id"`
 	ProjectID   string `json:"projectId"`
 	CreatedAt   string `json:"createdAt"`
 	Description string `json:"description"`
+	Status      string `json:"status"`
 }
 
 type shown struct {
@@ -661,7 +744,10 @@ func (f *CardFiler) locate(ctx context.Context, key, ident string) (*found, erro
 		s, err := f.show(ctx, reg.TaskID)
 		moved := fmt.Errorf("%w: Request %s is registered to card %s, which was deleted or changed; use a new Request", ErrInvalid, key, reg.TaskID)
 		if errors.Is(err, errTaskGone) {
-			return nil, moved
+			if reg.Identity != ident {
+				return nil, errReused
+			}
+			return nil, &registeredCardGoneError{Key: key, CardID: reg.TaskID}
 		}
 		if err != nil {
 			return nil, err
@@ -685,8 +771,14 @@ func (f *CardFiler) locate(ctx context.Context, key, ident string) (*found, erro
 	return c, nil
 }
 
-// ErrForeignPullCard: the card registered under a pull's legacy key is not that Mycroft pull.
-var ErrForeignPullCard = fmt.Errorf("%w: foreign card under the pull key", ErrInvalid)
+// registeredCardGoneError proves the registry still binds this request identity
+// to a card that Tasks reports deleted. Changed or reused cards never use it.
+type registeredCardGoneError struct{ Key, CardID string }
+
+func (e *registeredCardGoneError) Error() string {
+	return fmt.Sprintf("%v: Request %s is registered to card %s, which was deleted or changed; use a new Request", ErrInvalid, e.Key, e.CardID)
+}
+func (e *registeredCardGoneError) Unwrap() error { return ErrInvalid }
 
 var errReused = fmt.Errorf("%w: Request reused for a different card", ErrInvalid)
 
@@ -770,9 +862,17 @@ func (f *CardFiler) comment(ctx context.Context, thread, id, key string) error {
 // replay finishes a filing whose card already exists: it never succeeds before the routing
 // comment exists, and it refuses a card routed to another thread.
 func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (CardResult, error) {
-	res := CardResult{ID: c.ID, Key: req.Key, Replay: true}
+	res := CardResult{ID: c.ID, Key: req.Key, Project: c.ProjectID, Replay: true}
+	attachments := []string{}
+	for _, p := range req.Attachments {
+		if _, err := os.Lstat(p); !os.IsNotExist(err) {
+			attachments = append(attachments, p)
+		}
+	}
+	req.Attachments = attachments
+
 	if req.Pull {
-		return res, nil
+		return res, f.ensureAttachments(ctx, req, c.ID)
 	}
 	agent := false
 	for _, cm := range c.Comments {
@@ -788,46 +888,83 @@ func (f *CardFiler) replay(ctx context.Context, req CardRequest, c *found) (Card
 				return CardResult{}, err
 			}
 		}
+		if err := f.ensureAttachments(ctx, req, c.ID); err != nil {
+			return res, err
+		}
 		return res, f.comment(ctx, req.routeThread(), c.ID, req.Key)
 	case asking == "":
 		return CardResult{}, fmt.Errorf("%w: Request %s is on card %s, whose first agent comment carries no thread", ErrInvalid, req.Key, c.ID)
 	case asking != req.routeThread():
 		return CardResult{}, fmt.Errorf("%w: Request %s filed from thread %s", ErrInvalid, req.Key, asking)
 	}
-	return res, nil
+	return res, f.ensureAttachments(ctx, req, c.ID)
 }
 
 // FileCard files one card, or finds the card this Request already filed.
 func (f *CardFiler) FileCard(ctx context.Context, req CardRequest) (CardResult, error) {
+	return f.submit(ctx, req, "", false)
+}
+
+func (f *CardFiler) fileCardReadback(ctx context.Context, req CardRequest) (CardResult, error) {
 	res, err := f.fileCard(ctx, req)
 	if err == nil && !req.Pull && res.ID != "" && f.ReadbackTimeout > 0 {
-		res.CardKey = f.awaitCardKey(ctx, res.ID)
+		return f.withCardKey(ctx, res)
 	}
 	return res, err
 }
 
+func (f *CardFiler) withCardKey(ctx context.Context, res CardResult) (CardResult, error) {
+	var err error
+	var callerDeadline bool
+	res.CardKey, callerDeadline, err = f.awaitCardKey(ctx, res.ID, res.Project)
+	if err != nil {
+		return res, err
+	}
+	if res.CardKey == "" {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return res, fmt.Errorf("%w: card %s may have been filed but card_key was not indexed: wait was cancelled; re-run with --request %s and unchanged input to replay without duplicating it", ErrOutcomeUnknown, res.ID, res.Key)
+		}
+		if callerDeadline {
+			return res, fmt.Errorf("%w: card %s may have been filed but card_key was not indexed before the caller's deadline; re-run with --request %s and unchanged input to replay without duplicating it", ErrOutcomeUnknown, res.ID, res.Key)
+		}
+		return res, fmt.Errorf("%w: card %s may have been filed but card_key was not indexed within %s; re-run with --request %s and unchanged input to replay without duplicating it", ErrOutcomeUnknown, res.ID, f.ReadbackTimeout, res.Key)
+	}
+	return res, nil
+}
+
 // awaitCardKey polls `bb home get --card` until Home reports the card's card_key or ReadbackTimeout passes
 // (one read is always made). Home indexes a card shortly after it exists, so a caller that reads the key
-// right after filing would otherwise miss it. It returns "" when Home has not indexed the card in time.
-func (f *CardFiler) awaitCardKey(ctx context.Context, id string) string {
+// right after filing would otherwise miss it. It returns an empty key and nil error when Home
+// has not indexed the card in time, or a permanent scope error immediately when the card
+// belongs to another project.
+// The boolean reports whether the caller deadline limited the wait, even when polling stops
+// before that deadline because there is not enough time for another interval.
+func (f *CardFiler) awaitCardKey(ctx context.Context, id, project string) (string, bool, error) {
 	interval := f.ReadbackInterval
 	if interval <= 0 {
 		interval = 200 * time.Millisecond
 	}
 	// The deadline is on the context, so a stalled read is cut off at ReadbackTimeout, not at the per-call timeout.
-	ctx, cancel := context.WithTimeout(ctx, f.ReadbackTimeout)
+	readbackDeadline := time.Now().Add(f.ReadbackTimeout)
+	callerLimit, hasCallerDeadline := ctx.Deadline()
+	callerDeadline := hasCallerDeadline && callerLimit.Before(readbackDeadline)
+	ctx, cancel := context.WithDeadline(ctx, readbackDeadline)
 	defer cancel()
 	deadline, _ := ctx.Deadline()
 	for {
-		if v, err := f.Card(ctx, id); err == nil && v.CardKey != "" {
-			return v.CardKey
+		v, err := f.cardInProject(ctx, id, project)
+		if errors.Is(err, ErrCardProjectMismatch) {
+			return "", callerDeadline, err
+		}
+		if err == nil && strings.TrimSpace(v.CardKey) != "" {
+			return strings.TrimSpace(v.CardKey), callerDeadline, nil
 		}
 		if !time.Now().Add(interval).Before(deadline) {
-			return ""
+			return "", callerDeadline, nil
 		}
 		select {
 		case <-ctx.Done():
-			return ""
+			return "", callerDeadline, nil
 		case <-time.After(interval):
 		}
 	}
@@ -861,7 +998,20 @@ func CheckOptionIDs(ask map[string]any) error {
 	return nil
 }
 
-func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, error) {
+// errNoCardWritten is evidence from the delivery path, never inferred from an empty result.
+var errNoCardWritten = errors.New("no card was written")
+
+func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (result CardResult, resultErr error) {
+	noWrite := true
+	defer func() {
+		if noWrite && resultErr != nil {
+			resultErr = errors.Join(errNoCardWritten, resultErr)
+		}
+	}()
+
+	if err := CheckStopped(req.Ask); err != nil {
+		return CardResult{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
 	if !req.Pull && req.Thread == "" {
 		return CardResult{}, fmt.Errorf("%w: BB_THREAD_ID is required: the asking thread routes the card", ErrInvalid)
 	}
@@ -876,6 +1026,9 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 	}
 	desc, ident, err := req.Description()
 	if err != nil {
+		return CardResult{}, err
+	}
+	if err := f.PreflightOnPick(ctx, req); err != nil {
 		return CardResult{}, err
 	}
 	path, err := f.lockPath(req.Key)
@@ -896,6 +1049,7 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 			return CardResult{}, err
 		}
 	}
+	noWrite = false // Registry and replay failures can refer to an existing card.
 	c, err := f.locate(ctx, req.Key, ident)
 	if err != nil {
 		return CardResult{}, err
@@ -906,6 +1060,10 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 		return res, err
 	}
 
+	noWrite = true // Registry and search proved this request absent.
+	if err := f.CheckUI(req); err != nil {
+		return CardResult{}, err
+	}
 	if req.Owner != "" {
 		if err := f.checkOwnerLive(ctx, req.Owner); err != nil {
 			return CardResult{}, err
@@ -921,12 +1079,19 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 		return CardResult{}, fmt.Errorf("%w: %v", ErrHomeDown, err)
 	}
 	var created struct {
-		Task taskRow `json:"task"`
+		Task              taskRow           `json:"task"`
+		FailedAttachments []json.RawMessage `json:"failedAttachments"`
 	}
 	createArgs := []string{"tasks", "create", "--project", req.Project, "--title", req.Title, "--description-file", file, "--label", NeedsMkLabel}
 	if req.Move != nil {
 		createArgs = append(createArgs, "--label", MoveLabel)
 	}
+	if req.beforeCreate != nil {
+		if err := req.beforeCreate(req.Key); err != nil {
+			return CardResult{}, err
+		}
+	}
+	noWrite = false // From here even a lost reply can mean the create succeeded.
 	r := f.exec(ctx, cardEnv(req.Thread), append(createArgs, "--json")...)
 	if r.failed() || json.Unmarshal(r.Stdout, &created) != nil || created.Task.ID == "" {
 		// The card may have been written before the answer was lost: look again, under the same lock.
@@ -944,6 +1109,15 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (CardResult, 
 		return res, err
 	}
 	res := CardResult{ID: created.Task.ID, Key: req.Key, Project: created.Task.ProjectID}
+	if err := f.noteDelivery(req.Key, res); err != nil {
+		return res, err
+	}
+	if len(created.FailedAttachments) > 0 {
+		return res, fmt.Errorf("%w: card exists but attachment upload failed; retry the same request with --attach", ErrOutcomeUnknown)
+	}
+	if err := f.ensureAttachments(ctx, req, res.ID); err != nil {
+		return res, err
+	}
 	if req.Pull {
 		return res, nil
 	}
@@ -969,6 +1143,9 @@ func wireFromAsk(a Ask) (map[string]any, error) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
+	delete(m, "urgent")
+	delete(m, "keep_list")
+	delete(m, "root_run")
 	for k := range v1Only {
 		delete(m, k)
 	}
@@ -986,7 +1163,7 @@ func titleOf(a Ask) string {
 	return q
 }
 
-// tasksProject is the tasks project File and FileForPull file into: the configured binding for
+// tasksProject is the tasks project File files into: the configured binding for
 // the Home project, else the configured default. There is no name-matching fallback.
 func (f *CardFiler) tasksProject(homeProject string) (string, error) {
 	if f.ConfigErr != nil {
@@ -1003,10 +1180,19 @@ func (f *CardFiler) tasksProject(homeProject string) (string, error) {
 
 // File implements Filer for an ask from a thread: the card is filed and routed to a.Thread. The
 // Request key is a.RequestID, else a UUIDv5 of the ask's identity, so a blind retry is idempotent.
-// It returns the card's task id.
+// It returns the card's task id, or a HeldError carrying the queued request key.
 func (f *CardFiler) File(ctx context.Context, a Ask) (string, error) {
 	if a.Asker == "mycroft" {
-		return "", fmt.Errorf("%w: a threadless ask is filed with FileForPull", ErrInvalid)
+		return "", fmt.Errorf("%w: legacy threadless asks are refused", ErrInvalid)
+	}
+	if rr := a.RootRun; rr != nil {
+		digest, err := HashRootRunScript(rr.Script)
+		if err != nil {
+			return "", fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		if rr.SHA256 != digest {
+			return "", fmt.Errorf("%w: root-run sha256 does not match the script", ErrInvalid)
+		}
 	}
 	wire, err := wireFromAsk(a)
 	if err != nil {
@@ -1020,72 +1206,33 @@ func (f *CardFiler) File(ctx context.Context, a Ask) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	res, err := f.FileCard(ctx, CardRequest{Project: project, Title: titleOf(a), Ask: wire, Key: key, Thread: a.Thread})
+	// The check runs on the project the caller gave; the card is filed under the bound name.
+	bound, warn, err := f.PrepareAsk(ctx, project, a.Project, a.ProjectRoot)
+	if warn != "" && f.Warn != nil {
+		f.Warn(warn)
+	}
+	if err != nil {
+		return "", err
+	}
+	if bound != a.Project {
+		a.Project = bound
+		if wire, err = wireFromAsk(a); err != nil {
+			return "", err
+		}
+	}
+	typ := ""
+	if IsMergeAsk(wire) {
+		typ = "merge"
+	}
+	res, err := f.FileCard(ctx, CardRequest{Project: project, Title: titleOf(a), Ask: wire, Key: key, Thread: a.Thread, Type: typ, Urgent: a.Urgent, KeepList: a.KeepList, RootRun: a.RootRun})
+	if err == nil && res.Queued {
+		return "", &HeldError{RequestKey: res.Key, Reason: res.HoldReason}
+	}
 	return res.ID, err
 }
 
 // needsMkNS is the UUIDv5 namespace of derived Request keys.
 var needsMkNS = uuid.NewSHA1(uuid.NameSpaceURL, []byte("https://autarch.invalid/needs-mk"))
-
-// PullKey is the Request key of a pull filing: the UUIDv5 of the rev-4 key
-// mycroft:<project>:<bead>:<agent>.
-func PullKey(legacyKey string) string {
-	return uuid.NewSHA1(needsMkNS, []byte(legacyKey)).String()
-}
-
-// FileForPull is mk question 4's default, and the only threadless way to file: Mycroft's pull
-// asks. It writes "pull":"mycroft" and posts no comment; the card is forgeable and carries no
-// routing authority. It is called only from cmd/mycroft, and the autarch CLI has no flag for it.
-//
-// The rev-4 key mycroft:<project>:<bead>:<agent> (a.RequestID) is looked up first, in Home's
-// registry: while the legacy ask is open nothing is filed. It returns the card's task id, or the
-// open legacy ask's decision id.
-func (f *CardFiler) FileForPull(ctx context.Context, a Ask) (string, error) {
-	if a.Asker != "mycroft" || !strings.HasPrefix(a.RequestID, "mycroft:") {
-		return "", fmt.Errorf("%w: a pull ask needs asker mycroft and a mycroft:<project>:<bead>:<agent> request id", ErrInvalid)
-	}
-	reg, err := f.registry(ctx, a.RequestID)
-	if err != nil {
-		return "", err
-	}
-	switch reg.Status {
-	case "legacy":
-		if reg.State == "open" {
-			return reg.DecisionID, nil
-		}
-		return "", fmt.Errorf("%w: %s", ErrAlreadyRuled, a.RequestID)
-	case "registered":
-		// The legacy key is predictable, so any same-uid filer can register a card under it. Report the card as
-		// this pull only when its parsed body says so: a Mycroft pull card, under this key, for this ask.
-		s, err := f.show(ctx, reg.TaskID)
-		if err != nil {
-			return "", err
-		}
-		c, perr := ParseCard(s.Task.Description)
-		wire, werr := wireFromAsk(a)
-		var want string
-		if werr == nil {
-			want, werr = RequestIdentity(CardRequest{Title: titleOf(a), Ask: wire, Pull: true})
-		}
-		if werr != nil {
-			return "", werr
-		}
-		if perr != nil || c.Pull != "mycroft" || c.Request.Key != a.RequestID || reg.Identity != want || c.Request.Identity != want {
-			return "", fmt.Errorf("%w: card %s registered under %s is not that Mycroft pull", ErrForeignPullCard, reg.TaskID, a.RequestID)
-		}
-		return reg.TaskID, nil
-	}
-	wire, err := wireFromAsk(a)
-	if err != nil {
-		return "", err
-	}
-	project, err := f.tasksProject(a.Project)
-	if err != nil {
-		return "", err
-	}
-	res, err := f.FileCard(ctx, CardRequest{Project: project, Title: titleOf(a), Ask: wire, Key: PullKey(a.RequestID), Pull: true})
-	return res.ID, err
-}
 
 // List implements Lister: `bb home list --asker X --json`.
 func (f *CardFiler) List(ctx context.Context, asker string) ([]ListRow, error) {
@@ -1112,6 +1259,26 @@ func (f *CardFiler) Card(ctx context.Context, taskID string) (CardView, error) {
 	return v, err
 }
 
+// ErrCardProjectMismatch is a permanent invalid-scope outcome, not a Home outage.
+var ErrCardProjectMismatch = fmt.Errorf("%w: card project mismatch", ErrInvalid)
+
+// cardInProject checks filing readback against the Tasks project returned by Tasks,
+// without requiring a plugin project flag. An empty filed project disables the check.
+// Card retains its unscoped interface for fleet readers.
+// An empty project_id means Home has not indexed the card yet (ErrHomeDown):
+// post-create polling retries it; the update path returns exit 3 so a re-run is safe.
+func (f *CardFiler) cardInProject(ctx context.Context, taskID, project string) (CardView, error) {
+	var v CardView
+	err := f.callEnv(ctx, unscopedEnv(""), &v, "home", "get", "--card", taskID, "--json")
+	if err == nil && project != "" && v.ProjectID == "" {
+		return v, fmt.Errorf("%w: card %s has no Tasks project in readback", ErrHomeDown, taskID)
+	}
+	if err == nil && project != "" && v.ProjectID != "" && v.ProjectID != project {
+		return v, fmt.Errorf("%w: card %s belongs to Tasks project %q, expected %q", ErrCardProjectMismatch, taskID, v.ProjectID, project)
+	}
+	return v, err
+}
+
 // DerivedKey is the Request key `autarch needs-mk file` uses when --request is absent: the
 // UUIDv5 of the asking thread and the request's identity, so a blind retry of the same ask from
 // the same thread is idempotent and a different ask never collides.
@@ -1126,6 +1293,30 @@ func DerivedKey(thread, ident string) string {
 // rejected binding leaves the ask alone (Home shows the card flagged) and returns a warning for the
 // caller to print; a Home too old to answer leaves it alone silently.
 func (f *CardFiler) ResolveAskProject(ctx context.Context, tasksProject, askProject string) (string, string, error) {
+	b, ok := f.binding(ctx, tasksProject)
+	if !ok {
+		return askProject, "", nil
+	}
+	if b.home == "" {
+		// Fails open (the card still shows, flagged with a Bind button), but say so at file time.
+		return askProject, fmt.Sprintf("tasks project %q has no confirmed Home project binding; the card will show in Home flagged \"project not bound\" until the vizier runs `bb home bind` or mk clicks Bind", tasksProject), nil
+	}
+	if askProject == b.home {
+		return askProject, "", nil
+	}
+	if b.prefix != "" && strings.EqualFold(askProject, b.prefix) {
+		return b.home, "", nil
+	}
+	return "", "", fmt.Errorf("%w: ask project %q is not the Home project bound to tasks project %q; expected project %q (the tasks key %q is also accepted)", ErrInvalid, askProject, tasksProject, b.home, b.prefix)
+}
+
+// projectBinding is what Home records for a tasks project: home is the confirmed Home project name,
+// empty when the binding is unbound, suggested or rejected.
+type projectBinding struct{ home, prefix string }
+
+// binding reads the tasks project's Home binding. ok is false when it cannot be read (the tasks
+// project is unknown, or Home is too old to answer), so the caller leaves the ask alone.
+func (f *CardFiler) binding(ctx context.Context, tasksProject string) (projectBinding, bool) {
 	var projects struct {
 		Projects []struct {
 			ID     string `json:"id"`
@@ -1134,7 +1325,7 @@ func (f *CardFiler) ResolveAskProject(ctx context.Context, tasksProject, askProj
 		} `json:"projects"`
 	}
 	if err := f.call(ctx, "", &projects, "tasks", "project", "list", "--json"); err != nil {
-		return askProject, "", nil
+		return projectBinding{}, false
 	}
 	id, prefix := "", ""
 	for _, p := range projects.Projects {
@@ -1144,25 +1335,17 @@ func (f *CardFiler) ResolveAskProject(ctx context.Context, tasksProject, askProj
 		}
 	}
 	if id == "" {
-		return askProject, "", nil
+		return projectBinding{}, false
 	}
 	var b struct {
 		Home  *string `json:"home_project"`
 		State *string `json:"state"`
 	}
 	if err := f.call(ctx, "", &b, "home", "binding", id); err != nil {
-		return askProject, "", nil
+		return projectBinding{}, false
 	}
 	if b.Home == nil || b.State == nil || *b.State != "confirmed" {
-		// Fails open (the card still shows, flagged with a Bind button), but say so at file time.
-		return askProject, fmt.Sprintf("tasks project %q has no confirmed Home project binding; the card will show in Home flagged \"project not bound\" until the vizier runs `bb home bind` or mk clicks Bind", tasksProject), nil
+		return projectBinding{prefix: prefix}, true
 	}
-	home := *b.Home
-	if askProject == home {
-		return askProject, "", nil
-	}
-	if prefix != "" && strings.EqualFold(askProject, prefix) {
-		return home, "", nil
-	}
-	return "", "", fmt.Errorf("%w: ask project %q is not the Home project bound to tasks project %q; expected project %q (the tasks key %q is also accepted)", ErrInvalid, askProject, tasksProject, home, prefix)
+	return projectBinding{home: *b.Home, prefix: prefix}, true
 }

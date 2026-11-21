@@ -217,7 +217,7 @@ func (r *SprintCommandRouter) handleSprint(ctx context.Context, args []string) (
 
 func (r *SprintCommandRouter) handleDispatch(ctx context.Context, args []string) (<-chan pkgtui.StreamMsg, error) {
 	if len(args) < 1 {
-		return immediateResponse("Usage: /dispatch list | /dispatch spawn <type> [name]"), nil
+		return immediateResponse("Usage: /dispatch list"), nil
 	}
 
 	sub := strings.ToLower(args[0])
@@ -242,41 +242,10 @@ func (r *SprintCommandRouter) handleDispatch(ctx context.Context, args []string)
 		}), nil
 
 	case "spawn":
-		if len(args) < 2 {
-			return immediateResponse("Usage: /dispatch spawn <type> [name]"), nil
-		}
-		dispType := args[1]
-		dispName := ""
-		if len(args) > 2 {
-			dispName = strings.Join(args[2:], " ")
-		}
-		cc := r.cclient
-		return asyncResponse(func() string {
-			runs, err := ic.RunList(ctx, true)
-			if err != nil || len(runs) == 0 {
-				return "No active sprint — create one first."
-			}
-			opts := []intercore.DispatchOption{intercore.WithDispatchType(dispType)}
-			if dispName != "" {
-				opts = append(opts, intercore.WithDispatchName(dispName))
-			}
-			id, err := ic.DispatchSpawn(ctx, runs[0].ID, opts...)
-			if err != nil {
-				return fmt.Sprintf("Spawn failed: %s", err)
-			}
-			// Track agent in OS layer (best-effort).
-			if cc != nil {
-				name := dispName
-				if name == "" {
-					name = dispType
-				}
-				_ = cc.TrackAgent(ctx, runs[0].ID, name, dispType, id)
-			}
-			return fmt.Sprintf("Spawned dispatch **%s** (type: %s)", id, dispType)
-		}), nil
+		return immediateResponse(dispatchUnavailableMsg), nil
 
 	default:
-		return immediateResponse(fmt.Sprintf("Unknown: /dispatch %s\nAvailable: list, spawn", sub)), nil
+		return immediateResponse(fmt.Sprintf("Unknown: /dispatch %s\nAvailable: list", sub)), nil
 	}
 }
 

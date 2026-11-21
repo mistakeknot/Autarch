@@ -3,7 +3,7 @@
 // Ownership is stored on the decision at filing (the ask's owner, else the
 // machineOwners setting for its class), so a later settings change never moves a
 // blocker that already has an owner. Every lifecycle change is one transaction.
-import { parseAsk } from "./model.js";
+import { readAsk } from "./askbody.js";
 import type { ObligationInput } from "./store.js";
 import type { Service } from "./service.js";
 
@@ -24,11 +24,12 @@ interface Row {
   resolved_at: string | null;
   withdrawn_at: string | null;
   body_json: string;
+  source?: string;
 }
 
 export interface RunbookGroup {
   thread: string;
-  items: { id: string; subject: string; question: string; steps: string[]; filed_at: string }[];
+  items: { id: string; subject: string; question: string; steps: string[]; filed_at: string; unreadable?: boolean }[];
 }
 export interface LaneEntry {
   id: string;
@@ -37,6 +38,7 @@ export interface LaneEntry {
   owner: string | null;
   detail: string;
   updated_at: string;
+  unreadable?: boolean;
   label?: "unowned machine blocker" | "stalled";
 }
 
@@ -94,27 +96,28 @@ export class Asks {
   runbook(): RunbookGroup[] {
     const groups = new Map<string, RunbookGroup>();
     for (const d of this.open("steps")) {
-      const ask = parseAsk(JSON.parse(d.body_json));
+      const ask = readAsk(d.body_json, {}, d.source);
       const g = groups.get(d.thread) ?? { thread: d.thread, items: [] };
-      g.items.push({ id: d.id, subject: d.subject, question: ask.question, steps: ask.steps ?? [], filed_at: d.filed_at });
+      g.items.push({ id: d.id, subject: d.subject, question: ask?.question ?? "", steps: ask?.steps ?? [], filed_at: d.filed_at, ...(ask ? {} : { unreadable: true }) });
       groups.set(d.thread, g);
     }
     return [...groups.values()];
   }
 
   /** The machine lane (owned, fresh) and the machine asks that need mk (unowned, or stalled past 24 h). */
-  lists(): { lane: LaneEntry[]; asks: LaneEntry[] } {
+  lists(): { lane: LaneEntry[]; asks: LaneEntry[]; notDelivered: { id: string; subject: string; reason: string; thread: string }[] } {
     const lane: LaneEntry[] = [];
     const asks: LaneEntry[] = [];
     const now = this.msNow();
     for (const d of this.open("machine")) {
-      const ask = parseAsk(JSON.parse(d.body_json));
-      const e: LaneEntry = { id: d.id, subject: d.subject, thread: d.thread, owner: d.owner_thread, detail: ask.machine?.detail ?? "", updated_at: d.updated_at };
+      const ask = readAsk(d.body_json, {}, d.source);
+      const e: LaneEntry = { id: d.id, subject: d.subject, thread: d.thread, owner: d.owner_thread, detail: ask?.machine?.detail ?? "", updated_at: d.updated_at, ...(ask ? {} : { unreadable: true }) };
       if (!d.owner_thread) asks.push({ ...e, label: "unowned machine blocker" });
       else if (now - Date.parse(d.updated_at) > STALL_MS) asks.push({ ...e, label: "stalled" });
       else lane.push(e);
     }
-    return { lane, asks };
+    // Cards held before delivery (bead mk-j5ipa.15): shown read-only under Stalled; they are not asks and never count as owed.
+    return { lane, asks, notDelivered: this.svc.notDelivered() };
   }
 
   // ---- lifecycle --------------------------------------------------------------

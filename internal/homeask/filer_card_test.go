@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // memBB is an in-memory tasks service plus Home registry behind CardFiler.Run. It records every
@@ -26,30 +27,40 @@ type memBB struct {
 	pageSize int
 	calls    [][]string
 	fail     func(args []string) *BBResult // injected failure, nil to proceed
-	// registerOnCreate registers created cards the way the plugin does once it has seen them.
-	registerOnCreate bool
-	afterCreate      func(f *memBB, id string) // runs after a create, to model lost answers
-	seq              int
-	lockDir          string
-	lockHeld         func() bool
+	// registryMode explicitly models whether Home has registered a created card.
+	registryMode registryMode
+	afterCreate  func(f *memBB, id string) // runs after a create, to model lost answers
+	seq          int
+	lockDir      string
+	lockHeld     func() bool
 	// threads is the bb thread table: id to "live" or "archived". An id not in it is not found.
 	threads map[string]string
 }
 
 type fakeTask struct {
-	ID, Project, Created, Desc string
-	Comments                   []Comment
-	Labels                     []string
-	Deleted                    bool
+	ID, Project, Created, Desc, Status, Title string
+	Comments                                  []Comment
+	Labels                                    []string
+	Deleted                                   bool
 }
 
-func newFake(t *testing.T) *memBB {
+type registryMode int
+
+const (
+	registryAbsent registryMode = iota
+	registryOnCreate
+)
+
+func newFake(t *testing.T, mode registryMode) *memBB {
 	return &memBB{t: t, projects: []string{"P1"}, labels: map[string]bool{}, registry: map[string]registryAnswer{},
-		legacy: map[string]registryAnswer{}, pageSize: 2, registerOnCreate: true}
+		legacy: map[string]registryAnswer{}, pageSize: 2, registryMode: mode}
 }
+
+// Filing fixtures use a delivery day; policy tests inject their own clock.
+func filingTestNow() time.Time { return time.Date(2026, 11, 13, 20, 0, 0, 0, time.UTC) }
 
 func (f *memBB) filer() *CardFiler {
-	return &CardFiler{Run: f.run, LockDir: f.t.TempDir(), TasksProject: "P1"}
+	return &CardFiler{Now: filingTestNow, Run: f.run, LockDir: f.t.TempDir(), TasksProject: "P1"}
 }
 
 func okRes(v any) BBResult {
@@ -86,6 +97,9 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 		if r := f.fail(args); r != nil {
 			return *r
 		}
+	}
+	if strings.Join(args, " ") == "plugin rpc call autarch pilotMetrics --json" {
+		return okRes(map[string]any{"metrics": []any{}})
 	}
 	thread := ""
 	for _, kv := range env {
@@ -163,7 +177,7 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 	case cmd == "tasks show "+args[2]:
 		for _, tk := range f.tasks {
 			if tk.ID == args[2] && !tk.Deleted {
-				return okRes(map[string]any{"task": map[string]string{"id": tk.ID, "projectId": tk.Project, "createdAt": tk.Created, "description": tk.Desc}, "comments": tk.Comments})
+				return okRes(map[string]any{"task": map[string]string{"id": tk.ID, "projectId": tk.Project, "createdAt": tk.Created, "description": tk.Desc, "status": tk.Status, "title": tk.Title}, "comments": tk.Comments})
 			}
 		}
 		return *badRes(1, "task not found")
@@ -177,9 +191,9 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 			f.t.Errorf("create without the needs-mk label: %v", args)
 		}
 		f.seq++
-		tk := &fakeTask{Labels: labelFlags(args), ID: fmt.Sprintf("T%d", f.seq), Project: argFlag(args, "--project"), Created: fmt.Sprintf("2026-10-01T00:00:%02d", f.seq), Desc: string(raw)}
+		tk := &fakeTask{Title: argFlag(args, "--title"), Labels: labelFlags(args), ID: fmt.Sprintf("T%d", f.seq), Project: argFlag(args, "--project"), Created: fmt.Sprintf("2026-10-01T00:00:%02d", f.seq), Desc: string(raw)}
 		f.tasks = append(f.tasks, tk)
-		if f.registerOnCreate {
+		if f.registryMode == registryOnCreate {
 			if rl, hit := requestOf(tk.Desc); hit {
 				f.registry[rl.Key] = registryAnswer{Status: "registered", TaskID: tk.ID, Identity: rl.Identity}
 			}
@@ -196,6 +210,9 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 					return *badRes(1, err.Error())
 				}
 				tk.Desc = string(raw)
+				if title := argFlag(args, "--title"); title != "" {
+					tk.Title = title
+				}
 				tk.Labels = append(tk.Labels, argFlag(args, "--add-label"))
 				return okRes(map[string]any{"task": map[string]string{"id": tk.ID}})
 			}
@@ -214,6 +231,9 @@ func (f *memBB) run(ctx context.Context, env []string, args ...string) BBResult 
 			}
 		}
 		return *badRes(1, "task not found")
+	}
+	if strings.HasPrefix(cmd, "home binding") {
+		return *badRes(1, "unknown command") // a Home that cannot answer: the project check fails open
 	}
 	f.t.Errorf("memBB: unexpected call %v", args)
 	return *badRes(1, "unexpected")
@@ -244,8 +264,25 @@ func wantErrIs(t *testing.T, err error, target error) {
 	}
 }
 
+func TestCardRequestMetadataNotWritableYet(t *testing.T) {
+	metadata := subjectVectors(t)[1].Metadata
+	for _, key := range []string{"subject_key", "signals"} {
+		for _, value := range []any{metadata[key], nil} {
+			t.Run(fmt.Sprintf("%s/null=%v", key, value == nil), func(t *testing.T) {
+				req := testReq()
+				req.Ask[key] = value
+				_, _, err := req.Description()
+				wantErrIs(t, err, ErrInvalid)
+				if !strings.Contains(err.Error(), key+" is not writable yet") {
+					t.Fatalf("err = %v, want explicit not-writable-yet error for %s", err, key)
+				}
+			})
+		}
+	}
+}
+
 func TestCardFilerFilesLabelsCreatesAndComments(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	res, err := f.filer().FileCard(context.Background(), testReq())
 	if err != nil || res.Replay || res.ID != "T1" {
 		t.Fatalf("res=%+v err=%v", res, err)
@@ -273,7 +310,7 @@ func TestCardFilerFilesLabelsCreatesAndComments(t *testing.T) {
 }
 
 func TestCardFilerLabelAlreadyInUseIsSuccess(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.fail = func(a []string) *BBResult {
 		if strings.HasPrefix(strings.Join(a, " "), "tasks label list") {
 			return &BBResult{Stdout: []byte(`{"labels":[]}`)}
@@ -287,7 +324,7 @@ func TestCardFilerLabelAlreadyInUseIsSuccess(t *testing.T) {
 }
 
 func TestCardFilerReplaySameThreadIsExit0AndCreatesNothing(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	fl := f.filer()
 	if _, err := fl.FileCard(context.Background(), testReq()); err != nil {
 		t.Fatal(err)
@@ -299,7 +336,7 @@ func TestCardFilerReplaySameThreadIsExit0AndCreatesNothing(t *testing.T) {
 }
 
 func TestCardFilerReplayFromAnotherThreadIsRefused(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	if _, err := f.filer().FileCard(context.Background(), testReq()); err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +350,7 @@ func TestCardFilerReplayFromAnotherThreadIsRefused(t *testing.T) {
 }
 
 func TestCardFilerCommentFailureIsExit4AndRerunRepairsBeforeSuccess(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	failComment := true
 	f.fail = func(a []string) *BBResult {
 		if failComment && len(a) > 1 && a[1] == "comment" {
@@ -334,7 +371,7 @@ func TestCardFilerCommentFailureIsExit4AndRerunRepairsBeforeSuccess(t *testing.T
 }
 
 func TestCardFilerNonAgentCommentIsExit4(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.fail = func(a []string) *BBResult {
 		if len(a) > 1 && a[1] == "comment" {
 			return &BBResult{Stdout: []byte(`{"comment":{"id":"c1","kind":"user","threadId":""}}`)}
@@ -346,7 +383,7 @@ func TestCardFilerNonAgentCommentIsExit4(t *testing.T) {
 }
 
 func TestCardFilerLostCreateAnswerLooksAgainUnderTheLock(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	lost := true
 	f.fail = nil
 	orig := f.afterCreate
@@ -367,7 +404,7 @@ func TestCardFilerLostCreateAnswerLooksAgainUnderTheLock(t *testing.T) {
 }
 
 func TestCardFilerCreateFailureWithNoCardIsExit3(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.fail = func(a []string) *BBResult {
 		if len(a) > 1 && a[1] == "create" {
 			return badRes(1, "connection refused")
@@ -390,7 +427,7 @@ func TestCardFilerRegistryUnavailableCreatesNothing(t *testing.T) {
 		"timeout": func(a []string) *BBResult { return pickCall(a, "home get", &BBResult{TimedOut: true}) },
 	} {
 		t.Run(name, func(t *testing.T) {
-			f := newFake(t)
+			f := newFake(t, registryOnCreate)
 			f.fail = fail
 			_, err := f.filer().FileCard(context.Background(), testReq())
 			wantErrIs(t, err, ErrHomeDown)
@@ -409,7 +446,7 @@ func pickCall(a []string, prefix string, r *BBResult) *BBResult {
 }
 
 func TestCardFilerRegisteredCardDeletedOrEditedIsExit2OrExit3(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	fl := f.filer()
 	if _, err := fl.FileCard(context.Background(), testReq()); err != nil {
 		t.Fatal(err)
@@ -435,7 +472,7 @@ func TestCardFilerRegisteredCardDeletedOrEditedIsExit2OrExit3(t *testing.T) {
 }
 
 func TestCardFilerLegacyRequestIsExit2(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	r := testReq()
 	f.legacy[r.Key] = registryAnswer{Status: "legacy", DecisionID: "dec_9", State: "open"}
 	_, err := f.filer().FileCard(context.Background(), r)
@@ -446,8 +483,7 @@ func TestCardFilerLegacyRequestIsExit2(t *testing.T) {
 }
 
 func TestCardFilerAbsentButDeletedBeforeMaterializationCreates(t *testing.T) {
-	f := newFake(t)
-	f.registerOnCreate = false
+	f := newFake(t, registryAbsent)
 	fl := f.filer()
 	if _, err := fl.FileCard(context.Background(), testReq()); err != nil {
 		t.Fatal(err)
@@ -471,8 +507,7 @@ func seedDesc(t *testing.T, key, ident string) string {
 }
 
 func TestCardFilerPaginationFindsTheMatchBehindSubstringDecoys(t *testing.T) {
-	f := newFake(t)
-	f.registerOnCreate = false
+	f := newFake(t, registryAbsent)
 	r := testReq()
 	_, ident, _ := r.Description()
 	for i := 0; i < 6; i++ {
@@ -490,8 +525,7 @@ func TestCardFilerPaginationFindsTheMatchBehindSubstringDecoys(t *testing.T) {
 }
 
 func TestCardFilerSubstringOnlyHitIsNotAMatch(t *testing.T) {
-	f := newFake(t)
-	f.registerOnCreate = false
+	f := newFake(t, registryAbsent)
 	r := testReq()
 	_, ident, _ := r.Description()
 	f.tasks = append(f.tasks, &fakeTask{ID: "LONG", Project: "P1", Created: "2026-09-01T00:00:00", Desc: seedDesc(t, r.Key+"-extra", ident)})
@@ -502,8 +536,7 @@ func TestCardFilerSubstringOnlyHitIsNotAMatch(t *testing.T) {
 }
 
 func TestCardFilerPageFailureIsExit3AndCreatesNothing(t *testing.T) {
-	f := newFake(t)
-	f.registerOnCreate = false
+	f := newFake(t, registryAbsent)
 	r := testReq()
 	_, ident, _ := r.Description()
 	for i := 0; i < 5; i++ {
@@ -523,7 +556,7 @@ func TestCardFilerPageFailureIsExit3AndCreatesNothing(t *testing.T) {
 }
 
 func TestCardFilerIdentityMismatchIsExit2BeforeAnyCreate(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	fl := f.filer()
 	if _, err := fl.FileCard(context.Background(), testReq()); err != nil {
 		t.Fatal(err)
@@ -542,8 +575,7 @@ func TestCardFilerIdentityMismatchIsExit2BeforeAnyCreate(t *testing.T) {
 }
 
 func TestCardFilerKeepsKeyMatchWhateverItsIdentityAndPicksEarliest(t *testing.T) {
-	f := newFake(t)
-	f.registerOnCreate = false
+	f := newFake(t, registryAbsent)
 	f.projects = []string{"P1", "P2"}
 	r := testReq()
 	_, ident, _ := r.Description()
@@ -559,8 +591,7 @@ func TestCardFilerKeepsKeyMatchWhateverItsIdentityAndPicksEarliest(t *testing.T)
 }
 
 func TestCardFilerSearchesEveryProjectInOneCall(t *testing.T) {
-	f := newFake(t)
-	f.registerOnCreate = false
+	f := newFake(t, registryAbsent)
 	f.projects = []string{"P1", "P2", "P3"}
 	r := testReq()
 	_, ident, _ := r.Description()
@@ -588,7 +619,7 @@ func TestCardFilerSearchesEveryProjectInOneCall(t *testing.T) {
 
 func TestCardFilerBBInvocationsDoNotGrowWithProjectCount(t *testing.T) {
 	calls := func(projects int) int {
-		f := newFake(t)
+		f := newFake(t, registryOnCreate)
 		f.projects = nil
 		for i := 0; i < projects; i++ {
 			f.projects = append(f.projects, fmt.Sprintf("P%d", i))
@@ -604,7 +635,7 @@ func TestCardFilerBBInvocationsDoNotGrowWithProjectCount(t *testing.T) {
 }
 
 func TestCardFilerAFailingListIsExit3(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.fail = func(a []string) *BBResult {
 		if len(a) > 2 && a[1] == "list" {
 			return badRes(1, "no")
@@ -619,8 +650,7 @@ func TestCardFilerAFailingListIsExit3(t *testing.T) {
 }
 
 func TestCardFilerUnparseableHitWithTheExactKeyIsExit2(t *testing.T) {
-	f := newFake(t)
-	f.registerOnCreate = false
+	f := newFake(t, registryAbsent)
 	r := testReq()
 	f.tasks = append(f.tasks, &fakeTask{ID: "BROKEN", Project: "P1", Created: "2026-09-01T00:00:00", Desc: "hi\n\nRequest: " + r.Key + " sha256:zzz\n```home-ask\n{\n```\n"})
 	_, err := f.filer().FileCard(context.Background(), r)
@@ -631,8 +661,7 @@ func TestCardFilerUnparseableHitWithTheExactKeyIsExit2(t *testing.T) {
 }
 
 func TestCardFilerReplayWithNoAgentCommentPostsOneBeforeSuccess(t *testing.T) {
-	f := newFake(t)
-	f.registerOnCreate = false
+	f := newFake(t, registryAbsent)
 	r := testReq()
 	d, _, _ := r.Description()
 	f.tasks = append(f.tasks, &fakeTask{ID: "NOC", Project: "P1", Created: "2026-09-01T00:00:00", Desc: d,
@@ -644,7 +673,7 @@ func TestCardFilerReplayWithNoAgentCommentPostsOneBeforeSuccess(t *testing.T) {
 }
 
 func TestCardFilerRoutesByEarliestAgentCommentNotLatest(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	r := testReq()
 	d, _, _ := r.Description()
 	rl, _ := requestOf(d)
@@ -658,30 +687,8 @@ func TestCardFilerRoutesByEarliestAgentCommentNotLatest(t *testing.T) {
 	}
 }
 
-func TestCardFilerHoldsTheLockForTheWholeFiling(t *testing.T) {
-	f := newFake(t)
-	fl := f.filer()
-	held := 0
-	inner := fl.Run
-	fl.Run = func(ctx context.Context, env []string, args ...string) BBResult {
-		p, _ := fl.lockPath(testReq().Key)
-		if tryLock(p) {
-			t.Errorf("lock not held during bb %v", args)
-		} else {
-			held++
-		}
-		return inner(ctx, env, args...)
-	}
-	if _, err := fl.FileCard(context.Background(), testReq()); err != nil {
-		t.Fatal(err)
-	}
-	if held < 5 {
-		t.Fatalf("lock checked %d times", held)
-	}
-}
-
 func TestCardFilerConcurrentFilersProduceOneCard(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	fl := f.filer()
 	var wg sync.WaitGroup
 	errs := make([]error, 6)
@@ -704,7 +711,7 @@ func TestCardFilerConcurrentFilersProduceOneCard(t *testing.T) {
 }
 
 func TestCardFilerRefusesWhatTheCardCannotCarry(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	for name, mut := range map[string]func(*CardRequest){
 		"no thread":        func(r *CardRequest) { r.Thread = "" },
 		"no title":         func(r *CardRequest) { r.Title = " " },
@@ -741,7 +748,7 @@ func TestCardFilerIdentityIgnoresBlockOrderAndTasksProject(t *testing.T) {
 }
 
 func TestCardFilerRootRunRoundTrips(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	r := testReq()
 	r.RootRun = &RootRun{Script: "/opt/x.sh", SHA256: strings.Repeat("a", 64), Timeout: 60, Set: "deploy"}
 	if _, err := f.filer().FileCard(context.Background(), r); err != nil {
@@ -779,7 +786,7 @@ func TestCardFilerRequestKeyAgreesWithParserVectors(t *testing.T) {
 }
 
 func TestCardFilerFileFromAsk(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	a := Ask{V: 1, Kind: "decide", Asker: "thread", Thread: "thr_a", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Ship it?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}}
 	id, err := f.filer().File(context.Background(), a)
 	if err != nil || id != "T1" {
@@ -791,58 +798,23 @@ func TestCardFilerFileFromAsk(t *testing.T) {
 	}
 }
 
-func TestFileForPullIsThreadlessAndPostsNoComment(t *testing.T) {
-	f := newFake(t)
-	a := Ask{V: 1, Kind: "decide", Asker: "mycroft", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Merge it?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: "mycroft:autarch:bead1:agent1"}
-	id, err := f.filer().FileForPull(context.Background(), a)
-	if err != nil || id != "T1" {
-		t.Fatalf("id=%q err=%v", id, err)
-	}
-	if len(f.tasks[0].Comments) != 0 || f.count("tasks", "comment") != 0 {
-		t.Fatal("a pull filing posted a comment")
-	}
-	c, err := ParseCard(f.tasks[0].Desc)
-	if err != nil || c.Pull != "mycroft" || c.Request.Key != PullKey(a.RequestID) {
-		t.Fatalf("%+v %v", c, err)
-	}
-	if id2, err := f.filer().FileForPull(context.Background(), a); err != nil || id2 != "T1" || f.cards() != 1 {
-		t.Fatalf("replay %q %v", id2, err)
-	}
-}
-
-func TestFileForPullSkipsFilingWhileTheLegacyAskIsOpen(t *testing.T) {
-	f := newFake(t)
-	a := Ask{V: 1, Kind: "decide", Asker: "mycroft", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Merge it?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: "mycroft:autarch:bead1:agent1"}
-	f.legacy[a.RequestID] = registryAnswer{Status: "legacy", DecisionID: "dec_7", State: "open"}
-	id, err := f.filer().FileForPull(context.Background(), a)
-	if err != nil || id != "dec_7" || f.cards() != 0 || f.count("tasks") != 0 {
-		t.Fatalf("id=%q err=%v calls=%v", id, err, f.calls)
-	}
-	f.legacy[a.RequestID] = registryAnswer{Status: "legacy", DecisionID: "dec_7", State: "ruled"}
-	_, err = f.filer().FileForPull(context.Background(), a)
-	wantErrIs(t, err, ErrAlreadyRuled)
-	// not ready: nothing filed
-	f.fail = func(x []string) *BBResult { return pickCall(x, "home get", badRes(1, "down")) }
-	_, err = f.filer().FileForPull(context.Background(), a)
-	wantErrIs(t, err, ErrHomeDown)
-	// a thread ask cannot use the pull path, nor a pull ask the thread path
-	if _, err := f.filer().FileForPull(context.Background(), Ask{Asker: "thread", RequestID: "x"}); !errors.Is(err, ErrInvalid) {
-		t.Fatal(err)
-	}
-	if _, err := f.filer().File(context.Background(), a); !errors.Is(err, ErrInvalid) {
-		t.Fatal(err)
+func TestCardFilerRefusesLegacyThreadlessAsk(t *testing.T) {
+	f := newFake(t, registryOnCreate)
+	_, err := f.filer().File(context.Background(), Ask{Asker: "mycroft"})
+	if !errors.Is(err, ErrInvalid) || len(f.calls) != 0 {
+		t.Fatalf("err=%v calls=%v: threadless ask must be refused before any command", err, f.calls)
 	}
 }
 
 func TestCardFilerTasksProjectIsConfiguredNotNameMatched(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.projects = []string{"P1", "autarch"} // a tasks project named like the Home project must not be guessed
 	a := Ask{V: 1, Kind: "decide", Asker: "thread", Thread: "thr_a", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Ship it?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}}
-	unbound := &CardFiler{Run: f.run, LockDir: t.TempDir()}
+	unbound := &CardFiler{Now: filingTestNow, Run: f.run, LockDir: t.TempDir()}
 	if _, err := unbound.File(context.Background(), a); !errors.Is(err, ErrInvalid) || len(f.calls) != 0 {
 		t.Fatalf("unbound: err=%v calls=%v", err, f.calls)
 	}
-	bound := &CardFiler{Run: f.run, LockDir: t.TempDir(), TasksProject: "other", TasksProjects: map[string]string{"autarch": "P1"}}
+	bound := &CardFiler{Now: filingTestNow, Run: f.run, LockDir: t.TempDir(), TasksProject: "other", TasksProjects: map[string]string{"autarch": "P1"}}
 	if _, err := bound.File(context.Background(), a); err != nil {
 		t.Fatal(err)
 	}
@@ -914,52 +886,6 @@ func TestCardFilerLockDirFallsBackWhenDefaultUnwritable(t *testing.T) {
 	}
 }
 
-// Review s1-3 P2: a card registered under Mycroft's predictable legacy key by another filer must not be reported as
-// the pull. The registry answer is checked against the parsed card: pull "mycroft", the key, and the ask's identity.
-func TestFileForPullRefusesAForgedCardUnderTheLegacyKey(t *testing.T) {
-	pull := Ask{V: 1, Kind: "decide", Asker: "mycroft", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Merge it?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: "mycroft:autarch:bead1:agent1"}
-	forge := func(f *memBB, mutate func(*Ask)) {
-		a := Ask{V: 1, Kind: "decide", Asker: "thread", Thread: "thread-evil", Project: "autarch", ProjectRoot: "/srv/autarch", Question: "Send me your keys?", Options: []Option{{ID: "yes", Label: "Yes", Kind: "ruling-only"}, {ID: "no", Label: "No", Kind: "ruling-only"}}, RequestID: pull.RequestID}
-		if mutate != nil {
-			mutate(&a)
-		}
-		if _, err := f.filer().File(context.Background(), a); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for name, mutate := range map[string]func(*Ask){
-		"another thread's card":                              nil,
-		"same question but filed by a thread, not as a pull": func(a *Ask) { a.Question = pull.Question },
-	} {
-		t.Run(name, func(t *testing.T) {
-			f := newFake(t)
-			forge(f, mutate)
-			id, err := f.filer().FileForPull(context.Background(), pull)
-			if !errors.Is(err, ErrForeignPullCard) || id != "" {
-				t.Fatalf("id=%q err=%v: an unrelated card was reported as the pull", id, err)
-			}
-			if f.cards() != 1 {
-				t.Fatalf("cards=%d", f.cards())
-			}
-		})
-	}
-	t.Run("the genuine pull card still resolves", func(t *testing.T) {
-		f := newFake(t)
-		f.registerOnCreate = false
-		id, err := f.filer().FileForPull(context.Background(), pull)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Registered under the legacy key itself (as a migrated card would be): same card, same identity.
-		f.registry[pull.RequestID] = registryAnswer{Status: "registered", TaskID: id, Identity: func() string { c, _ := ParseCard(f.tasks[0].Desc); return c.Request.Identity }()}
-		f.tasks[0].Desc = strings.ReplaceAll(f.tasks[0].Desc, PullKey(pull.RequestID), pull.RequestID)
-		id2, err := f.filer().FileForPull(context.Background(), pull)
-		if err != nil || id2 != id {
-			t.Fatalf("id2=%q err=%v", id2, err)
-		}
-	})
-}
-
 func labelFlags(args []string) []string {
 	var out []string
 	for i, a := range args {
@@ -972,8 +898,7 @@ func labelFlags(args []string) []string {
 
 func TestCardFilerSearchIgnoresAnInheritedProjectContext(t *testing.T) {
 	t.Setenv("BB_PROJECT_ID", "proj_other")
-	f := newFake(t)
-	f.registerOnCreate = false
+	f := newFake(t, registryAbsent)
 	f.projects = []string{"P1", "P2"}
 	r := testReq()
 	_, ident, _ := r.Description()
@@ -997,7 +922,7 @@ func TestDescriptionRefusesAMissingRequestLine(t *testing.T) {
 // A card filed with an owner routes to the owner: the first agent comment, which Home reads as
 // askingThread, is posted as the owner, not the filer.
 func TestCardFilerOwnerThreadRoutesThePickToTheOwnerNotTheFiler(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.threads = map[string]string{"thr_owner": "live"}
 	r := testReq()
 	r.Owner = "thr_owner"
@@ -1015,7 +940,7 @@ func TestCardFilerOwnerThreadRoutesThePickToTheOwnerNotTheFiler(t *testing.T) {
 }
 
 func TestCardFilerNoOwnerStillRoutesToTheFilerAndNeverChecksThreads(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	if _, err := f.filer().FileCard(context.Background(), testReq()); err != nil {
 		t.Fatal(err)
 	}
@@ -1027,7 +952,7 @@ func TestCardFilerNoOwnerStillRoutesToTheFilerAndNeverChecksThreads(t *testing.T
 func TestCardFilerOwnerThatIsNotALiveThreadIsRefusedAndCreatesNothing(t *testing.T) {
 	for name, state := range map[string]string{"missing": "", "archived": "archived"} {
 		t.Run(name, func(t *testing.T) {
-			f := newFake(t)
+			f := newFake(t, registryOnCreate)
 			f.threads = map[string]string{"thr_gone": state}
 			r := testReq()
 			r.Owner = "thr_gone"
@@ -1041,7 +966,7 @@ func TestCardFilerOwnerThatIsNotALiveThreadIsRefusedAndCreatesNothing(t *testing
 }
 
 func TestCardFilerOwnerLookupFailureIsHomeDownAndCreatesNothing(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.fail = func(a []string) *BBResult {
 		if len(a) > 1 && a[0] == "thread" {
 			return badRes(1, "connection refused")
@@ -1058,7 +983,7 @@ func TestCardFilerOwnerLookupFailureIsHomeDownAndCreatesNothing(t *testing.T) {
 }
 
 func TestCardFilerOwnerReplayIsIdempotentAndAnotherOwnerIsRefused(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.threads = map[string]string{"thr_owner": "live", "thr_other": "live"}
 	fl := f.filer()
 	r := testReq()
@@ -1082,7 +1007,7 @@ func TestCardFilerOwnerReplayIsIdempotentAndAnotherOwnerIsRefused(t *testing.T) 
 }
 
 func TestCardFilerOwnerEqualToFilerIsStillValidated(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	r := testReq()
 	r.Owner = r.Thread // not in the thread table: not found
 	_, err := f.filer().FileCard(context.Background(), r)
@@ -1093,7 +1018,7 @@ func TestCardFilerOwnerEqualToFilerIsStillValidated(t *testing.T) {
 }
 
 func TestCardFilerOwnerReplayThatMustRepostTheCommentValidatesTheOwner(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.threads = map[string]string{"thr_owner": "live"}
 	fail := true
 	f.fail = func(a []string) *BBResult {
@@ -1116,7 +1041,7 @@ func TestCardFilerOwnerReplayThatMustRepostTheCommentValidatesTheOwner(t *testin
 }
 
 func TestCardFilerOwnerAnswerForAnotherThreadIsNotLive(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.fail = func(a []string) *BBResult {
 		if len(a) > 1 && a[0] == "thread" {
 			return &BBResult{Stdout: []byte(`{"thread":null}`)}
@@ -1133,7 +1058,7 @@ func TestCardFilerOwnerAnswerForAnotherThreadIsNotLive(t *testing.T) {
 }
 
 func TestCardFilerOwnerLookupThatCannotStartIsHomeDownNotInvalid(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	f.fail = func(a []string) *BBResult {
 		if len(a) > 1 && a[0] == "thread" {
 			return &BBResult{Err: errors.New("exec: \"bb\": executable file not found in $PATH (thread not found)")}
@@ -1146,5 +1071,71 @@ func TestCardFilerOwnerLookupThatCannotStartIsHomeDownNotInvalid(t *testing.T) {
 	wantErrIs(t, err, ErrHomeDown)
 	if errors.Is(err, ErrInvalid) || f.cards() != 0 {
 		t.Fatalf("err=%v cards=%d", err, f.cards())
+	}
+}
+
+// Home must retain the Request even when routing fails. The TS regression covers
+// registration; these vectors pin the Go consumer for both possible Home answers.
+func TestCardFilerRoutingFailureWithStaleSearch(t *testing.T) {
+	for _, mode := range []registryMode{registryOnCreate, registryAbsent} {
+		name := "registered-replays"
+		if mode == registryAbsent {
+			name = "absent-creates"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newFake(t, mode)
+			failComment := true
+			f.fail = func(a []string) *BBResult {
+				if len(a) > 1 && a[0] == "tasks" && a[1] == "comment" && failComment {
+					return badRes(1, "routing comment failed")
+				}
+				if len(a) > 1 && a[0] == "tasks" && a[1] == "list" {
+					r := okRes(map[string]any{"tasks": []any{}, "nextCursor": nil})
+					return &r
+				}
+				return nil
+			}
+			filer := f.filer()
+			_, err := filer.FileCard(context.Background(), testReq())
+			wantErrIs(t, err, ErrOutcomeUnknown)
+			if f.cards() != 1 || len(f.tasks[0].Comments) != 0 {
+				t.Fatalf("cards=%d comments=%v", f.cards(), f.tasks[0].Comments)
+			}
+			failComment = false
+			res, err := filer.FileCard(context.Background(), testReq())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == registryOnCreate {
+				if !res.Replay || res.ID != "T1" || f.count("tasks", "create") != 1 || AskingThread(f.tasks[0].Comments) != testReq().Thread {
+					t.Fatalf("res=%+v creates=%d", res, f.count("tasks", "create"))
+				}
+			} else {
+				// This duplicate is the path closed by Home's TS registration-before-routing fix.
+				if res.Replay || res.ID != "T2" || f.count("tasks", "create") != 2 {
+					t.Fatalf("res=%+v creates=%d", res, f.count("tasks", "create"))
+				}
+			}
+		})
+	}
+}
+
+func TestCardFilerRegisteredUnroutedCardDeletedRequiresNewRequest(t *testing.T) {
+	f := newFake(t, registryOnCreate)
+	f.fail = func(a []string) *BBResult {
+		if len(a) > 1 && a[0] == "tasks" && a[1] == "comment" {
+			return badRes(1, "routing failed")
+		}
+		return nil
+	}
+	filer := f.filer()
+	_, err := filer.FileCard(context.Background(), testReq())
+	wantErrIs(t, err, ErrOutcomeUnknown)
+	f.tasks[0].Deleted = true
+	f.fail = nil
+	_, err = filer.FileCard(context.Background(), testReq())
+	wantErrIs(t, err, ErrInvalid)
+	if !strings.Contains(err.Error(), "is registered to card T1, which was deleted or changed; use a new Request") || f.count("tasks", "create") != 1 {
+		t.Fatalf("err=%v creates=%d", err, f.count("tasks", "create"))
 	}
 }

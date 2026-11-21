@@ -66,6 +66,9 @@ The database is --db, else $AUTARCH_HOME_DB, else $HOME_BB_DATA/plugins/autarch/
 			if err := homefooter.Print(cmd.OutOrStdout(), homefooter.Options{DB: db, Cursor: cursor, Peek: peek}); err != nil {
 				return fmt.Errorf("footer: %w", err)
 			}
+			if err := newCardFiler().PrintReleaseOwnerAttention(cmd.OutOrStdout()); err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning: footer owner attention:", err)
+			}
 			return nil
 		},
 	}

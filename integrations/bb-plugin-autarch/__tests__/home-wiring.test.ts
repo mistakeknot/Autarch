@@ -7,6 +7,7 @@ import type { ServeClient } from "../serve.js";
 import { ask, makeEnv } from "./service-helpers.js";
 import { FakeSdk } from "./wakes-helpers.js";
 import { sourceSha256 } from "../scripts/source-hash.mjs";
+import { cleanupEnvs, opened, pollN, rig } from "./card-rig.js";
 
 const cfg: HomeConfig = { serveAddr: "127.0.0.1:8110", serveTokenFile: "/nope", serveProjectDirs: [], autarchBin: "autarch" };
 
@@ -32,17 +33,99 @@ function fakeBb(threads: object = {}) {
 const serve = { projects: async () => [], health: async () => ({ build: { commit: "abc" } }), healthy: async () => true } as unknown as ServeClient;
 
 describe("wireHome", () => {
+  it.each([false, true])("routes an unanswered card's bring-back notice with archived asker=%s", async archived => {
+    const r = rig();
+    try {
+      r.enableDelegation();
+      const { t, g1 } = await opened(r);
+      r.edit(t, { status: "done" });
+      await pollN(r, 3);
+      const rows = [
+        { id: "thr_a", title: "Asking thread", pinnedAt: null, archivedAt: archived ? 1 : null, deletedAt: null },
+        { id: "thr_viz", title: "Masaq' | vizier", pinnedAt: 1, archivedAt: null, deletedAt: null },
+      ];
+      const f = fakeBb({ list: async ({ offset }: { offset: number }) => rows.slice(offset), get: async ({ threadId }: { threadId: string }) => rows.find(x => x.id === threadId) });
+      const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve, sdk: new FakeSdk() });
+      try {
+        expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, confirmed: true })).toMatchObject({ ok: true, replay: false });
+        expect(r.svc.store.obligationsFor(g1.id).find(o => o.op === `bringback:${g1.id}`)).toMatchObject({ recipient: archived ? "thr_viz" : "thr_a" });
+        expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, confirmed: true })).toMatchObject({ ok: true, replay: true });
+      } finally { f.disposers.forEach(d => d()); }
+    } finally { cleanupEnvs(); }
+  });
+  it.each([undefined, false])("guards the Archive RPC against an old unconfirmed pick: %s", async confirmed => {
+    const r = rig(); const { t, g1 } = await opened(r);
+    r.mkPick(g1.id);
+    r.env.clock.t = Date.parse(r.svc.store.pick(g1.id)!.picked_at) + 120_000;
+    const f = fakeBb();
+    const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve, sdk: new FakeSdk() });
+    try {
+      // @ts-expect-error exercise a malformed RPC client
+      expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, confirmed })).toMatchObject({ ok: false, status: 409 });
+      expect(await home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, confirmed: true })).toMatchObject({ ok: true });
+      const event = r.db.prepare("SELECT detail_json FROM events WHERE type='brought-back'").get() as { detail_json: string };
+      expect(JSON.parse(event.detail_json).origin).toBe("archive-button");
+    } finally { vi.restoreAllMocks(); f.disposers.forEach(d => d()); cleanupEnvs(); }
+  });
+  it.each(["archive-button", "waiting-sweep"])("attributes the declared RPC caller: %s", async origin => {
+    const r = rig(); const { t, g1 } = await opened(r); r.mkPick(g1.id);
+    const asking = { id: "thr_a", title: "Asking thread", pinnedAt: null, archivedAt: null, deletedAt: null };
+    const f = fakeBb({ list: async ({ offset }: { offset: number }) => [asking].slice(offset), get: async () => asking });
+    const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve, sdk: new FakeSdk() });
+    const payload = { task_id: t.id, decision_id: g1.id, ...(origin === "archive-button" ? { confirmed: true } : { by: "waiting-sweep" }) };
+    try {
+      const result = await home.handlers.bringBack(payload as never);
+      expect(result).toMatchObject({ ok: true });
+      const event = r.db.prepare("SELECT detail_json FROM events WHERE type='brought-back'").get() as { detail_json: string };
+      expect(JSON.parse(event.detail_json).origin).toBe(origin);
+      const notice = r.svc.store.obligationsFor(g1.id).find(o => o.op === `bringback:${g1.id}`)!.payload;
+      expect(notice).toContain(r.svc.cardNoticeLabel(t.id, g1.subject));
+      if (origin === "waiting-sweep") {
+        expect(notice).toContain("The waiting sweep brought");
+        expect(notice).toContain("no completion evidence");
+        expect(notice).not.toContain("mk brought"); expect(notice).not.toContain("Archive button");
+      } else expect(notice).toContain("using the Archive button");
+    } finally { f.disposers.forEach(d => d()); cleanupEnvs(); }
+  });
+  it.each([
+    {},
+    { confirmed: true, by: "waiting-sweep" },
+    { by: "vizier" },
+    { confirmed: false },
+    { confirmed: true, extra: 1 },
+    { by: "waiting-sweep", extra: 1 },
+  ])("refuses ambiguous or undeclared RPC callers: %j", async fields => {
+    const r = rig(); const { t, g1 } = await opened(r); r.mkPick(g1.id);
+    const f = fakeBb(); const home = wireHome(f.bb, createStoreHandle(() => r.db, {}), cfg, { serve });
+    try {
+      const decisions = r.gens(t.id);
+      const events = r.svc.store.events();
+      await expect(home.handlers.bringBack({ task_id: t.id, decision_id: g1.id, ...fields } as never)).resolves.toMatchObject({ ok: false, status: 409 });
+      expect(r.gens(t.id)).toEqual(decisions);
+      expect(r.svc.store.events()).toEqual(events);
+    } finally { f.disposers.forEach(d => d()); cleanupEnvs(); }
+  });
+  it("reads stored pilot observations without modifying them", async () => {
+    const db = new Database(":memory:"); const f = fakeBb(); const handle = createStoreHandle(() => db, {});
+    const home = wireHome(f.bb, handle, cfg, { serve });
+    const metric = { time: "2026-11-15T12:00:00Z", event_id: "pick:fixture", event: "picked" };
+    handle.store().recordPilotMetric(metric);
+    const before = handle.store().events();
+    expect(await home.handlers.pilotMetrics(null)).toEqual({ metrics: [metric] });
+    expect(handle.store().events()).toEqual(before);
+    f.disposers.forEach(d => d());
+  });
   it("registers the CLI, the feed, the event listeners and the services", () => {
     const db = new Database(":memory:");
     const handle = createStoreHandle(() => db, {});
     const f = fakeBb();
     const home = wireHome(f.bb, handle, cfg, { serve });
     expect([...f.events.keys()].sort()).toEqual(["message.cancelled", "message.dispatched", "thread.archived", "thread.deleted", "turn.failed"]);
-    expect(f.services.sort()).toEqual(["home-card-comments", "home-delegation-check", "home-feed-refresh", "home-merge-recheck", "home-move-poll", "home-move-reports", "home-queue", "home-vizier-messages", "home-wakes"]);
+    expect(f.services.sort()).toEqual(["home-card-comments", "home-delegation-check", "home-feed-refresh", "home-merge-recheck", "home-queue", "home-vizier-messages", "home-wakes"]);
     expect(f.configure()).toBeTypeOf("function");
     expect(f.cli()).toBeDefined();
     expect(Object.keys(home.handlers).sort()).toEqual(["actIdea", "archive", "bringBack", "cardState", "catchup", "clearIdeaDigest", "clickTiming", "conversation", "conversationUnread",
-      "dismiss", "fileIdea", "health", "ideaProjects", "ideas", "later", "learn", "learnSet", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "moves", "note", "openTarget", "override", "pick", "queue", "readDoc", "requestUpdate", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "stats", "unlater", "updateInfo", "waiting"]);
+      "dismiss", "evidenceImage", "fileIdea", "health", "ideaProjects", "ideas", "later", "learn", "learnSet", "listAsks", "listRecent", "markAllSeen", "markConversationSeen", "markSeen", "note", "openTarget", "override", "pick", "pickAction", "pilotMetrics", "queue", "readDoc", "requestUpdate", "resend", "revokeApproval", "rootRun", "setBinding", "setDelegation", "setViewing", "stats", "unlater", "updateInfo", "waiting"]);
     f.disposers.forEach((d) => d());
   });
 
@@ -53,16 +136,6 @@ describe("wireHome", () => {
     const open = home.handlers.openTarget;
     expect(await open({ path: "/etc/hostname.md" })).toMatchObject({ ok: false });
     expect(await open({ path: "relative.md" })).toMatchObject({ ok: false });
-    f.disposers.forEach((d) => d());
-  });
-
-  it("closes a move left open when the store is ready, even with no tasks client (bead mk-1k8pg)", () => {
-    const db = new Database(":memory:");
-    const handle = createStoreHandle(() => db, {});
-    handle.store().openMove({ task_id: "01J0000000000000000000000A", generation: 1, kind: "pr", payload: { kind: "pr", url: "https://github.com/o/r/pull/1" }, opened_by: "card" });
-    const f = fakeBb(); // its sdk has no plugins, so the card poller never starts
-    wireHome(f.bb, handle, cfg, { serve });
-    expect(db.prepare("SELECT state, closed_by, evidence FROM moves").all()).toEqual([{ state: "closed", closed_by: "home", evidence: "moves retired" }]);
     f.disposers.forEach((d) => d());
   });
 

@@ -30,7 +30,6 @@ go build ./cmd/bigend  # Build binary
 | `cmd/bigend/` | Entry point with CLI flags |
 | `internal/bigend/aggregator/` | Core data aggregation + WebSocket events |
 | `internal/bigend/agentcmd/` | Agent command resolver |
-| `internal/bigend/claude/` | Claude session detection |
 | `internal/bigend/coldwine/` | Coldwine (task) reader |
 | `internal/bigend/config/` | TOML configuration |
 | `internal/bigend/discovery/` | Project scanner |
@@ -85,6 +84,11 @@ go build ./cmd/bigend  # Build binary
 | **Intermute** | HTTP API | Registered agents, messages, reservations |
 | **tmux** | `tmux list-sessions` | Active sessions, pane content |
 | **MCP** | `mcp-server/`, `mcp-client/` | Component run status |
+
+Session discovery uses `internal/bigend/tmux/`: the aggregator lists tmux sessions
+and detects agent types from session names. The aggregator calls
+`internal/bigend/statedetect/` to enrich sessions with agent state.
+It does not read Claude's configuration for session IDs.
 
 ### Aggregator
 
@@ -161,7 +165,7 @@ When connected to Intermute WebSocket, events trigger targeted refreshes:
 ```toml
 [server]
 port = 8099
-host = "0.0.0.0"
+host = "127.0.0.1"
 
 [discovery]
 scan_roots = ["~/projects", "/root/projects"]
@@ -373,9 +377,9 @@ type Detector struct {
 }
 
 func (d *Detector) EnrichSessions(sessions []Session) []EnrichedSession {
-    // Match session CWD to project paths
-    // Detect agent type from session name patterns
-    // Extract Claude session ID if present
+    // Call DetectAgent per session: match the name against agent patterns.
+    // For a matched name, set AgentInfo.ProjectPath to the project matching its CWD (empty if none).
+    // Unmatched names get no AgentInfo, regardless of CWD.
 }
 ```
 
@@ -462,9 +466,6 @@ Templates use htmx for dynamic updates:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VAUXHALL_PORT` | 8099 | Web server port |
-| `VAUXHALL_HOST` | 0.0.0.0 | Web server host |
-| `VAUXHALL_SCAN_ROOTS` | ~/projects | Comma-separated scan roots |
 | `INTERMUTE_URL` | - | Intermute server URL (required for agents) |
 | `INTERMUTE_API_KEY` | - | Intermute authentication |
 | `INTERMUTE_PROJECT` | - | Intermute project scope |

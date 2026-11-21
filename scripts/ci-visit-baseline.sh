@@ -31,6 +31,7 @@ go version
 go env CGO_ENABLED CC
 tmux -V
 go build -mod=readonly ./... 2>&1 | tee "$visit_tools/build.log"
+go vet -mod=readonly ./... 2>&1 | tee "$visit_tools/vet.log"
 go test -mod=readonly -race ./... 2>&1 | tee "$visit_tools/race.log"
 # Home plugin: no merge-conflict markers in tracked source, then typecheck, lint (oxlint plus the escape ratchet) and unit tests.
 # git grep exits 0 on a match, 1 on none; only 1 is clean, any other status (an error) fails.
@@ -45,5 +46,5 @@ npm_cfg=(npm_config_cache="$visit_tools/npm/cache" npm_config_userconfig="$visit
 (cd integrations/bb-plugin-autarch && env "${npm_cfg[@]}" npm ci --no-audit --no-fund && env "${npm_cfg[@]}" npm run typecheck && env "${npm_cfg[@]}" npm run lint && ./node_modules/.bin/vitest run --testTimeout=60000) 2>&1 | tee "$visit_tools/plugin.log"
 git diff --exit-code
 [[ -z $(git status --porcelain) ]]
-sha256sum go.mod go.sum integrations/bb-plugin-autarch/package-lock.json "$visit_tools/build.log" "$visit_tools/race.log" "$visit_tools/plugin.log"
-printf 'PASS Autarch read-only build, full race suite and Home plugin typecheck and tests source=%s\n' "$CI_SOURCE_SHA"
+sha256sum go.mod go.sum integrations/bb-plugin-autarch/package-lock.json "$visit_tools/build.log" "$visit_tools/vet.log" "$visit_tools/race.log" "$visit_tools/plugin.log"
+printf 'PASS Autarch read-only build, go vet, full race suite and Home plugin typecheck and tests source=%s\n' "$CI_SOURCE_SHA"

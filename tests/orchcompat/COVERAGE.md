@@ -32,12 +32,13 @@ Go suite: `tests/orchcompat/`. TypeScript suite: `integrations/bb-plugin-autarch
 | needs-mk file | owner thread, filing preconditions, warnings, existing label not recreated | covered | needsmk_file_args_test.go | |
 | needs-mk file | project alias rewritten to the bound name | covered | needsmk_file_args_test.go | |
 | needs-mk file | Home down (exit 3) | covered | needsmk_file_args_test.go | |
+| needs-mk file update | pre-edit readback with empty project_id (exit 3), no writes | covered (CLI unit) | cmd/autarch/needsmk_update_test.go: TestNeedsMkUpdateWithoutProjectExitsThreeWithoutWrites | incomplete Home indexing; safe to re-run |
 | needs-mk file | move filing | covered | needsmk_file_args_test.go | |
 | needs-mk adopt-move | attach a move to a filed card, conflicting move refused | covered | needsmk_file_args_test.go | |
 | needs-mk footer | four sections, cursor file, per-caller cursor, caller selection, database lookup, empty database, never writes the database | covered | needsmk_footer_test.go | |
 | home-ask/v2 | every field rule, accepted and rejected examples, validation errors at the CLI (exit 2) | covered | needsmk_file_args_test.go | |
 | home-ask/v2 `urgency` field and `--urgency` flag | blocker accepted where the build has the field; absent where it does not | covered (build-aware) | needsmk_urgency_test.go | the baseline lacks the field, main has it; each test skips on the other side, so each side runs one |
-| exit code 5 (already ruled) | mapped in `cmd/autarch/exit.go` | not covered | none | only `FileForPull` returns it, and only `cmd/mycroft` calls that; no `needs-mk` verb reaches it |
+| exit code 5 (already ruled) | mapped in `cmd/autarch/exit.go` | covered | `TestFileAlreadyPickedCardExitsFive` | `needs-mk file` can return `ErrAlreadyRuled` from `internal/homeask/update.go` when refiling a picked card or when a pick races an update |
 | autarch serve | startup line, token file (64 hex, mode 0600, dir 0700), token reuse, startup refusals | covered | serve_test.go | |
 | autarch serve | default scan root, config candidate order, `~` expansion in scan_roots, `--project-dir` override, bad TOML fatal | covered | serve_test.go | |
 | autarch serve | default token file, default address 127.0.0.1:8110 (asserted from `--help`, no bind to that port) | covered | serve_test.go | |

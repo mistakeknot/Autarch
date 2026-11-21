@@ -3,6 +3,10 @@ artifact_type: onepager
 distills: docs/brainstorms/2026-09-22-autarch-attention-map-brainstorm.md
 ---
 
+> Historical Mycroft references below are superseded by bead mk-ddtv5.7.13.1.
+> Mycroft now provides only `mycroft spawn` and `mycroft pre-dispatch`; coordinators select work.
+> The former orchestration code and TUI tab have been removed. See [the current spawner guide](../mycroft-bb-spawner.md).
+
 # Autarch in BB: estate map + Mycroft rail
 
 **Thesis.** mk runs about 98 gardens through agents in BB. An escalation rail says what needs mk;

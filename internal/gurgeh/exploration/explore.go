@@ -18,10 +18,20 @@ import (
 // Session ID can be used with GeneratePhase() to avoid re-exploration.
 // Tool usage is streamed to slog (appears in log pane when TUI is running).
 func Explore(ctx context.Context, cwd string) (map[string]any, string, error) {
-	slog.Info("exploration starting", "path", cwd)
+	cfg := Config(cwd)
+	return ExploreWithConfig(ctx, cwd, cfg)
+}
 
+// Config resolves scan preferences from the scanned project.
+func Config(cwd string) agenttargets.DispatchConfig {
 	cfg := agenttargets.DefaultDispatchConfig()
 	cfg.Timeout = 10 * time.Minute
+	return agenttargets.LoadDispatchConfigWithDefaults(cwd, cfg)
+}
+
+// ExploreWithConfig runs exploration with an already resolved dispatch configuration.
+func ExploreWithConfig(ctx context.Context, cwd string, cfg agenttargets.DispatchConfig) (map[string]any, string, error) {
+	slog.Info("exploration starting", "path", cwd)
 
 	handle, err := agenttargets.Dispatch(ctx, cfg, cwd, prompt)
 	if err != nil {
@@ -49,10 +59,18 @@ func Explore(ctx context.Context, cwd string) (map[string]any, string, error) {
 		}
 	}
 
+	_, processErr := handle.Wait()
+
 	if isError {
+		if processErr != nil {
+			return nil, "", fmt.Errorf("agent returned error: %s: %w", finalResult, processErr)
+		}
 		return nil, "", fmt.Errorf("agent returned error: %s", finalResult)
 	}
 
+	if processErr != nil {
+		return nil, "", processErr
+	}
 	slog.Info("exploration complete")
 
 	// Parse the result JSON (stream-json gives us the result directly)
@@ -125,6 +143,7 @@ Be concise and specific to THIS project. Extract evidence from the codebase.
 
 	cfg := agenttargets.DefaultDispatchConfig()
 	cfg.Timeout = 5 * time.Minute
+	cfg = agenttargets.LoadDispatchConfigWithDefaults(cwd, cfg)
 	if sessionID != "" {
 		cfg.SessionID = sessionID
 	}
@@ -200,6 +219,7 @@ Return ONLY the section content, no headers or markdown fences.`, phase, explora
 
 	cfg := agenttargets.DefaultDispatchConfig()
 	cfg.Timeout = 3 * time.Minute
+	cfg = agenttargets.LoadDispatchConfigWithDefaults(cwd, cfg)
 	if len(model) > 0 && model[0] != "" {
 		cfg.Model = model[0]
 	}
@@ -231,6 +251,7 @@ Return ONLY the revised content, no explanation or markdown fences.`, phase, cur
 
 	cfg := agenttargets.DefaultDispatchConfig()
 	cfg.Timeout = 5 * time.Minute
+	cfg = agenttargets.LoadDispatchConfigWithDefaults(cwd, cfg)
 	if len(model) > 0 && model[0] != "" {
 		cfg.Model = model[0]
 	}
@@ -316,6 +337,7 @@ Guidelines:
 
 	cfg := agenttargets.DefaultDispatchConfig()
 	cfg.Timeout = 8 * time.Minute
+	cfg = agenttargets.LoadDispatchConfigWithDefaults(cwd, cfg)
 
 	finalResult, err := dispatchAndCollect(ctx, cfg, cwd, propagatePrompt)
 	if err != nil {
@@ -375,6 +397,13 @@ func dispatchAndCollect(ctx context.Context, cfg agenttargets.DispatchConfig, cw
 		case agenttargets.StreamError:
 			slog.Warn("agent stream error", "err", event.Text)
 		}
+	}
+
+	if _, err := handle.Wait(); err != nil {
+		if isError {
+			return "", fmt.Errorf("agent returned error: %s: %w", finalResult, err)
+		}
+		return "", err
 	}
 
 	if isError {

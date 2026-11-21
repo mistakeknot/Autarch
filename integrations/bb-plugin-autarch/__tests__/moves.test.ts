@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseCard } from "../cards";
-import { parseMove, scriptCommands } from "../moves";
+import { parseMove } from "../moves";
 
 const SHA = "a".repeat(64);
 const SHA2 = "b".repeat(64);
@@ -50,27 +50,6 @@ describe("parseMove", () => {
   });
 });
 
-describe("scriptCommands", () => {
-  it("derives sha256sum, check, run and recover in order, one line each", () => {
-    const m = parseMove(script({ args: ["--set", "a=1"], recover: { path: "/tmp/x/undo.sh", sha256: SHA2 } }));
-    if (m.kind !== "script") throw new Error("kind");
-    const cmds = scriptCommands(m.script);
-    expect(cmds.map((c) => c.label)).toEqual(["sha256sum", "check", "run", "recover"]);
-    expect(cmds.map((c) => c.command)).toEqual([
-      "sha256sum '/tmp/x/run.sh'",
-      "bash '/tmp/x/run.sh' --check",
-      "bash '/tmp/x/run.sh' '--set' 'a=1'",
-      "bash '/tmp/x/undo.sh'",
-    ]);
-    expect(cmds[0]!.expectedSha).toBe(SHA);
-    expect(cmds[3]!.expectedSha).toBe(SHA2);
-    for (const c of cmds) {
-      expect(c.command).toBe(c.command.trim());
-      expect(c.command).not.toMatch(/[\n\r`]/);
-    }
-  });
-});
-
 describe("home-move block in a card", () => {
   const base = (extra: string) =>
     ["Run it.", "Request: k1 sha256:0123456789abcdef", "```home-ask", JSON.stringify({ schema: "home-ask/v2", project: "p", project_root: "/r", question: "q?", options: [{ id: "a", label: "A", kind: "instruction", instruction: "Do A.", reversible: true }, { id: "b", label: "B", kind: "instruction", instruction: "Do B.", reversible: true }] }), "```", extra].join("\n");
@@ -117,5 +96,23 @@ describe("pr move merge-card facts", () => {
     ["tab or form feed in blast", { blast: "a\u000cb" }],
   ])("rejects %s", (_n, o) => {
     expect(() => parseMove(pr(o))).toThrow();
+  });
+
+  // The blast check was rewritten from an explicit control-character range to the Unicode control category. Every code point
+  // in the Basic Multilingual Plane, set between two letters, is accepted or refused exactly as the explicit definition says:
+  // the C0 controls, DEL and the C1 controls, the line and paragraph separators, the replacement character, and a lone surrogate (not well formed).
+  it("blast refuses exactly the control characters, separators, U+FFFD and lone surrogates, and nothing else in the BMP", () => {
+    const wrong: string[] = [];
+    for (let cp = 0; cp <= 0xffff; cp++) {
+      const refuse = cp <= 0x1f || (cp >= 0x7f && cp <= 0x9f) || cp === 0x2028 || cp === 0x2029 || cp === 0xfffd || (cp >= 0xd800 && cp <= 0xdfff);
+      let accepted = true;
+      try {
+        parseMove(pr({ blast: "a" + String.fromCharCode(cp) + "b" }));
+      } catch {
+        accepted = false;
+      }
+      if (accepted === refuse) wrong.push(cp.toString(16));
+    }
+    expect(wrong).toEqual([]);
   });
 });

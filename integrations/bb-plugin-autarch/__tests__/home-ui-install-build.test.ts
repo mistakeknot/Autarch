@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
+import { homeUiSafety } from "./home-ui-safety";
 
 const SCRIPT = resolve(__dirname, "../../../scripts/home-ui.sh");
 const dirs: string[] = [];
@@ -34,7 +35,7 @@ function plugin(root: string, name: string) {
   return d;
 }
 
-type Env = { HUI_INSTALL?: string; HUI_LEFT?: string; HUI_RELOAD?: string; HUI_FAIL_FOR?: string };   // HUI_RELOAD: degrade = an enable on a running plugin degrades it; stuck = every enable leaves it degraded
+type Env = { HUI_INSTALL?: string; HUI_LEFT?: string; HUI_RELOAD?: string; HUI_FAIL_FOR?: string; HOME_UI_RECHECK_WAIT?: string; HOME_UI_RECHECK_INTERVAL?: string };   // HUI_RELOAD: degrade = an enable on a running plugin degrades it; stuck = every enable leaves it degraded
 
 function rig() {
   const root = mkdtempSync(join(tmpdir(), "hui-ib-"));
@@ -90,7 +91,7 @@ esac
   bdb.close();
   const run = (args: string[], e: Env = {}) =>
     spawnSync("bash", [SCRIPT, ...args], {
-      env: { PATH: process.env.PATH!, HOME: root, HOME_BB_BIN: bb, HOME_BB_DATA: data, HOME_UI_WAIT: "2", HOME_UI_RECHECK_WAIT: "2", HOME_UI_RECHECK_INTERVAL: "1", ...e },
+      env: { PATH: process.env.PATH!, HOME: root, HOME_BB_BIN: bb, HOME_BB_DATA: data, HOME_UI_WAIT: "2", HOME_UI_RECHECK_WAIT: "2", HOME_UI_RECHECK_INTERVAL: "1", ...homeUiSafety(root), ...e },
       encoding: "utf8",
       timeout: 60_000,
     });
@@ -101,6 +102,15 @@ esac
 }
 
 describe("home-ui.sh install_build: the install leaves the plugin running", () => {
+  it("refuses an accidental service call through the injected failing hook", () => {
+    const r = rig();
+    const out = spawnSync("bash", ["-c", 'MKHOME=$HOME; source "$1"; cli_unit', "test", resolve(__dirname, "../../../scripts/home-cli.sh")], {
+      env: { HOME: r.root, PATH: process.env.PATH!, ...homeUiSafety(r.root) }, encoding: "utf8",
+    });
+    expect(out.status).toBe(1);
+    expect(out.stderr).toContain("TEST: forbidden systemctl hook reached");
+  });
+
   it("does not reload a plugin the install left running (the reload degrades it past bb's 5 s stop window)", () => {
     const r = rig();
     const out = r.run(["rollback", r.backup], { HUI_RELOAD: "degrade" });

@@ -173,7 +173,7 @@ describe("bb home get, list, stats, feed", () => {
       isVizier: () => false,
     });
     const s = JSON.parse((await Promise.resolve(cli.run(["stats", "--json"], {}))).stdout!);
-    expect(s.waiting).toMatchObject({ total: 1, decide: 1, moves: 0, notices: 0 });
+    expect(s.waiting).toMatchObject({ total: 1, decide: 1, notices: 0 });
     expect(typeof s.waiting.definition).toBe("string");
     expect(JSON.parse((await run(["stats", "--json"])).stdout!)).not.toHaveProperty("waiting");
   });
@@ -264,7 +264,7 @@ describe("cards in the CLI (Task 2.7)", () => {
   afterEach(() => cleanupEnvs());
 
   it("progress, resolve and withdraw refuse a card row with exit 2 and change nothing", async () => {
-    const { r, c, run: go } = await cardCli();
+    const { r, c, run: go } = await cardCli({});
     const before = JSON.stringify(r.svc.store.decision(c.g1.id));
     for (const verb of ["progress", "resolve", "withdraw"]) {
       const x = await go([verb, c.g1.id], { threadId: "thr_a" });
@@ -275,11 +275,32 @@ describe("cards in the CLI (Task 2.7)", () => {
   });
 
   it("get --card reads the card and its current generation; an unknown card exits 1", async () => {
-    const { c, run: go } = await cardCli();
+    const { c, run: go } = await cardCli({});
     const x = await go(["get", "--card", c.t.id]);
     expect(x.exitCode).toBe(0);
     expect(JSON.parse(x.stdout!)).toMatchObject({ task_id: c.t.id, state: "open", decision_id: c.g1.id, generation: 1, decision_state: "open" });
     expect((await go(["get", "--card", "nope"])).exitCode).toBe(1);
+  });
+
+  it("get --card uses an explicit tasks project without caller context", async () => {
+    const { c, run: go } = await cardCli({});
+    const x = await go(["get", "--card", c.t.id, "--project", c.t.projectId]);
+    expect(x.exitCode).toBe(0);
+    expect(JSON.parse(x.stdout!).card_key).toBeTruthy();
+    const other = await go(["get", "--card", c.t.id, "--project", "other-project"]);
+    expect(other.exitCode).toBe(1);
+  });
+
+  it("get --card treats empty project as unset and preserves the unscoped error", async () => {
+    const { c, run: go } = await cardCli({});
+    const empty = await go(["get", "--card", c.t.id, "--project", ""]);
+    expect(empty.exitCode).toBe(0);
+    expect(JSON.parse(empty.stdout!).card_key).toBeTruthy();
+    for (const flags of [[], ["--project", ""]]) {
+      const missing = await go(["get", "--card", "missing", ...flags]);
+      expect(missing.exitCode).toBe(1);
+      expect(missing.stderr).toBe("unknown card\n");
+    }
   });
 
   it("get --request resolves a card key through card_requests, and a legacy key through the registry", async () => {
@@ -516,50 +537,52 @@ describe("bb home handoff", () => {
   });
 });
 
-describe("home report", () => {
+describe("home report (retired verb, kept so a host script that still calls it does not fail)", () => {
   const SHA = "a".repeat(64);
-  const open = (sha = SHA) => svc.store.openMove({ task_id: "T1", generation: 1, kind: "script", payload: { script: { path: "/x/s.sh", sha256: sha, args: [], recover: null } }, opened_by: "card" } as never);
-  const rep = (...a: string[]) => run(["report", "--script-path", "/x/s.sh", ...a]);
-  it("records an ok report on the open script row and leaves the move open", async () => {
-    open();
-    const r = await rep("--script-sha256", SHA, "--result", "ok", "--log", "/tmp/s.log");
+  const seedMove = () =>
+    svc.store.db
+      .prepare("INSERT INTO moves(task_id, generation, kind, payload_json, state, opened_by, opened_at) VALUES ('T1', 1, 'script', '{}', 'open', 'card', '2026-10-12T03:00:00.000Z')")
+      .run();
+  it("records nothing, says matched 0, and leaves a stored move row exactly as it was", async () => {
+    seedMove();
+    const before = JSON.stringify(svc.store.moves());
+    const r = await run(["report", "--script-path", "/x/s.sh", "--script-sha256", SHA, "--result", "ok", "--log", "/tmp/s.log"]);
     expect(r.exitCode).toBe(0);
-    expect(JSON.parse(r.stdout!)).toEqual({ ok: true, matched: 1 });
-    const m = svc.store.move("T1", 1)!;
-    expect(m.state).toBe("open");
-    expect(m.report_state).toBe("succeeded");
-  });
-  it("a failed report keeps the step and the log link", async () => {
-    open();
-    await rep("--script-sha256", SHA, "--result", "failed", "--step", "migrate", "--log", "/tmp/s.log");
-    const m = svc.store.move("T1", 1)!;
-    expect(m.report_state).toBe("failed");
-    expect(JSON.parse(m.report_json!)).toMatchObject({ failing_step: "migrate", report_link: "/tmp/s.log" });
-  });
-  it("an unmatched sha changes nothing and says so", async () => {
-    open();
-    const r = await rep("--script-sha256", "b".repeat(64), "--result", "ok");
     expect(JSON.parse(r.stdout!)).toEqual({ ok: true, matched: 0 });
-    expect(svc.store.move("T1", 1)!.report_state).toBeNull();
+    expect(JSON.stringify(svc.store.moves())).toBe(before);
   });
-  it("a retry of the same run is a no-op even after a later report; a new run with the same outcome is its own report", async () => {
-    open();
-    await rep("--script-sha256", SHA, "--result", "failed", "--step", "s", "--report-id", "run1");
-    await rep("--script-sha256", SHA, "--result", "ok", "--report-id", "run2");
-    await rep("--script-sha256", SHA, "--result", "failed", "--step", "s", "--report-id", "run1"); // delayed retry
-    expect(svc.store.move("T1", 1)!.report_state).toBe("succeeded");
-    await rep("--script-sha256", SHA, "--result", "failed", "--step", "s", "--report-id", "run3");
-    expect(svc.store.move("T1", 1)!.report_state).toBe("failed");
-    expect(JSON.parse(svc.store.move("T1", 1)!.report_json!).comment_id).toContain("run3");
+  it("still accepts the failure form report-tell sends", async () => {
+    const r = await run(["report", "--script-path", "/x/s.sh", "--script-sha256", SHA, "--result", "failed", "--step", "migrate", "--report-id", "run1"]);
+    expect(r.exitCode).toBe(0);
+    expect(JSON.parse(r.stdout!)).toEqual({ ok: true, matched: 0 });
   });
-  it("a wrong path matches nothing", async () => {
-    open();
-    const r = await run(["report", "--script-path", "/other.sh", "--script-sha256", SHA, "--result", "ok"]);
-    expect(JSON.parse(r.stdout!).matched).toBe(0);
-  });
-  it("refuses a bad sha, a bad result and an unsafe log path", async () => {
-    expect((await rep("--script-sha256", "zz", "--result", "ok")).exitCode).toBe(2);
-    expect((await rep("--script-sha256", SHA, "--result", "maybe")).exitCode).toBe(2);
-    expect((await rep("--script-sha256", SHA, "--result", "ok", "--log", "rel; rm -rf /")).exitCode).toBe(2);
-  });
+});
+
+describe("blocker audit by filing thread", () => {
+ afterEach(cleanupEnvs);
+ it("counts cards once by filing thread, includes old blockers, excludes cards outside the window, and writes nothing", async () => {
+ const r=rig();
+ const cli=homeCli({svc:r.svc,asks:new Asks(r.svc),catchup:new Catchup(r.svc, verifiedDelegation(r.svc)),rule:()=>{throw new Error("read only");},isVizier:()=>false});
+ const a=await opened(r,{thread:"thread-a"});
+ const b=await opened(r,{thread:"thread-a"});
+ const c=await opened(r,{thread:"thread-b"});
+ await opened(r,{thread:"thread-b"});
+ for(const {g1} of [a,b,c]) r.db.prepare("UPDATE decisions SET urgency='blocker' WHERE id=?").run(g1.id);
+ // Generations of one card must count once, including after an edit.
+ r.edit(a.t,{description:r.desc({key:String(r.cardRow(a.t.id).request_key),question:"Revised?",ask:{urgency:"blocker",stopped:"Release waits"}})});
+ await r.poll(); expect(r.gens(a.t.id)).toHaveLength(2);
+ const old=await opened(r,{thread:"thread-b"});
+ r.db.prepare("UPDATE decisions SET urgency='blocker', filed_at='2000-01-01T00:00:00.000Z' WHERE id=?").run(old.g1.id);
+ // Editing an old card in this window must not move its first-filing time.
+ r.edit(old.t,{description:r.desc({key:String(r.cardRow(old.t.id).request_key),question:"Edited this week?",ask:{urgency:"blocker",stopped:"Release waits"}})});
+ await r.poll(); expect(r.gens(old.t.id)).toHaveLength(2);
+ // Task-less legacy asks remain outside this card report.
+ const legacy=await r.svc.file(ask(r.env,{urgency:"blocker",stopped:"Release waits",thread:"thread-c"}),{});
+ expect(legacy.ok).toBe(true);
+ const before=r.db.prepare("SELECT total_changes() AS n").get();
+ const res=await cli.run(["pushes","--by-thread","--days","7"],{});
+ expect(res.exitCode).toBe(0); expect(JSON.parse(res.stdout!)).toEqual([{thread:"thread-a",blocker_cards:2},{thread:"thread-b",blocker_cards:1}]);
+ expect(r.db.prepare("SELECT total_changes() AS n").get()).toEqual(before);
+ expect((await cli.run(["pushes","--by-thread","--days","0"],{})).exitCode).toBe(2);
+ });
 });

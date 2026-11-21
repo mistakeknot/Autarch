@@ -190,6 +190,9 @@ describe("the child environment is built from nothing", () => {
     vi.stubEnv("AWS_SECRET", "leak");
     vi.stubEnv("BB_SERVER_URL", "http://127.0.0.1:1");
     vi.stubEnv("BB_THREAD_ID", "thr-ambient");
+    // TMPDIR is the one variable the rig passes through when the caller has it (see the TMPDIR test above), so this test
+    // fixes its own environment: with no TMPDIR set, the child must hold exactly PATH, HOME and the rig's BB_* variables.
+    vi.stubEnv("TMPDIR", undefined);
     try {
       const tg = target();
       const r = await rigExec("/usr/bin/env", [], { target: tg });

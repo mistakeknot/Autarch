@@ -20,17 +20,21 @@ const lockPath = () => join(rig.stateDir, "lock");
 /** Resolve with the exit status once the child ends; registered immediately so the event cannot be missed. */
 const exited = (p: ChildProcess): Promise<number | null> => new Promise((res) => p.once("exit", (code) => res(code)));
 
-/** A separate process that holds the lock on fd 9 (the runner's way) until killed. */
+/**
+ * A separate process that holds the lock on fd 9 (the runner's way) until killed. It WAITS for the lock (up to 30 s) instead of
+ * trying once: a test's own readiness probe takes the lock for an instant, and a single non-blocking try that landed in that instant
+ * wrote "busy" and left the test failing with "holder state: busy" (seen on a loaded host).
+ */
 function holder(): ChildProcess {
-  const p = spawn("bash", ["-c", 'exec 9>"$1"; if flock -n 9; then echo held > "$1.state"; else echo busy > "$1.state"; fi; exec sleep 120', "holder", lockPath()], { stdio: ["ignore", "pipe", "ignore"] });
+  const p = spawn("bash", ["-c", 'exec 9>"$1"; if flock -w 30 9; then echo held > "$1.state"; else echo busy > "$1.state"; fi; exec sleep 120', "holder", lockPath()], { stdio: ["ignore", "pipe", "ignore"] });
   procs.push(p);
   return p;
 }
 function holding(): ChildProcess {
   const p = holder();
-  // the event loop is blocked by waitFor, so probe the lock itself: held once a non-blocking flock on it fails
-  const heldNow = () => existsSync(lockPath()) && spawnSync("flock", ["-n", lockPath(), "true"]).status !== 0;
-  expect(waitFor(heldNow, 20_000), `holder state: ${holderState()}`).toBe(true);
+  // The event loop is blocked by waitFor, so wait on the holder's own marker, which no probe can disturb; then confirm with one probe.
+  expect(waitFor(() => holderState() === "held", 20_000), `holder state: ${holderState()}`).toBe(true);
+  expect(spawnSync("flock", ["-n", lockPath(), "true"]).status, "the lock file is held").not.toBe(0);
   return p;
 }
 

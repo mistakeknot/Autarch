@@ -20,9 +20,22 @@ const (
 
 // Agent represents a detected coding agent
 type Agent struct {
-	Type    Type
-	Path    string
-	Version string
+	ProjectRoot string // Project used for dispatch preference resolution.
+	Type        Type
+	Path        string
+	Version     string
+
+	// explicitSelection distinguishes a named user choice from automatic detection.
+	explicitSelection bool
+}
+
+// Clone returns an independent snapshot for a command goroutine.
+func (a *Agent) Clone() *Agent {
+	if a == nil {
+		return nil
+	}
+	copy := *a
+	return &copy
 }
 
 // DetectAgent finds available coding agents on the system.
@@ -52,9 +65,10 @@ func DetectAgentByName(name string, lookPath func(string) (string, error)) (*Age
 		return nil, fmt.Errorf("agent %q not found", name)
 	}
 	return &Agent{
-		Type:    Type(tool.Name),
-		Path:    tool.Path,
-		Version: tool.Version,
+		Type:              Type(tool.Name),
+		explicitSelection: true,
+		Path:              tool.Path,
+		Version:           tool.Version,
 	}, nil
 }
 
@@ -103,17 +117,21 @@ func (a *Agent) Generate(ctx context.Context, req GenerateRequest) (*GenerateRes
 // GenerateWithOutput runs a prompt and streams output to a callback.
 // This dispatches via agenttargets.Dispatch() regardless of agent type.
 func (a *Agent) GenerateWithOutput(ctx context.Context, req GenerateRequest, onOutput OutputCallback) (*GenerateResponse, error) {
-	cfg := agenttargets.DefaultDispatchConfig()
-	cfg.PreferredAgent = string(a.Type)
+	root := a.ProjectRoot
+	if root == "" {
+		root = "."
+	}
+	cfg := a.dispatchConfig(root)
 
-	handle, err := agenttargets.Dispatch(ctx, cfg, "", req.Prompt)
+	handle, err := agenttargets.Dispatch(ctx, cfg, root, req.Prompt)
 	if err != nil {
-		return nil, fmt.Errorf("%s execution failed: %w", a.Type, err)
+		return nil, fmt.Errorf("%s execution failed: %w", cfg.PreferredAgent, err)
 	}
 
 	var finalResult string
 	var contentBuilder strings.Builder
 	var sawResult bool
+	var streamErr error
 
 	for event := range handle.Events {
 		switch event.Type {
@@ -129,16 +147,25 @@ func (a *Agent) GenerateWithOutput(ctx context.Context, req GenerateRequest, onO
 		case agenttargets.StreamResult:
 			sawResult = true
 			if event.IsError {
-				return nil, fmt.Errorf("%s error: %s", a.Type, event.Text)
+				streamErr = fmt.Errorf("%s error: %s", cfg.PreferredAgent, event.Text)
 			}
 			finalResult = event.Text
 		case agenttargets.StreamError:
 			if !sawResult {
-				return nil, fmt.Errorf("%s execution failed: %s", a.Type, event.Text)
+				streamErr = fmt.Errorf("%s execution failed: %s", cfg.PreferredAgent, event.Text)
 			}
 		}
 	}
 
+	if _, err := handle.Wait(); err != nil {
+		if streamErr != nil {
+			return nil, fmt.Errorf("%s: %w", streamErr, err)
+		}
+		return nil, fmt.Errorf("%s execution failed: %w", cfg.PreferredAgent, err)
+	}
+	if streamErr != nil {
+		return nil, streamErr
+	}
 	// Prefer the explicit result if available, otherwise use accumulated content
 	content := finalResult
 	if content == "" {
@@ -156,4 +183,30 @@ func (a *Agent) String() string {
 		return "none"
 	}
 	return fmt.Sprintf("%s (%s)", a.Type, a.Version)
+}
+
+// dispatchConfig preserves an explicit agent selection over project and environment preferences.
+func (a *Agent) dispatchConfig(projectRoot string) agenttargets.DispatchConfig {
+	return a.ApplyDispatchConfig(agenttargets.LoadDispatchConfig(projectRoot))
+}
+
+// ApplyDispatchConfig applies this agent selection to caller-specific defaults.
+func (a *Agent) ApplyDispatchConfig(cfg agenttargets.DispatchConfig) agenttargets.DispatchConfig {
+	if a == nil {
+		return cfg
+	}
+	if a.explicitSelection && a.Type != "" {
+		cfg = agenttargets.WithExplicitAgent(cfg, string(a.Type))
+	}
+	if cfg.PreferredAgent == "" && a.Type != "" {
+		cfg.PreferredAgent = string(a.Type)
+		cfg.PreferredAgentSource = "automatic detection"
+	}
+	return cfg
+}
+
+// DispatchPreference returns the effective agent and source used by generation.
+func (a *Agent) DispatchPreference(projectRoot string) (string, string) {
+	cfg := a.dispatchConfig(projectRoot)
+	return cfg.PreferredAgent, cfg.PreferredAgentSource
 }

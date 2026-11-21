@@ -2,7 +2,7 @@
 // "Answer with this" records the words as a custom pick. The text is plain text, trimmed, capped at 20000 characters.
 // The server enforces the same cap; the counter here is a courtesy. Images (paste or attach) travel with the text;
 // the server checks type, size and count again, and an image alone (no text) is not sent.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActionButton } from "./buttons.js";
 
 export const OTHER_MAX = 20000;
@@ -72,7 +72,10 @@ export function OtherBox({
 }) {
   const [raw, setRaw] = useState("");
   const rawRef = useRef("");
-  rawRef.current = raw;
+  // Written in a layout effect, not in render: it lands in the same commit, before any event handler or timer can read it.
+  useLayoutEffect(() => {
+    rawRef.current = raw;
+  }, [raw]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [imgs, setImgsState] = useState<Staged[]>([]);
@@ -193,7 +196,7 @@ export function OtherBox({
             }
           }}
           rows={3}
-          className="mt-1 block w-full min-w-0 resize-y rounded-md border border-input bg-transparent p-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mt-1 block min-h-11 w-full min-w-0 resize-y rounded-md border border-input bg-transparent p-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           placeholder="Your own words: a question, a note, or a different answer. Plain text; paste or attach images."
           data-other-text
         />
@@ -208,13 +211,13 @@ export function OtherBox({
           ))}
         </ul>
       ) : null}
-      {imgErr ? <p role="alert" className="mt-1 text-xs font-medium text-destructive" data-other-image-error>{imgErr}</p> : null}
+      {imgErr ? <p role="alert" className="mt-1 text-xs font-medium text-[var(--destructive-text,var(--destructive))]" data-other-image-error>{imgErr}</p> : null}
       <div className="mt-1 flex flex-wrap items-center gap-2">
         <label className="cursor-pointer text-xs text-muted-foreground underline">
           Attach image
           <input type="file" accept={IMG_TYPES.join(",")} multiple disabled={busy} className="sr-only" data-other-attach onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ""; addFiles(fs); }} />
         </label>
-        <span className={`text-xs ${over ? "font-medium text-destructive" : "text-muted-foreground"}`} data-other-counter aria-live="polite">{`${count} / ${OTHER_MAX}`}</span>
+        <span className={`text-xs ${over ? "font-medium text-[var(--destructive-text,var(--destructive))]" : "text-muted-foreground"}`} data-other-counter aria-live="polite">{`${count} / ${OTHER_MAX}`}</span>
         <ActionButton disabled={t === null || busy || loading > 0} onClick={() => void run(onNote, "Sent. The owner is woken; nothing was ruled or closed.", true)} data-other-note>Ask / note</ActionButton>
         {onAnswer || answerDisabledReason ? (
           <ActionButton
@@ -230,7 +233,7 @@ export function OtherBox({
       {busy || loading > 0 ? <p className="mt-1 text-xs text-muted-foreground" data-other-wait>{busy ? "Sending..." : "Reading an image..."}</p> : null}
       {answerDisabledReason ? <p className="mt-1 text-xs text-muted-foreground" data-other-answer-reason>{answerDisabledReason}</p> : null}
       {showHelp ? <p className="mt-1 text-xs text-muted-foreground" data-other-help>{otherHelpText(!!onAnswer)}</p> : null}
-      {msg ? <p role={msg.ok ? "status" : "alert"} className={`mt-1 text-xs ${msg.ok ? "text-muted-foreground" : "font-medium text-destructive"}`} data-other-result={msg.ok ? "ok" : "error"}>{msg.text}</p> : null}
+      {msg ? <p role={msg.ok ? "status" : "alert"} className={`mt-1 text-xs ${msg.ok ? "text-muted-foreground" : "font-medium text-[var(--destructive-text,var(--destructive))]"}`} data-other-result={msg.ok ? "ok" : "error"}>{msg.text}</p> : null}
     </div>
   );
 }

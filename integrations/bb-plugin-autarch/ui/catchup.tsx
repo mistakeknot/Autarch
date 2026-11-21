@@ -296,7 +296,7 @@ export function CatchupPanel({
       </div>
       {plan.reason ? <p className="m-0 text-xs text-muted-foreground" data-mark-reason>{plan.reason}</p> : null}
       {result ? <p className="m-0 text-xs" role="status" data-mark-result>{result}</p> : null}
-      {loadError ? <p className="m-0 text-xs text-destructive" role="alert" data-catchup-error>{`Catch-up could not be loaded: ${loadError}. The rest of Home is current; this retries on the next refresh.`}</p> : null}
+      {loadError ? <p className="m-0 text-xs text-[var(--destructive-text,var(--destructive))]" role="alert" data-catchup-error>{`Catch-up could not be loaded: ${loadError}. The rest of Home is current; this retries on the next refresh.`}</p> : null}
       {items.length === 0 && !loadError ? <p className="text-sm text-muted-foreground">You are caught up.</p> : null}
       {items.map((e) => (
         <CatchupRow key={e.item} e={e} expanded={expanded.has(e.item)} onToggle={onToggle} onOverride={onOverride} onMarkOne={onMarkOne} onVisibility={onVisibility} />

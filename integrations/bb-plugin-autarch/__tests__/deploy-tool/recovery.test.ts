@@ -165,6 +165,18 @@ describe("the block holds the destination lock from before the disable to after 
   }, 120_000);
 });
 
+// A process that holds the lock on this rig's lock file until the test ends. It WAITS for the lock (up to 30 s) rather than
+// trying once: the old version tried once with `flock -n`, and the test's own readiness poll (`flock -n <lock> true`, which takes
+// the lock for a few milliseconds) landed in the gap between the holder creating the file and locking it in about 12 of 15 idle
+// repeats, so the holder reported "busy", held nothing, and the poll then saw a free lock for the whole 20 s. Readiness is now the
+// holder's own "held" marker, which no probe can disturb; the lock is then confirmed held with one probe.
+function startLockHolder(): void {
+  const holder = spawn("bash", ["-c", 'exec 9>>"$1"; if flock -w 30 9; then echo held > "$1.state"; else echo busy > "$1.state"; fi; exec sleep 120', "holder", lockPath()], { stdio: ["ignore", "pipe", "ignore"] });
+  procs.push(holder);
+  expect(waitFor(() => holderState() === "held", 20_000), `holder state: ${holderState()}`).toBe(true);
+  expect(spawnSync("flock", ["-n", lockPath(), "true"]).status, "the lock file is held").not.toBe(0);
+}
+
 describe("lock inheritance in the block", () => {
   const heldBy = (fd: number, extraEnv = "") => `exec ${fd}>>"$LOCKFILE"; flock -n ${fd} || exit 9\n${extraEnv}`;
 
@@ -200,9 +212,7 @@ describe("lock inheritance in the block", () => {
   it("a BPD_LOCK_FD with nothing behind it opens its own descriptor and gives up when another process holds the lock", async () => {
     rig = new Rig({ installedKind: "stamped" });
     const { block, W } = deployedBlock();
-    const holder = spawn("bash", ["-c", 'exec 9>>"$1"; if flock -n 9; then echo held > "$1.state"; else echo busy > "$1.state"; fi; exec sleep 120', "holder", lockPath()], { stdio: ["ignore", "pipe", "ignore"] });
-    procs.push(holder);
-    expect(waitFor(() => existsSync(lockPath()) && spawnSync("flock", ["-n", lockPath(), "true"]).status !== 0, 20_000), `holder state: ${holderState()}`).toBe(true);
+    startLockHolder();
     rig.clearCalls();
     const r = spawnSync("bash", ["-c", `export BPD_LOCK_FD=17\n${block}`], { encoding: "utf8", env: bashEnv({ BPD_LOCK_WAIT_SEC: "1" }) });
     expect(r.status, r.stderr + r.stdout).toBe(75);
@@ -213,9 +223,7 @@ describe("lock inheritance in the block", () => {
   it("a descriptor open on some other file is not the lock: the block opens its own and waits", () => {
     rig = new Rig({ installedKind: "stamped" });
     const { block } = deployedBlock();
-    const holder = spawn("bash", ["-c", 'exec 9>>"$1"; if flock -n 9; then echo held > "$1.state"; else echo busy > "$1.state"; fi; exec sleep 120', "holder", lockPath()], { stdio: ["ignore", "pipe", "ignore"] });
-    procs.push(holder);
-    expect(waitFor(() => existsSync(lockPath()) && spawnSync("flock", ["-n", lockPath(), "true"]).status !== 0, 20_000), `holder state: ${holderState()}`).toBe(true);
+    startLockHolder();
     rig.clearCalls();
     const other = join(rig.root, "not-the-lock");
     const r = spawnSync("bash", ["-c", `exec 9>"${other}"\n${block}`], { encoding: "utf8", env: bashEnv({ BPD_LOCK_WAIT_SEC: "1" }) });

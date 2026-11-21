@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@get-bb/plugin-sdk/app", () => ({ ThreadChat: () => null }));
 
 import { learnEnabled, learnSet, learnView, loadDeck, type LearnSettings } from "../learn.js";
-import { homeTabs, HomeTabs } from "../ui/tabs.js";
+import { homeTabs, HomeOverflow, QUEUE_TABS } from "../ui/tabs.js";
 import { LearnPanel, LearnSwitch, latestOnly, orderDeck } from "../ui/learn.js";
 import { MIGRATIONS } from "../migrations.js";
 import { openStore, tmpDir } from "./helpers.js";
@@ -42,7 +42,12 @@ describe("the shipped deck", () => {
     expect(d[1]!.body).not.toContain("latest agent comment");
     expect(d[2]!.body).toContain("updates that are only for reading");
     expect(d[2]!.body).toContain("put on hold");
-
+  });
+  it("describes the count as the code does now: no open moves, no notices, tabs named as the UI names them", () => {
+    const body = loadDeck(shipped)[2]!.body;
+    expect(body).not.toMatch(/open moves/i);
+    expect(body).not.toMatch(/notices you must acknowledge/i);
+    for (const [, label] of QUEUE_TABS) expect(body).toContain(`"${label}"`);
   });
   it("skips files that are not cards and reads nothing from a missing directory", () => {
     const dir = mkdtempSync(join(tmpdir(), "learn-"));
@@ -143,10 +148,10 @@ describe("reading Learn state", () => {
 describe("the tab and the panel", () => {
   const noop = () => {};
   it("the Learn tab is absent by default and present when on", () => {
-    expect(homeTabs().map((t) => t[2])).toEqual(["Queue", "Ideas", "Archive", "Vizier", "Map", "Settings"]);
-    expect(homeTabs(true).map((t) => t[2])).toEqual(["Queue", "Ideas", "Learn", "Archive", "Vizier", "Map", "Settings"]);
-    expect(renderToStaticMarkup(<HomeTabs onOpen={noop} />)).not.toContain("Learn");
-    expect(renderToStaticMarkup(<HomeTabs learn onOpen={noop} />)).toContain("Learn");
+    expect(homeTabs().map((t) => t[2])).toEqual(["Queue", "Ideas", "Archive", "Vizier", "Settings"]);
+    expect(homeTabs(true).map((t) => t[2])).toEqual(["Queue", "Ideas", "Learn", "Archive", "Vizier", "Settings"]);
+    expect(renderToStaticMarkup(<HomeOverflow onOpen={noop} />)).not.toContain("Learn");
+    expect(renderToStaticMarkup(<HomeOverflow learn onOpen={noop} />)).toContain("Learn");
   });
   const cards = loadDeck(shipped).map((c, i) => ({ ...c, mark: (i === 0 ? "got" : i === 1 ? "later" : null) as "got" | "later" | null }));
   it("orders unread first, then Later, then Got it", () => {

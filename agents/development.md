@@ -17,7 +17,6 @@ go build ./cmd/...
 
 # Unified TUI (recommended)
 ./dev autarch tui                    # Full onboarding flow
-./dev autarch tui --skip-onboard     # Direct to dashboard
 ./dev autarch tui --tool=gurgeh      # Jump to specific tab
 ./dev autarch tui --inline           # Inline mode (preserves scrollback)
 

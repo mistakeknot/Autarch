@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mistakeknot/Masaq/spinner"
 )
 
@@ -150,7 +151,11 @@ func (p *ChatPanel) View() string {
 
 	// Render composer first so history can use its actual height.
 	if p.selector != nil {
-		p.composer.SetTitle("Model: " + p.selector.currentName())
+		title := "Dispatch: " + p.selector.currentLabel()
+		if p.handler != nil {
+			title = "Chat: Claude | " + title
+		}
+		p.composer.SetTitle(ansi.Truncate(title, max(0, p.width-4), "…"))
 	} else {
 		p.composer.SetTitle("")
 	}
@@ -223,7 +228,7 @@ func (p *ChatPanel) View() string {
 	}
 
 	if p.selector != nil && p.selector.Open {
-		sections = append(sections, p.selector.View())
+		sections = append(sections, p.selector.View(p.width))
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)

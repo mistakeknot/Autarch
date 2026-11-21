@@ -26,7 +26,7 @@ func TestFileCardWithMoveLabelsAndWritesTheBlock(t *testing.T) {
 		"context": {"schema": "home-move/v1", "kind": "context", "context": map[string]any{"need": "the staging token's owner"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			f := newFake(t)
+			f := newFake(t, registryOnCreate)
 			req := testReq()
 			req.Move = mv
 			res, err := f.filer().FileCard(context.Background(), req)
@@ -49,7 +49,7 @@ func TestFileCardWithMoveLabelsAndWritesTheBlock(t *testing.T) {
 }
 
 func TestFileCardWithoutMoveStaysUnchanged(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	if _, err := f.filer().FileCard(context.Background(), testReq()); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestFileCardRefusesAMalformedMoveBeforeCreatingAnything(t *testing.T) {
 	}
 	for name, mv := range bad {
 		t.Run(name, func(t *testing.T) {
-			f := newFake(t)
+			f := newFake(t, registryOnCreate)
 			req := testReq()
 			req.Move = mv
 			_, err := f.filer().FileCard(context.Background(), req)
@@ -93,7 +93,7 @@ func TestFileCardRefusesAMalformedMoveBeforeCreatingAnything(t *testing.T) {
 }
 
 func TestParseCardRefusesTwoMovesAndABadMove(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	req := testReq()
 	req.Move = prMove()
 	if _, err := f.filer().FileCard(context.Background(), req); err != nil {
@@ -112,7 +112,7 @@ func TestParseCardRefusesTwoMovesAndABadMove(t *testing.T) {
 }
 
 func TestAdoptMoveAttachesToAnExistingCard(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	if _, err := f.filer().FileCard(context.Background(), testReq()); err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestAdoptMoveAttachesToAnExistingCard(t *testing.T) {
 }
 
 func TestAdoptMoveRefusals(t *testing.T) {
-	f := newFake(t)
+	f := newFake(t, registryOnCreate)
 	if _, err := f.filer().FileCard(context.Background(), testReq()); err != nil {
 		t.Fatal(err)
 	}

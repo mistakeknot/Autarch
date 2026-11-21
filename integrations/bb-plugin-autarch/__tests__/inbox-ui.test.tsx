@@ -28,10 +28,11 @@ const view = (a: AsksData, initial?: { tab?: InboxTab; open?: string }) =>
   renderToStaticMarkup(<MobileInbox asks={a} waiting={2} onPick={noop as never} onOpen={noop} onNote={noop} onLater={noop} sinceNode={<p>since body</p>} sinceCount={3} onDesktop={noop} now={NOW} {...(initial ? { initial } : {})} />);
 
 describe("inboxRows", () => {
-  it("puts live decisions in Waiting and set-aside cards in Later; held cards appear nowhere", () => {
+  it("puts live decisions in Waiting and set-aside cards in Later; held cards are listed apart, under the On hold row", () => {
     const r = inboxRows(asks([ask(), ask({ id: "d2", task_id: "t2", later: LATER }), ask({ id: "d3", task_id: "t3", held: { reason: "x", by: "v", at: "z" } })]), NOW);
     expect(r.waiting.map((x) => x.key)).toEqual(["ask:d1"]);
     expect(r.later.map((x) => x.key)).toEqual(["ask:d2"]);
+    expect(r.held.map((x) => x.key)).toEqual(["ask:d3"]);
   });
   it("labels the kind and age", () => {
     const r = inboxRows(asks([ask()]), NOW);

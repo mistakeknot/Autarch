@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,7 +22,12 @@ var filerTimeout = 10 * time.Second
 
 // newFiler builds the card filer `decide file` and the MCP tool use. Its tasks project binding
 // comes from AUTARCH_TASKS_PROJECTS / AUTARCH_TASKS_PROJECT; tests replace it.
-var newFiler = func() *homeask.CardFiler { return homeask.CardFilerFromEnv(filerTimeout) }
+var newFiler = func() *homeask.CardFiler {
+	f := homeask.CardFilerFromEnv(filerTimeout)
+	// The same project and root check needs-mk file runs: Home hides a card that fails it.
+	f.Check = func(project, root string) error { return checkFilingPreconditions(project, root) }
+	return f
+}
 
 func gitRoot() string {
 	cwd, err := os.Getwd()
@@ -49,8 +55,9 @@ func resolveThread(flag string) (string, error) {
 }
 
 // buildAsk fills what the caller's context knows (thread, asker, project root) into
-// the JSON on stdin, then validates it as any other filing.
-func buildAsk(raw []byte, thread, asker, projectRoot, project string) (homeask.Ask, error) {
+// the JSON on stdin, then validates it as any other filing. defaultProject names the project when
+// neither the JSON nor project does (nil: the root's folder name).
+func buildAsk(raw []byte, thread, asker, projectRoot, project string, defaultProject func(root string) string) (homeask.Ask, error) {
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return homeask.Ask{}, &usageError{"stdin is not a JSON object: " + err.Error()}
@@ -95,7 +102,12 @@ func buildAsk(raw []byte, thread, asker, projectRoot, project string) (homeask.A
 	}
 	if _, ok := m["project"]; !ok {
 		if project == "" {
-			project = filepath.Base(m["project_root"].(string))
+			root := m["project_root"].(string)
+			if defaultProject != nil {
+				project = defaultProject(root)
+			} else {
+				project = filepath.Base(root)
+			}
 		}
 		m["project"] = project
 	}
@@ -128,10 +140,16 @@ func decideFileCmd() *cobra.Command {
 		Short: "File the ask JSON on stdin as a needs-mk card; prints the card id",
 		Long: `Files a tasks card routed to the asking thread (see also: autarch needs-mk file). The
 tasks project is --tasks-project, else AUTARCH_TASKS_PROJECTS (<home project>=<tasks project>,...),
-else AUTARCH_TASKS_PROJECT. A threadless (mycroft) ask is refused: Mycroft files its own.
+else AUTARCH_TASKS_PROJECT. Legacy threadless (mycroft) asks are refused.
+Ask JSON may set urgent:true, keep_list (the needs-mk --keep-list values), or
+root_run:{script,sha256,timeout,set}; its sha256 must match the readable script. Merge options
+are detected automatically, and merge, urgent and root-run cards bypass the weekday hold.
+A held card exits 6 and prints queued JSON with its request key and hold message
+instead of a card id. Only exit 0 means a card was filed.
 
 Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
-(re-run the same command; it is idempotent), 5 already ruled.`,
+(re-run the same command; it is idempotent), 5 already ruled, 6 accepted but held
+(no card filed).`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -146,10 +164,6 @@ Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
 			if err != nil {
 				return err
 			}
-			a, err := buildAsk(raw, t, asker, projectRoot, project)
-			if err != nil {
-				return err
-			}
 			ctx := cmd.Context()
 			if ctx == nil {
 				ctx = context.Background()
@@ -159,7 +173,21 @@ Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
 				f.TasksProject = tasksProject
 				f.TasksProjects, f.ConfigErr = nil, nil
 			}
+			f.Warn = func(w string) { fmt.Fprintln(cmd.ErrOrStderr(), "warning:", w) }
+			a, err := buildAsk(raw, t, asker, projectRoot, project, func(root string) string {
+				return homeask.DefaultProject(ctx, f, root)
+			})
+			if err != nil {
+				return err
+			}
 			id, err := f.File(ctx, a)
+			var held *homeask.HeldError
+			if errors.As(err, &held) {
+				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"queued": true, "request": held.RequestKey, "message": held.Error()}); err != nil {
+					return err
+				}
+				return held
+			}
 			if err != nil {
 				return err
 			}
@@ -168,10 +196,10 @@ Exit codes: 2 validation, 3 Home down or not filed, 4 outcome unknown
 		},
 	}
 	cmd.Flags().StringVar(&thread, "thread", "", "Asking thread (default $BB_THREAD_ID)")
-	cmd.Flags().StringVar(&asker, "asker", "", "thread (default); mycroft is refused, Mycroft files its own")
+	cmd.Flags().StringVar(&asker, "asker", "", "thread (default); legacy threadless mycroft asks are refused")
 	cmd.Flags().StringVar(&tasksProject, "tasks-project", "", "Tasks project to file into (default: the configured binding)")
 	cmd.Flags().StringVar(&projectRoot, "project-root", "", "Project root (default: the git root)")
-	cmd.Flags().StringVar(&project, "project", "", "Project name (default: the root's directory name)")
+	cmd.Flags().StringVar(&project, "project", "", "Project name (default: the Home project the tasks board is bound to, else the root's directory name)")
 	return cmd
 }
 
@@ -193,7 +221,11 @@ func decideBBPassthrough(verb, short string, flags []string) *cobra.Command {
 			argv = append(argv, "--json")
 			ctx, cancel := context.WithTimeout(context.Background(), filerTimeout)
 			defer cancel()
-			c := exec.CommandContext(ctx, "bb", argv...)
+			bin, err := homeask.ResolveBBBinary()
+			if err != nil {
+				return fmt.Errorf("%w: %v", homeask.ErrHomeDown, err)
+			}
+			c := exec.CommandContext(ctx, bin, argv...)
 			c.WaitDelay = time.Second
 			var stderr strings.Builder
 			c.Stdout, c.Stderr = cmd.OutOrStdout(), &stderr

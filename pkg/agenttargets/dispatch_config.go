@@ -14,18 +14,19 @@ const (
 
 // DispatchConfig controls how an agent dispatch is executed.
 type DispatchConfig struct {
-	PreferredBackend BackendType       // Default: subscription-cli
-	PreferredAgent   string            // "claude", "codex", "" (auto-detect)
-	Timeout          time.Duration     // Max wall-clock time (0 = no limit)
-	Sandbox          string            // Sandbox mode: "workspace-write", "read-only", "danger-full-access"
-	Model            string            // Model override (empty = CLI default)
-	SessionID        string            // For --resume (Claude) or resume (Codex)
-	OutputFile       string            // Where to write final output (Codex -o)
-	ExtraArgs        []string          // Additional CLI flags
-	WorkDir          string            // Working directory override (empty = caller's cwd)
-	Verbose          bool              // Enable verbose output
-	Print            bool              // Print-only mode (no interactive)
-	Env              map[string]string // Extra environment variables for the agent process
+	PreferredBackend     BackendType       // Default: subscription-cli
+	PreferredAgent       string            // "claude", "codex", "" (auto-detect)
+	Timeout              time.Duration     // Max wall-clock time (0 = no limit)
+	Sandbox              string            // Sandbox mode: "workspace-write", "read-only", "danger-full-access"
+	Model                string            // Model override (empty = CLI default)
+	SessionID            string            // For --resume (Claude) or resume (Codex)
+	OutputFile           string            // Where to write final output (Codex -o)
+	ExtraArgs            []string          // Additional CLI flags
+	WorkDir              string            // Working directory override (empty = caller's cwd)
+	Verbose              bool              // Enable verbose output
+	Print                bool              // Print-only mode (no interactive)
+	Env                  map[string]string // Extra environment variables for the agent process
+	PreferredAgentSource string            // Origin of an agent preference, for diagnostics.
 }
 
 // DefaultDispatchConfig returns subscription-first defaults: claude preferred, 30m timeout.
@@ -36,4 +37,13 @@ func DefaultDispatchConfig() DispatchConfig {
 		Verbose:          true,
 		Print:            true,
 	}
+}
+
+// WithExplicitAgent gives a nonempty user selection precedence over loaded preferences.
+func WithExplicitAgent(cfg DispatchConfig, name string) DispatchConfig {
+	if name != "" {
+		cfg.PreferredAgent = name
+		cfg.PreferredAgentSource = "explicit agent selection"
+	}
+	return cfg
 }

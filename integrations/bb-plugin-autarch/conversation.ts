@@ -5,7 +5,7 @@
 import type { Service } from "./service.js";
 import type { CommentRow, Store } from "./store.js";
 import { HOME_NOTE_TRAILER, type TaskCommentRow } from "./tasks.js";
-import { parseAsk } from "./model.js";
+import { readAsk } from "./askbody.js";
 
 export const SELECTED_POLL_MS = 15_000;
 export const OPEN_POLL_MS = 60_000;
@@ -70,8 +70,8 @@ export function unreadCounts(store: Store, taskIds: readonly string[]): Record<s
 
 export function conversationView(svc: Service, taskId: string, vizier: string | null): ConversationView {
   const store = svc.store;
-  const dec = store.db.prepare("SELECT body_json, owner_thread, thread FROM decisions WHERE task_id = ? ORDER BY generation DESC LIMIT 1").get(taskId) as
-    | { body_json: string; owner_thread: string | null; thread: string | null }
+  const dec = store.db.prepare("SELECT body_json, owner_thread, thread, source FROM decisions WHERE task_id = ? ORDER BY generation DESC LIMIT 1").get(taskId) as
+    | { body_json: string; source: string; owner_thread: string | null; thread: string | null }
     | undefined;
   const ctx: ClassifyContext = { owner: dec?.owner_thread ?? dec?.thread ?? null, vizier };
   const seen = store.seenThrough(taskId);
@@ -92,7 +92,7 @@ export function conversationView(svc: Service, taskId: string, vizier: string | 
   let options: ConversationView["options"] = [];
   if (dec) {
     try {
-      options = (parseAsk(JSON.parse(dec.body_json)).options ?? []).map((o) => ({ id: o.id ?? "", label: o.label, kind: o.kind ?? "ruling-only", instruction: typeof o.instruction === "string" && o.instruction.trim() !== "" ? o.instruction : null }));
+      options = (readAsk(dec.body_json, {}, dec.source)?.options ?? []).map((o) => ({ id: o.id ?? "", label: o.label, kind: o.kind ?? "ruling-only", instruction: typeof o.instruction === "string" && o.instruction.trim() !== "" ? o.instruction : null }));
     } catch {
       options = [];
     }
@@ -195,9 +195,8 @@ export class CommentPoller {
   }
 }
 
-/** Task ids with an open ask or a live move. */
+/** Task ids with an open ask. */
 export function openTaskIds(svc: Service): string[] {
   const asks = svc.store.db.prepare("SELECT task_id FROM cards WHERE state = 'open'").all() as { task_id: string }[];
-  const moves = svc.store.moves().filter((m) => m.state !== "closed").map((m) => ({ task_id: m.task_id }));
-  return [...asks, ...moves].map((r) => r.task_id);
+  return asks.map((r) => r.task_id);
 }

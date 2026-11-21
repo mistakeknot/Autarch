@@ -9,10 +9,16 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/mistakeknot/autarch/pkg/callerlog"
 	"github.com/mistakeknot/autarch/pkg/mcp"
 )
 
 func mcpCmd() *cobra.Command {
+	return mcpCmdWithCallerLog(nil)
+}
+
+// A nil logger retains the production default; tests inject a drop-only log.
+func mcpCmdWithCallerLog(log *callerlog.Log) *cobra.Command {
 	var project string
 
 	cmd := &cobra.Command{
@@ -38,7 +44,7 @@ func mcpCmd() *cobra.Command {
 			ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
-			srv := mcp.NewServer(project).WithIO(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+			srv := mcp.NewServer(project).WithCallerLog(log).WithIO(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 			if err := srv.Run(mcp.WithCaller(ctx, mcp.StdioCaller())); err != nil && err != context.Canceled {
 				return err
 			}

@@ -46,7 +46,6 @@ describe("glance: pulling the context out of a check card", () => {
     expect(g.judging).toHaveLength(4);
     expect(g.judging[0]).toBe("you see 'Waiting on you' with three tabs");
     expect(g.judging[3]).toBe("Full view (top right) shows the desktop layout, and 'Back' returns");
-    expect(g.lead).toMatch(/^The phone inbox you picked is live at/);
   });
   it("takes the first link (the build to play, not the PR), and ends the last question at its sentence", () => {
     const g = glance(PLAY)!;
@@ -176,34 +175,37 @@ describe("the At a glance block on a card", () => {
     expect(h).not.toContain("data-glance-link");
     expect(h).toMatch(/data-glance-path[^>]*>\/srv\/example\/sheet\/street-sheet\.md/);
   });
-  it("says so when the card states no time, instead of guessing", () => {
-    expect(html(PLAY)).toMatch(/data-glance-time[^>]*>Time not stated/);
+  it("omits the time chip when the card states no time", () => {
+    expect(html(PLAY)).not.toContain("data-glance-time");
+    expect(html(PLAY)).not.toContain("data-glance-lead");
   });
   it("lists what is judged as a numbered list", () => {
     const h = html(PLAY);
     expect(h).toContain("data-glance-judging");
     expect(h.match(/<li[^>]*data-glance-item/g)).toHaveLength(4);
   });
-  it("lists every answer with what it does: a ruling-only answer has no line", () => {
+  it("keeps answers with their buttons; a ruling-only answer has no effect line", () => {
     const h = html(PLAY);
-    expect(h.match(/<li[^>]*data-glance-answer/g)).toHaveLength(3);
-    expect(h).toMatch(/data-glance-answers[\s\S]*Merge PR #9 first, then I play/);
+    expect(h).not.toContain("data-glance-answers");
+    expect(h).toContain("Merge PR #9 first, then I play");
     expect(h).not.toMatch(/records your pick only/i);
   });
   it("spells out what an answer that acts will do", () => {
     const a = card("Check the deploy (5 min)", "Look at https://x.example.test: 1) does it load? 2) is it fast?", [{ id: "go", label: "Ship it", kind: "instruction", instruction: "Deploy the build to production now." }, RULING("no", "Not yet")]);
     const h = html(a);
-    expect(h).toMatch(/data-glance-answer[^>]*>[\s\S]*Ship it[\s\S]*Tells thr-a: Deploy the build/);
+    expect(h).toMatch(/data-option="go"[^>]*>[\s\S]*Ship it[\s\S]*Tells thr-a: Deploy the build/);
+    expect(h.match(/>Ship it</g)).toHaveLength(1);
+    expect(h.match(/Tells thr-a: Deploy the build to production now\./g)).toHaveLength(1);
   });
   it("shows the whole instruction an acting answer sends, not its first sentence", () => {
     const a = card("Check the deploy (5 min)", "Look at https://x.example.test: 1) does it load? 2) is it fast?", [{ id: "go", label: "Ship it", kind: "instruction", instruction: "Run the tests. Then deploy the build to production now." }, RULING("no", "Not yet")]);
     const h = html(a);
-    const g = h.slice(h.indexOf("data-glance-answers"), h.indexOf("</section>"));
+    const g = h;
     expect(g).toContain("Run the tests. Then deploy the build to production now.");
   });
   it("keeps each acting answer's own line, and a ruling-only answer has none, whether mixed or all ruling-only", () => {
     const mixed = html(card("Check the deploy (5 min)", "Look at https://x.example.test: 1) does it load? 2) is it fast?", [{ id: "go", label: "Ship it", kind: "instruction", instruction: "Deploy it." }, RULING("no", "Not yet")]));
-    const block = mixed.slice(mixed.indexOf("data-glance-answers"), mixed.indexOf("</section>"));
+    const block = mixed;
     expect(block).toContain("Tells thr-a: Deploy it.");
     expect(block).not.toContain("nothing is sent");
     expect(html(PLAY)).not.toContain("nothing is sent");
@@ -211,7 +213,7 @@ describe("the At a glance block on a card", () => {
   });
   it("an all needs-context check card never says nothing is sent", () => {
     const h = html(card("Check the deploy (5 min)", "Look at https://x.example.test: 1) does it load? 2) is it fast?", [{ id: "a", label: "Looks fine", kind: "needs-context" }, { id: "b", label: "Broken", kind: "needs-context" }]));
-    expect(h).toContain("data-glance-answers");
+    expect(h).not.toContain("data-glance-answers");
     expect(h).not.toContain("data-glance-records");
     expect(h).not.toContain("nothing is sent");
   });

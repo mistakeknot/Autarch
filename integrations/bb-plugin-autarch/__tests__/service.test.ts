@@ -1,10 +1,10 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { parseAsk, identity, revision, semanticKey, normalizedJson } from "../model.js";
+import { parseAsk, parseExistingAsk, identity, revision, semanticKey, normalizedJson } from "../model.js";
 import { parseRuling } from "../ruling.js";
 import type { Service } from "../service.js";
-import { pickOf } from "./helpers.js";
+import { decision, pickOf } from "./helpers.js";
 import { ask, makeEnv, OPTIONS, T0, type Env } from "./service-helpers.js";
 
 let env: Env;
@@ -33,6 +33,27 @@ const rulingFiles = (project = "Autarch") => {
 const ids = (rows: { id: string }[]) => rows.map((r) => r.id);
 
 describe("file", () => {
+  it("replays a registered legacy blocker without stopped but never files a new one", async () => {
+    const legacy = ask(env, {request_id: "legacy-blocker", urgency: "blocker"});
+    const parsed = parseExistingAsk(legacy);
+    const original = svc.store.insertDecision(decision({
+      id: "legacy-decision", request_id: parsed.request_id!, identity: identity(parsed),
+      project: parsed.project, thread: parsed.thread!, asker: parsed.asker,
+      body_json: normalizedJson(parsed), urgency: "blocker",
+    }));
+    expect(original).toEqual({inserted: true, decision_id: "legacy-decision"});
+    const before = svc.store.db.prepare("SELECT total_changes() AS n").get();
+    expect(await svc.file(legacy, {threadId: parsed.thread})).toMatchObject({ok: true, status: 200, decision_id: "legacy-decision"});
+    expect(await svc.file({...legacy, question: "Different decision?"}, {})).toMatchObject({ok: false, status: 409});
+    expect(await svc.file(legacy, {threadId: "other-thread"})).toMatchObject({ok: false, status: 400});
+    const fresh = await svc.file({...legacy, request_id: "new-blocker"}, {});
+    expect(fresh).toMatchObject({ok: false, status: 400});
+    if (!fresh.ok) expect(fresh.error).toContain("stopped");
+    expect(svc.store.registry("new-blocker")).toBeUndefined();
+    expect(svc.store.db.prepare("SELECT total_changes() AS n").get()).toEqual(before);
+    expect(svc.store.db.prepare("SELECT COUNT(*) AS n FROM decisions").get()).toEqual({n: 1});
+  });
+
   it("files twice with one request_id: one row, one event, and the recorded result", async () => {
     const a = await fileOk({ request_id: "req-1" });
     const b = await svc.file(ask(env, { request_id: "req-1" }), {});
@@ -40,6 +61,18 @@ describe("file", () => {
     expect(a.status).toBe(201);
     expect((svc.store.db.prepare("SELECT COUNT(*) n FROM decisions").get() as { n: number }).n).toBe(1);
     expect(svc.store.events().filter((e) => e.type === "filed")).toHaveLength(1);
+  });
+
+  it("replays a group-only re-file without adding a decision or event", async () => {
+    const a = await fileOk({ request_id: "group-replay", group: { key: "pair", order: 1 } });
+    expect(a.status).toBe(201);
+    const before = svc.store.db.prepare("SELECT * FROM decisions").all();
+    const events = svc.store.events();
+    const b = await svc.file(ask(env, { request_id: "group-replay", group: { key: "other-pair", order: 2 } }), {});
+    expect(b).toMatchObject({ ok: true, status: 200, decision_id: a.decision_id });
+    expect(svc.store.db.prepare("SELECT * FROM decisions").all()).toEqual(before);
+    expect(before).toHaveLength(1);
+    expect(svc.store.events()).toEqual(events);
   });
 
   it("refuses a reused request_id with a different thread or project (409)", async () => {
@@ -775,5 +808,27 @@ describe25("card pick: wake, notices and write-backs in one transaction", () => 
     const rows = r.db.prepare("SELECT kind, payload FROM card_writes ORDER BY kind").all() as any[];
     expect25(rows.map((x) => x.kind)).toEqual(["comment", "unlabel"]);
     expect25(JSON.parse(rows[0].payload)).toMatchObject({ option_id: "a", by: "mk", generation: 1 });
+  });
+});
+
+describe("wake attribution from durable structured provenance", () => {
+  it.each([
+    ["wake", "wake:d:p", "card_pick"], ["steps-done", "steps-done:d:t", "card_pick"],
+    ["notice", "notice:d:t", "card_pick"], ["hold-ended", "hold-end:t:n", "timer"],
+    ["note", "note:t:n", "message"], ["notice", "unreadable:d", "message"],
+    ["void-notice", "void:d", "card_pick"],
+    ["pick-relay", "pick-relay:d:p", "card_pick"],
+    ["pick-receipt", "pick-receipt:d:p", "card_pick"],
+    ["owner", "owner:t", "unknown"],
+    ["notice", "undelivered:t", "message"], ["notice", "legacy", "unknown"],
+    ["notice-digest", "notice-digest:t:o", "unknown"],
+  ])("classifies %s / %s as %s", (kind, op, wakeCause) => {
+    expect(svc.wakeAttribution({ kind, op })).toEqual({ wakeCause, wakeRef: op });
+  });
+  it("never derives provenance from payload or emits an unbounded reference", () => {
+    expect(svc.wakeAttribution({ kind: "notice", op: null })).toEqual({ wakeCause: "unknown" });
+    expect(svc.wakeAttribution({ kind: "note", op: "x".repeat(201) })).toEqual({ wakeCause: "message" });
+    expect(svc.wakeAttribution({ kind: "note", op: "x".repeat(200) }).wakeRef).toBe("x".repeat(200));
+    expect(svc.wakeAttribution({ kind: "note", op: "note:\ntext" }).wakeRef).toBeUndefined();
   });
 });

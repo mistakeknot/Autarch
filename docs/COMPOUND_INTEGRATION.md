@@ -437,8 +437,8 @@ go test ./pkg/compound -v
 ### Integration Test
 
 ```bash
-# 1. Build tools
-go build ./cmd/...
+# 1. Build tools (go build ./cmd/... discards the executables when it builds several packages)
+for t in gurgeh coldwine pollard bigend; do go build -o "$t" "./cmd/$t"; done
 
 # 2. Initialize project
 ./gurgeh init

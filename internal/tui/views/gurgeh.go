@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"github.com/mistakeknot/autarch/internal/autarch/agent"
 	"strings"
 	"time"
 
@@ -73,6 +74,13 @@ func (v *GurgehView) SetAgentSelector(selector *pkgtui.AgentSelector) {
 	v.chatPanel.SetAgentSelector(selector)
 	if v.onboarding != nil {
 		v.onboarding.SetAgentSelector(selector)
+	}
+}
+
+// SetCodingAgent propagates dispatch selection into onboarding.
+func (v *GurgehView) SetCodingAgent(a *agent.Agent) {
+	if v.onboarding != nil {
+		v.onboarding.SetCodingAgent(a)
 	}
 }
 

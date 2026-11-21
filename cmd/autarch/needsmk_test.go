@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -35,6 +36,8 @@ type stubBB struct {
 	commented        bool
 	thread           string
 	updated          [][]string
+	vizier           bool
+	bound            string // when set, the tasks board is confirmed bound to this Home project
 }
 
 func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BBResult {
@@ -48,6 +51,15 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 	}
 	j := func(v string) homeask.BBResult { return homeask.BBResult{Stdout: []byte(v)} }
 	switch strings.Join(args[:min(len(args), 3)], " ") {
+	case "thread show " + os.Getenv("BB_THREAD_ID"), "thread show thr_owner":
+		return j(`{"thread":{"id":` + strconv.Quote(args[2]) + `,"archivedAt":null,"deletedAt":null}}`)
+	case "thread list --json":
+		if s.vizier {
+			return j(`[{"id":"thr_x","title":"Masaq' | vizier","pinnedAt":1,"archivedAt":null}]`)
+		}
+		return j(`[]`)
+	case "home get --card":
+		return j(`{"task_id":"T1","project_id":"P1","state":"open","decision_state":"open","card_key":"P1-1"}`)
 	case "home get --request":
 		return j(`{"status":"absent"}`)
 	case "tasks label list":
@@ -63,6 +75,11 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 		}
 		s.updated = append(s.updated, args)
 		return j(`{"task":{"id":"T1"}}`)
+	case "home binding P1":
+		if s.bound == "" {
+			return homeask.BBResult{Code: 1, Stderr: []byte("unexpected")}
+		}
+		return j(`{"home_project":` + strconv.Quote(s.bound) + `,"state":"confirmed"}`)
 	case "tasks project list":
 		return j(`{"projects":[{"id":"P1","name":"P1"}]}`)
 	case "tasks list --status":
@@ -110,11 +127,14 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 // serveCheckSet is true while a test installs its own checkFilingPreconditions.
 var serveCheckSet bool
 
+// Filing fixtures use a delivery day; policy tests inject their own clock.
+func filingTestNow() time.Time { return time.Date(2026, 11, 13, 20, 0, 0, 0, time.UTC) }
+
 func runNeedsMk(t *testing.T, s *stubBB, args ...string) (string, error) {
 	t.Helper()
 	old := newCardFiler
 	newCardFiler = func() *homeask.CardFiler {
-		return &homeask.CardFiler{Run: s.run, LockDir: t.TempDir()}
+		return &homeask.CardFiler{Now: filingTestNow, Run: s.run, LockDir: t.TempDir()}
 	}
 	t.Cleanup(func() { newCardFiler = old })
 	oldCheck := checkFilingPreconditions
@@ -127,6 +147,9 @@ func runNeedsMk(t *testing.T, s *stubBB, args ...string) (string, error) {
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})
+	if len(args) > 0 && args[0] == "file" && !strings.Contains(t.Name(), "VizierOwnership") {
+		args = filingOwnerArgs(args)
+	}
 	root.SetArgs(append([]string{"needs-mk"}, args...))
 	err := root.Execute()
 	return strings.TrimSpace(out.String()), err
@@ -217,7 +240,7 @@ func TestNeedsMkFileHomeDownIsExit3(t *testing.T) {
 	checkFilingPreconditions = func(string, string) error { return nil }
 	t.Cleanup(func() { newCardFiler = old; checkFilingPreconditions = oldCheck })
 	newCardFiler = func() *homeask.CardFiler {
-		return &homeask.CardFiler{LockDir: t.TempDir(), Run: func(context.Context, []string, ...string) homeask.BBResult {
+		return &homeask.CardFiler{Now: filingTestNow, LockDir: t.TempDir(), Run: func(context.Context, []string, ...string) homeask.BBResult {
 			return homeask.BBResult{Code: 3, Stderr: []byte("not ready")}
 		}}
 	}
@@ -225,7 +248,7 @@ func TestNeedsMkFileHomeDownIsExit3(t *testing.T) {
 	root.AddCommand(needsMkCmd())
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})
-	root.SetArgs([]string{"needs-mk", "file", "--project", "P1", "--title", "x", "--ask-file", writeAsk(t)})
+	root.SetArgs(filingOwnerArgs([]string{"needs-mk", "file", "--project", "P1", "--title", "x", "--ask-file", writeAsk(t)}))
 	if err := root.Execute(); exitCode(err) != 3 {
 		t.Fatalf("err=%v", err)
 	}
@@ -289,7 +312,7 @@ func TestNeedsMkFileRefusesAnUnresolvedRoot(t *testing.T) {
 func writeCalls(s *stubBB) [][]string {
 	var w [][]string
 	for _, c := range s.calls {
-		if k := strings.Join(c[:min(len(c), 2)], " "); k != "tasks project" && k != "home binding" {
+		if k := strings.Join(c[:min(len(c), 2)], " "); k != "tasks project" && k != "home binding" && k != "thread list" && k != "thread show" && k != "home get" && k != "tasks list" && k != "tasks show" {
 			w = append(w, c)
 		}
 	}
@@ -456,7 +479,7 @@ func TestNeedsMkFileAlwaysWritesARequestLine(t *testing.T) {
 func TestNeedsMkFileUrgencyBlocker(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thread-x")
 	s := &stubBB{}
-	if _, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--urgency", "blocker", "--ask-file", writeAsk(t)); err != nil {
+	if _, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--urgency", "blocker", "--stopped", "Release waits", "--ask-file", writeAsk(t)); err != nil {
 		t.Fatal(err)
 	}
 	c, err := homeask.ParseCard(s.desc)
@@ -476,7 +499,7 @@ func TestNeedsMkFileUrgencyBlocker(t *testing.T) {
 func TestNeedsMkFileUrgencyFromAskJSON(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thread-x")
 	p := filepath.Join(t.TempDir(), "ask.json")
-	os.WriteFile(p, []byte(`{"project":"autarch","project_root":"/srv/autarch","question":"Ship it?","urgency":"blocker","options":[{"id":"a","label":"A","kind":"ruling-only"},{"id":"b","label":"B","kind":"ruling-only"}]}`), 0o644)
+	os.WriteFile(p, []byte(`{"project":"autarch","project_root":"/srv/autarch","question":"Ship it?","urgency":"blocker","stopped":"Release waits","options":[{"id":"a","label":"A","kind":"ruling-only"},{"id":"b","label":"B","kind":"ruling-only"}]}`), 0o644)
 	s := &stubBB{}
 	if _, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--ask-file", p); err != nil {
 		t.Fatal(err)
@@ -502,4 +525,97 @@ func TestNeedsMkFileRefusesOtherUrgency(t *testing.T) {
 	if len(s.envs) != 0 {
 		t.Fatalf("a refused urgency created something: %v", s.envs)
 	}
+}
+
+func TestNeedsMkFileRequiresStopped(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thread-x")
+	s := &stubBB{}
+	_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--urgency", "blocker", "--ask-file", writeAsk(t))
+	if exitCode(err) != 2 {
+		t.Fatalf("want usage refusal, got %v", err)
+	}
+	for _, word := range []string{"stopped", "without blocker urgency", "no phone push"} {
+		if !strings.Contains(err.Error(), word) {
+			t.Errorf("missing %q: %v", word, err)
+		}
+	}
+	if len(s.envs) != 0 {
+		t.Fatalf("refusal contacted Home: %v", s.envs)
+	}
+}
+
+func TestNeedsMkStoppedOverride(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thread-x")
+	p := writeAsk(t)
+	raw, _ := os.ReadFile(p)
+	var ask map[string]any
+	json.Unmarshal(raw, &ask)
+	ask["urgency"] = "invalid"
+	ask["stopped"] = "JSON text"
+	raw, _ = json.Marshal(ask)
+	os.WriteFile(p, raw, 0600)
+	s := &stubBB{}
+	_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Ship?", "--ask-file", p, "--urgency", "blocker", "--stopped", "  Release waits  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := homeask.ParseCard(s.desc)
+	if err != nil || c.Ask["stopped"] != "Release waits" {
+		t.Fatalf("override not trimmed and carried: %v %v", c, err)
+	}
+}
+
+func TestNeedsMkLegacyBlockerReaders(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	for _, operation := range []string{"same request", "supersedes", "adopt"} {
+		t.Run(operation, func(t *testing.T) {
+			p := writeAsk(t)
+			raw, _ := os.ReadFile(p)
+			var ask map[string]any
+			json.Unmarshal(raw, &ask)
+			ask["urgency"] = "blocker"
+			ask["ask_key"] = "legacy-release"
+			ask["schema"] = "home-ask/v2"
+			req := homeask.CardRequest{Project: "P1", Title: "Ship?", Key: "legacy-request", Thread: "thr_x", Ask: ask}
+			ident, err := homeask.RequestIdentity(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, _ = json.Marshal(ask)
+			desc := fmt.Sprintf("Ship it?\n\nBlocks: bead:example\nRequest: legacy-request sha256:%s\n\n```home-ask\n%s\n```\n", ident, raw)
+			s := &stubBB{desc: desc, card: true, commented: true, thread: "thr_x"}
+			if _, err := homeask.ParseCard(desc); err != nil {
+				t.Fatalf("legacy read: %v", err)
+			}
+			if operation == "adopt" {
+				_, err = runNeedsMk(t, s, "adopt-move", "--card", "T1", "--move", writeMove(t, prMoveJSON))
+			} else {
+				delete(ask, "schema")
+				ask["stopped"] = "Release waits"
+				raw, _ = json.Marshal(ask)
+				os.WriteFile(p, raw, 0600)
+				args := []string{"file", "--project", "P1", "--title", "Ship?", "--ask-file", p, "--request", "legacy-request"}
+				if operation == "supersedes" {
+					args = append(args, "--supersedes", "T1")
+				}
+				_, err = runNeedsMk(t, s, args...)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !s.card || s.creates != 0 || len(s.updated) != 1 {
+				t.Fatalf("created=%d updates=%d", s.creates, len(s.updated))
+			}
+		})
+	}
+}
+
+// Existing filing fixtures name an explicit live owner under the ownership contract.
+func filingOwnerArgs(args []string) []string {
+	for _, a := range args {
+		if a == "--owner-thread" || a == "--vizier-owned" {
+			return args
+		}
+	}
+	return append(args, "--owner-thread", os.Getenv("BB_THREAD_ID"))
 }

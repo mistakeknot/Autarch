@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"sync"
@@ -55,6 +56,8 @@ func (b *ClaudeBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wo
 		cmd.Dir = workDir
 	}
 	applyEnv(cmd, cfg)
+	configureProcess(cmd)
+	cmd.WaitDelay = time.Second
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -62,8 +65,12 @@ func (b *ClaudeBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wo
 		return nil, fmt.Errorf("claude stdout pipe: %w", err)
 	}
 
+	var stderr stderrTail
+	cmd.Stderr = &stderr // os/exec drains this concurrently with stdout.
+
 	startedAt := time.Now()
-	if err := cmd.Start(); err != nil {
+	waitProcess, err := startProcess(cmd)
+	if err != nil {
 		cancel()
 		if execErr, ok := err.(*exec.Error); ok && execErr.Err == exec.ErrNotFound {
 			return nil, fmt.Errorf("claude CLI not found: install with 'npm install -g @anthropic-ai/claude-code'")
@@ -103,7 +110,12 @@ func (b *ClaudeBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wo
 	go func() {
 		defer close(events)
 		defer func() {
-			cmdErr := cmd.Wait()
+			cmdErr := waitProcess()
+			// A descendant retaining stderr must not turn a successful CLI exit
+			// into a failure when the bounded drain expires.
+			if errors.Is(cmdErr, exec.ErrWaitDelay) && cmd.ProcessState.Success() {
+				cmdErr = nil
+			}
 			duration := time.Since(startedAt)
 
 			exitCode := 0
@@ -117,9 +129,10 @@ func (b *ClaudeBackend) RunStreaming(ctx context.Context, cfg DispatchConfig, wo
 
 			result = RunResult{
 				ExitCode: exitCode,
-				TimedOut: runCtx.Err() == context.DeadlineExceeded,
+				TimedOut: exitCode == -1 && runCtx.Err() == context.DeadlineExceeded,
 				Duration: duration,
 			}
+			waitErr = processError(cmdErr, result.TimedOut, &stderr)
 			close(doneCh)
 		}()
 

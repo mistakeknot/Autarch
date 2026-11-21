@@ -2,11 +2,15 @@
 // The server sorts and pins (queueview.ts); this file only renders, and owns the refresh policy.
 import { AskCard, type OnNote, type OnPick, type OwedAsk, type RunbookGroup } from "./asks.js";
 import { startPoll } from "./poll.js";
+import { HoldEndLine } from "./holdendline.js";
+import type { HoldEnd } from "../holdend.js";
 import { useState } from "react";
 import { copyText } from "./copy.js";
 import { RootRunSection, type RootRunPanelView } from "./rootrun.js";
+import { UnreadableCard } from "./unreadable.js";
 
 export type QueueRowView = {
+  pick_targets?: OwedAsk["pick_targets"];
   id: string;
   decision_id: string | null;
   task_id: string;
@@ -29,7 +33,9 @@ export type QueueRowView = {
   overrides_generation: number | null;
   changed_after_ruling: boolean;
   root: { state: string | null; reason: string | null };
-  held?: { reason: string; by: string; at: string } | null;
+  held?: { reason: string; by: string; at: string; end?: HoldEnd | null } | null;
+  /** The stored ask could not be read: the row is shown marked, with nothing to answer. */
+  unreadable?: boolean;
 };
 export type LegacyView = {
   count: number;
@@ -136,7 +142,7 @@ function RootRunCopy({ view }: { view: RootRunPanelView }) {
       <RootRunSection view={view} onCopy={(text) => void copyText(text).then((ok) => setCopied(ok ? "ok" : "failed"))} />
       {copied === null ? null : copied === "ok"
         ? <p role="status" className="mt-1 text-xs text-muted-foreground" data-rootrun-copied>Copied.</p>
-        : <p role="alert" className="mt-1 text-xs font-medium text-destructive" data-rootrun-copied="failed">Copy failed: select the command above and copy it.</p>}
+        : <p role="alert" className="mt-1 text-xs font-medium text-[var(--destructive-text,var(--destructive))]" data-rootrun-copied="failed">Copy failed: select the command above and copy it.</p>}
     </>
   );
 }
@@ -166,6 +172,16 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
     </>
   );
   const className = `rounded-lg border border-border bg-card p-3${row.held ? " opacity-60" : ""}`;
+  if (row.unreadable && row.decision_id !== null) {
+    // A held card whose body cannot be read still says why it is on hold and when the hold ends.
+    return (
+      <div className={`${className} space-y-1 [&>[data-unreadable]]:p-0`} data-row={row.id}>
+        <UnreadableCard id={row.decision_id} cardKey={row.card_key} />
+        {row.held ? <p className="text-xs [overflow-wrap:anywhere]" data-hold-reason>{`On hold: ${row.held.reason}`}</p> : null}
+        {row.held ? <HoldEndLine held={row.held} as="p" className="text-xs [overflow-wrap:anywhere]" /> : null}
+      </div>
+    );
+  }
   if (!row.display_only && !row.held && row.ask !== null && row.decision_id !== null && row.revision !== null) {
     // One line until opened: mk scans these cards and rarely answers one. The line carries the key, the title and short
     // flags for what needs a look (not bound, overrides, changed); everything else sits behind "Open card".
@@ -182,7 +198,7 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
           <div className="mt-2">
             {details}
             <AskCard
-              ask={{ id: row.decision_id, project: row.project ?? "", thread: row.thread ?? "", thread_title: row.thread_title ?? null, subject: row.title, key: row.card_key, asker: "card", filed_at: row.created_at, revision: row.revision, mentions: row.mentions, task_id: row.task_id, ask: row.ask }}
+              ask={{ id: row.decision_id, project: row.project ?? "", thread: row.thread ?? "", thread_title: row.thread_title ?? null, subject: row.title, key: row.card_key, asker: "card", filed_at: row.created_at, revision: row.revision, mentions: row.mentions, task_id: row.task_id, ask: row.ask, pick_targets: row.pick_targets }}
               onPick={onPick}
               onOpen={onOpen}
               unbound={isUnbound(row)}
@@ -206,11 +222,13 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
             {row.thread ? <button type="button" className="underline" onClick={() => onOpen(row.thread!)}>{row.thread_title || row.thread}</button> : null}
           </p>
           {row.held ? <p className="text-xs" data-hold-reason>{`On hold: ${row.held.reason}`}</p> : null}
+          {row.held ? <HoldEndLine held={row.held} as="p" className="text-xs [overflow-wrap:anywhere]" /> : null}
         </div>
       ) : row.held ? (
         <div data-held="true">
           <h3 className="text-sm font-medium">{row.title}</h3>
           <p className="text-xs" data-hold-reason>{`On hold: ${row.held.reason}`}</p>
+          <HoldEndLine held={row.held} as="p" className="text-xs [overflow-wrap:anywhere]" />
         </div>
       ) : null}
       {root}
@@ -223,7 +241,7 @@ export function LegacyGroup({ legacy, onPick, onOpen }: { legacy: LegacyView; on
   return (
     <section data-section="legacy">
       <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`Legacy asks (${legacy.count})`}</h2>
-      <div className="space-y-3">
+      <div className="divide-y divide-border [&>*]:py-3" data-legacy-entries>
         {legacy.owed.map((o) => (
           <AskCard key={o.id} ask={{ ...o, asker: "legacy" }} onPick={onPick} onOpen={onOpen} />
         ))}

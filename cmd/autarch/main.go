@@ -38,7 +38,6 @@ import (
 	"github.com/mistakeknot/autarch/pkg/autarch"
 	"github.com/mistakeknot/autarch/pkg/clavain"
 	"github.com/mistakeknot/autarch/pkg/events"
-	pkgfleet "github.com/mistakeknot/autarch/pkg/fleet"
 	"github.com/mistakeknot/autarch/pkg/intercore"
 	"github.com/mistakeknot/autarch/pkg/intermute"
 	"github.com/mistakeknot/autarch/pkg/signals"
@@ -120,10 +119,10 @@ New users start with the onboarding flow to create their first project.
 Use --skip-onboard to go directly to the dashboard.
 
 Navigation:
-  /big, /gur, etc  Switch between tabs (Bigend, Gurgeh, Coldwine, Pollard, Mycroft)
+  /big, /gur, etc  Switch between tabs (Bigend, Gurgeh, Coldwine, Pollard)
   Ctrl+Left/Right   Cycle tabs
   Ctrl+P         Open command palette
-  /bigend, etc.  Switch to tool by name (/big, /gur, /cold, /pol, /myc)
+  /bigend, etc.  Switch to tool by name (/big, /gur, /cold, /pol)
   ?              Show help
   Ctrl+C         Quit`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -315,17 +314,12 @@ Navigation:
 				if specs, err := c.ListSpecs(""); err == nil && len(specs) > 0 {
 					gcfg = nil
 				}
-				mycroftView := views.NewMycroftsView()
-				if regPath := pkgfleet.DiscoverRegistryPath(); regPath != "" {
-					mycroftView.SetPatrolSource(pkgfleet.NewAggregatorSource(regPath))
-				}
 
 				return []tui.View{
 					bigend,
 					views.NewGurgehView(c, gcfg),
 					coldwine,
 					views.NewPollardView(c, researchCoord),
-					mycroftView,
 				}
 			})
 
@@ -344,7 +338,7 @@ Navigation:
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "Data directory (default: ~/.autarch)")
 	cmd.Flags().BoolVar(&skipOnboard, "skip-onboard", false, "Skip onboarding and go directly to dashboard")
 	cmd.Flags().BoolVar(&inlineMode, "inline", false, "Enable inline mode with log pane (preserves scrollback)")
-	cmd.Flags().StringVar(&toolFlag, "tool", "", "Jump directly to a tool tab (bigend, gurgeh, coldwine, pollard, mycroft)")
+	cmd.Flags().StringVar(&toolFlag, "tool", "", "Jump directly to a tool tab (bigend, gurgeh, coldwine, pollard)")
 
 	return cmd
 }
@@ -394,15 +388,8 @@ func bigendCmd() *cobra.Command {
 				return err
 			}
 
-			// Override with flags
-			if port != 8099 {
-				cfg.Server.Port = port
-			}
-			if host != "0.0.0.0" {
-				cfg.Server.Host = host
-			}
-			if scanRoot != "" {
-				cfg.Discovery.ScanRoots = []string{scanRoot}
+			if err := applyBigendFlagOverrides(cmd, cfg); err != nil {
+				return err
 			}
 
 			scanner := discovery.NewScanner(cfg.Discovery)
@@ -689,4 +676,22 @@ func printSetupStatus(s setup.Status) {
 	fmt.Printf("  %s Claude Code configured\n", check(s.ClaudeConfigured))
 	fmt.Printf("  %s Codex CLI configured\n", check(s.CodexConfigured))
 	fmt.Printf("  %s tmux available\n", check(s.TmuxAvailable))
+}
+
+// applyBigendFlagOverrides preserves file configuration unless a flag was supplied.
+func applyBigendFlagOverrides(cmd *cobra.Command, cfg *config.Config) error {
+	if cmd.Flags().Changed("port") {
+		cfg.Server.Port, _ = cmd.Flags().GetInt("port")
+	}
+	if cmd.Flags().Changed("host") {
+		cfg.Server.Host, _ = cmd.Flags().GetString("host")
+	}
+	if cmd.Flags().Changed("scan-root") {
+		root, _ := cmd.Flags().GetString("scan-root")
+		if strings.TrimSpace(root) == "" {
+			return fmt.Errorf("--scan-root must not be empty or whitespace-only")
+		}
+		cfg.Discovery.ScanRoots = []string{root}
+	}
+	return nil
 }

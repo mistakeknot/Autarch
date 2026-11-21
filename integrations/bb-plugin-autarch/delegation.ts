@@ -6,7 +6,8 @@
 // project, under the daily cap, with no approval spec, while no settings change is
 // unseen by mk. Settings are written only by setDelegation (panel RPC); no CLI verb
 // reaches it.
-import { identity, normalizedJson, parseAsk, revision, semanticKey } from "./model.js";
+import { readAsk, UNREADABLE_REFUSAL } from "./askbody.js";
+import { identity, normalizedJson, revision, semanticKey } from "./model.js";
 import { bringBackWrites, overrideWrites } from "./cardwrites.js";
 import type { DecisionInput } from "./store.js";
 import type { PickResult, Service } from "./service.js";
@@ -67,7 +68,18 @@ export class Delegation {
     readonly svc: Service,
     private readonly threads?: ThreadLister,
     private readonly getThread?: ThreadGetter,
-  ) {}
+  ) {
+    // The same thread list and the same vizier answer tell an undelivered card's project coordinator or the vizier (bead mk-mn7yz).
+    if (threads) {
+      svc.useThreadSource({
+        list: () => threads(),
+        vizier: async () => {
+          const v = await this.resolveVizier({ adopt: false });
+          return v.ok ? v.id : null;
+        },
+      });
+    }
+  }
 
   /**
    * Plan 1.3.6: delegation settings name Home projects, and each name is re-checked against serve's
@@ -336,11 +348,11 @@ export class Delegation {
     const r = await this.resolveVizier();
     if (!r.ok) return r;
     if (r.id !== ctx.threadId) return refuse(403, "only the vizier thread may rule");
-    return this.rule(decisionId, optionId, reason, ctx);
+    return this.svc.withValidatedPick(decisionId, guard => this.rule(decisionId, optionId, reason, ctx, guard));
   }
 
   /** The checks in `rule` read the stored id, which is the resolver's output: `resolveVizier` runs first on every caller path. */
-  rule(decisionId: string, optionId: string, reason: string, ctx: Ctx): PickResult {
+  rule(decisionId: string, optionId: string, reason: string, ctx: Ctx, entryGuard?: () => { status: number; error: string } | null): PickResult {
     const d = this.store.decision(decisionId) as
       | { id: string; kind: string; asker: string; project: string; delegable: number; revision: string; body_json: string; request_id: string; source?: string; tasks_project_id?: string | null }
       | undefined;
@@ -348,15 +360,17 @@ export class Delegation {
     const cfg = this.settings();
     if (!cfg.vizierThreadId || ctx.threadId !== cfg.vizierThreadId) return refuse(403, "only the vizier thread may rule");
     const pickId = `rule:${decisionId}`;
+    const why = reason?.trim() ?? "";
     const prior = this.store.pick(decisionId);
-    if (prior && prior.pick_id === pickId && prior.by === "vizier") return this.svc.pick(decisionId, optionId, d.revision, pickId, "vizier", "cli", reason);
+    if (prior && prior.pick_id === pickId && prior.by === "vizier") return this.svc.pick(decisionId, optionId, d.revision, pickId, "vizier", "cli", why);
     if (d.kind !== "decide" || d.asker !== "thread") return refuse(403, "only a decision asked by a thread can be delegated");
     if (!d.delegable || d.request_id.startsWith("override:")) return refuse(403, "this decision is not delegable");
-    const option = parseAsk(JSON.parse(d.body_json)).options?.find((o) => o.id === optionId);
+    const stored = readAsk(d.body_json, {}, d.source);
+    if (!stored) return refuse(UNREADABLE_REFUSAL.status, UNREADABLE_REFUSAL.error);
+    const option = stored.options?.find((o) => o.id === optionId);
     if (!option) return refuse(400, `unknown option ${JSON.stringify(optionId)}`);
     if (option.approval) return refuse(403, "an option with an approval spec cannot be delegated");
     if (!option.reversible) return refuse(403, "only a reversible option can be delegated");
-    const why = reason?.trim() ?? "";
     if (why === "" || [...why].length > 500) return refuse(400, "a reason of 1-500 characters is required");
     if (APPROVAL_TOKEN.test(reason)) return refuse(400, "a reason may not carry an approval token");
     // Settings, suspension and the daily cap are decided inside the pick's write
@@ -374,7 +388,7 @@ export class Delegation {
       if (used >= (now.dailyCap ?? 0)) return { status: 403, error: "the daily delegation cap is reached" };
       return null;
     };
-    return this.svc.pick(decisionId, optionId, d.revision, pickId, "vizier", "cli", why, guard);
+    return this.svc.pick(decisionId, optionId, d.revision, pickId, "vizier", "cli", why, guard, undefined, undefined, entryGuard);
   }
 
   // ---- override ---------------------------------------------------------------
@@ -392,7 +406,8 @@ export class Delegation {
     const pick = this.store.pick(decisionId);
     if (!pick || pick.by !== "vizier") return refuse(409, "only a delegated ruling can be overridden");
 
-    const ask = parseAsk({ ...JSON.parse(d.body_json), request_id: requestId, supersedes: decisionId });
+    const ask = readAsk(d.body_json, { request_id: requestId, supersedes: decisionId }, d.source);
+    if (!ask) return refuse(UNREADABLE_REFUSAL.status, UNREADABLE_REFUSAL.error);
     const card = d.source === "card" && typeof d.task_id === "string";
     const n = card ? Number(d.generation) + 1 : 0;
     const input: DecisionInput = {
@@ -452,13 +467,19 @@ export class Delegation {
 
   // ---- bring back (bead mk-gc2xm) --------------------------------------------------
 
+  /** A second, deliberate Archive confirmation is required for every Archive request. */
+  archiveBringBack(taskId: string, decisionId: string, recipient: string | null, confirmed: boolean): OverrideResult {
+    if (confirmed !== true) return refuse(409, "confirm Bring back in the Archive");
+    return this.bringBack(taskId, decisionId, recipient, {}, undefined, "archive-button");
+  }
+
   /**
-   * Reopen a decided card as a new generation of the SAME card; the earlier pick and comments stay visible.
-   * Panel (and the vizier's sweep) only: a thread cannot reopen a card. `recipient` is the live thread that
+   * Reopen an archived card as a new generation of the SAME card; any earlier pick and comments stay visible.
+   * Declared Archive, waiting-sweep or merge-recheck caller; a thread cannot reopen a card. `recipient` is the live thread that
    * gets the notice: the asking thread, or the vizier when that thread is archived or gone; the caller
    * resolves it, since the thread list is not the store's to read.
    */
-  bringBack(taskId: string, decisionId: string, recipient: string | null, ctx: Ctx, notice?: string[]): OverrideResult {
+  bringBack(taskId: string, decisionId: string, recipient: string | null, ctx: Ctx, notice: string[] | undefined, origin: "archive-button" | "waiting-sweep" | "merge-recheck" | "unknown"): OverrideResult {
     if (ctx.threadId !== undefined) return refuse(403, "bring back comes from the panel");
     // The request is bound to the decision the caller saw, so a delayed retry or a stale tab cannot reopen a newer answer.
     const requestId = `bringback:${decisionId}`;
@@ -470,10 +491,16 @@ export class Delegation {
     if (!d) return refuse(404, "no decision for this card");
     if (d.id !== decisionId) return refuse(409, "this card has moved on since you looked; reload the Archive");
     const pick = this.store.pick(decisionId);
-    if (!pick) return refuse(409, "this card has no recorded decision to bring back");
     if (d.source !== "card" || typeof d.task_id !== "string") return refuse(409, "only a card can be brought back");
+    if (!pick && !this.db.prepare("SELECT 1 FROM cards WHERE task_id = ? AND state = 'closed'").get(taskId)) {
+      return refuse(409, "only a closed card can be brought back without a pick");
+    }
 
-    const ask = parseAsk({ ...JSON.parse(d.body_json), request_id: requestId, supersedes: decisionId });
+    const ask = readAsk(d.body_json, { request_id: requestId, supersedes: decisionId }, d.source);
+    if (!ask) return refuse(UNREADABLE_REFUSAL.status, UNREADABLE_REFUSAL.error);
+    const cardLabel = this.svc.cardNoticeLabel(taskId, d.subject);
+    const broughtBy = origin === "archive-button" ? "mk brought" : origin === "waiting-sweep" ? "The waiting sweep brought" : "Citadel brought";
+    const source = origin === "archive-button" ? "using the Archive button" : origin === "waiting-sweep" ? "because the script it asked for has no completion evidence" : origin === "merge-recheck" ? "by the merge recheck" : "from an unknown caller";
     const n = Number(d.generation) + 1;
     const input: DecisionInput = {
       id: `card-${d.task_id}-g${n}`,
@@ -502,19 +529,17 @@ export class Delegation {
       card_fp: d.card_fp,
     };
     const run = this.db.transaction((): OverrideResult => {
-      const res = this.store.insertReplacement(input, "bringback");
+      const res = this.store.insertReplacement(input, "bringback", origin);
       if (!res.ok) {
         if ("existing" in res) return { ok: true, decision_id: res.existing.decision_id, replay: true };
         return refuse(409, res.reason === "already-superseded" ? "already brought back" : "this card cannot be brought back");
       }
-      const w = this.store.obligationsFor(decisionId).find((o) => o.op === `wake:${decisionId}:${pick.pick_id}`);
+      const w = pick && this.store.obligationsFor(decisionId).find((o) => o.op === `wake:${decisionId}:${pick.pick_id}`);
       if (w) this.store.voidObligation(w.id);
       // The reopened card blocks the same threads the earlier one did.
       this.db.prepare("INSERT OR IGNORE INTO decision_blocks(decision_id, ref) SELECT ?, ref FROM decision_blocks WHERE decision_id = ?").run(res.decision_id, decisionId);
       this.store.insertCardWrites(res.decision_id, bringBackWrites({ id: res.decision_id, task_id: String(d.task_id) }, decisionId));
       this.svc.reopenForOverride(String(d.task_id));
-      // A close that the earlier ruling queued must not shut the reopened card again.
-      this.db.prepare("UPDATE move_closes SET state = 'skipped', last_error = 'card brought back', updated_at = ? WHERE task_id = ? AND state = 'pending'").run(this.svc.time(), String(d.task_id));
       this.store.insertObligations(decisionId, !recipient ? [] : [
         {
           id: `ob:${decisionId}:bringback`,
@@ -522,10 +547,13 @@ export class Delegation {
           recipient,
           op: `bringback:${decisionId}`,
           payload: (
-            notice ?? [
-              `mk brought the decision ${decisionId} back. It is open again as ${res.decision_id}, and mk is answering afresh.`,
+            notice ?? (pick ? [
+              `${broughtBy} ${cardLabel} (${decisionId}) back ${source}. It is open again as ${res.decision_id}, and mk is answering afresh.`,
               `Wait for that answer before acting on the earlier one. If you have already received mk's answer for ${res.decision_id}, that answer stands.`,
-            ]
+            ] : [
+              `${broughtBy} ${cardLabel} (${decisionId}) back ${source}. It is open again as ${res.decision_id}, and mk is answering afresh.`,
+              `No earlier pick was recorded in Citadel. Wait for mk's answer for ${res.decision_id} before acting. If you have already received that answer, it stands.`,
+            ])
           ).join("\n"),
         },
       ]);

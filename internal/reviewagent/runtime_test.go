@@ -289,7 +289,11 @@ func TestSelectionDuringRuntimePreflightCannotUseTheOlderLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	gate := t.TempDir()
-	wrapper := "#!/bin/sh\nif [ \"$1\" = --auth-storage-prepare ]; then\n touch " + strconv.Quote(filepath.Join(gate, "waiting")) + "\n while [ ! -e " + strconv.Quote(filepath.Join(gate, "release")) + " ]; do sleep .01; done\nfi\n" + strings.TrimPrefix(string(original), "#!/bin/sh\n")
+	// The wait stops when the gate dir is gone and after about 30 seconds at
+	// most, so a run that is killed before release cannot leave it polling.
+	wrapper := "#!/bin/sh\nif [ \"$1\" = --auth-storage-prepare ]; then\n touch " + strconv.Quote(filepath.Join(gate, "waiting")) +
+		"\n n=0\n while [ ! -e " + strconv.Quote(filepath.Join(gate, "release")) + " ]; do\n  [ -d " + strconv.Quote(gate) + " ] || exit 0\n  n=$((n+1)); [ \"$n\" -lt 3000 ] || exit 1\n  sleep .01\n done\nfi\n" +
+		strings.TrimPrefix(string(original), "#!/bin/sh\n")
 	if err := os.WriteFile(bin, []byte(wrapper), 0700); err != nil {
 		t.Fatal(err)
 	}

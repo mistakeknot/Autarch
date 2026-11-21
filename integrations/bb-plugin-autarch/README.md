@@ -19,6 +19,22 @@ the vizier thread, and delegation settings.
 Try it: install the plugin, open **Citadel** in the sidebar, then run
 `bb home list` in a terminal.
 
+Pilot pick observations are stored as deduplicated events in the plugin's `data.db`.
+The plugin reads the filer's pilot configuration and filing metadata, but does not
+write to that shared state directory. `autarch needs-mk pilots report` combines
+the filer's local observations with the read-only `pilotMetrics` RPC, deduplicating
+legacy pick observations by event ID. If the plugin is unavailable, the report
+labels its results as local metrics only.
+Pick observations remain in the plugin store and are excluded from future event
+export segments. Known observations use the existing store keys. Without a valid
+sequence watermark, one history pass seeds keys and the watermark. Each missing
+key then uses a rowid range scan over events appended since that watermark,
+returning only pilot metrics and indexing their IDs before advancing it in the
+same transaction. A separate maximum-sequence lookup skips unrelated trailing
+events. The scan is proportional to that delta rather than the whole history;
+only pilot metrics are materialized in memory.
+Rollback needs no manual dedup reset: older writers append above the watermark.
+
 ## UI components
 
 `components/ui/` is vendored source you own (the shadcn model): edit the
@@ -104,6 +120,12 @@ bb plugin reload autarch
 ```
 
 Or let `bb plugin dev` rebuild and reload on every save.
+
+## Archive
+
+In Archive, **Bring back** reopens a saved question as a fresh round, including
+cards closed without a pick. Earlier answers and comments stay in history.
+Citadel notifies the asking thread, or the vizier when that thread is gone.
 
 ## Configure
 

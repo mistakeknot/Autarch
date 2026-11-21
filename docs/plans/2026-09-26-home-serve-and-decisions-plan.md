@@ -8,6 +8,11 @@ requirements:
   - S1: decisions owed, picked and ruled, in the Home plugin (build step 1)
   - S1v: the vizier in Home (catch-up, delegated rulings, the vizier's conversation)
 ---
+
+> Historical Mycroft references below are superseded by bead mk-ddtv5.7.13.1.
+> Mycroft now provides only `mycroft spawn` and `mycroft pre-dispatch`; coordinators select work.
+> The former orchestration code and TUI tab have been removed. See [the current spawner guide](../mycroft-bb-spawner.md).
+
 # Home, steps 0 and 1: `autarch serve`, decisions and the vizier
 
 > **For Claude:** REQUIRED SUB-SKILL: Use clavain:executing-plans to implement this plan task-by-task.
@@ -535,6 +540,8 @@ costly and hard to see from the author's seat.
   `store.ts`, `migrations.ts`, `ruling.ts`, `service.ts`, `asks.ts`, `delegation.ts`,
   `wakes.ts`, `feed.ts`, `catchup.ts`, `cli.ts`, `export.ts`, `app.tsx`, `ui/`, `e2e/`,
   `scripts/check-e2e.mjs`, `__tests__/`, `README.md`.
+
+Historical note: references to `escalate.go` here and below describe the former implementation; that file was removed when Mycroft moved to the bb worker spawner.
 
 **Key links:**
 - `serve.Run`: `EnsureLocalOnly` → `Listen` → `Serve`; shutdown on context end.
@@ -2195,8 +2202,11 @@ These are **not agent-completable**. Each is a checklist item for mk; none is a 
     suggestion through the production constructor, Mycroft never schedules a decision bead,
     and `DecisionQueue` keeps no private list.
     ```check
-    go test -race ./internal/mycroft/... ./cmd/mycroft/ && ! grep -nE '^[[:space:]]+decisions[[:space:]]+\[\]PendingDecision' internal/mycroft/escalate/escalate.go
+    go test -race ./internal/mycroft/... ./cmd/mycroft/
     ```
+    Historical: the private-list grep check applied to the former
+    `internal/mycroft/escalate/escalate.go`. That file has been removed; the grep
+    is no longer an executable acceptance check.
 12. The bb plugin typechecks, all its fake-SDK tests pass, and it builds.
     ```check
     cd integrations/bb-plugin-autarch && npm run typecheck && npm test && bb plugin build

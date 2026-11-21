@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/mistakeknot/autarch/internal/gurgeh/project"
 	"github.com/mistakeknot/autarch/internal/gurgeh/specs"
+	"github.com/mistakeknot/autarch/pkg/agenttargets"
 )
 
 // Brief describes an outcome for Claude Code to achieve.
@@ -27,40 +27,45 @@ type DecomposeResult struct {
 	Briefs []Brief `json:"briefs"`
 }
 
-// Decompose calls Claude Code to break a spec into atomic briefs.
-func Decompose(ctx context.Context, spec *specs.Spec, workingDir string) ([]Brief, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	defer cancel()
-
-	prompt := buildPrompt(spec)
-
-	cmd := exec.CommandContext(ctx, "claude",
-		"-p", prompt,
-		"--output-format", "json",
-		"--print",
-	)
-	cmd.Dir = workingDir
-
-	out, err := cmd.Output()
+// Decompose breaks a spec into atomic briefs using subscription CLI dispatch.
+// An optional explicit agent takes precedence over environment and project preferences.
+func Decompose(ctx context.Context, spec *specs.Spec, workingDir string, agent ...string) ([]Brief, error) {
+	cfg := agenttargets.DefaultDispatchConfig()
+	cfg.Timeout = 10 * time.Minute
+	cfg.PreferredAgent = "claude"
+	cfg = agenttargets.LoadDispatchConfigWithDefaults(workingDir, cfg)
+	if len(agent) > 0 && agent[0] != "" {
+		cfg = agenttargets.WithExplicitAgent(cfg, agent[0])
+	}
+	handle, err := agenttargets.Dispatch(ctx, cfg, workingDir, buildPrompt(spec))
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return nil, fmt.Errorf("claude failed: %w\nstderr: %s", err, exitErr.Stderr)
-		}
-		return nil, fmt.Errorf("claude failed: %w", err)
+		return nil, err
 	}
-
+	defer handle.Cancel()
+	out, _, err := agenttargets.CollectResult(handle)
+	if err != nil {
+		return nil, fmt.Errorf("brief decomposition failed: %w", err)
+	}
+	run, err := handle.Wait()
+	if err != nil {
+		return nil, fmt.Errorf("brief decomposition failed: %w", err)
+	}
+	if run.TimedOut || run.ExitCode != 0 {
+		return nil, fmt.Errorf("brief decomposition failed: exit code %d (timed out: %t)", run.ExitCode, run.TimedOut)
+	}
 	var result DecomposeResult
-	if err := json.Unmarshal(out, &result); err != nil {
-		// Try extracting JSON from markdown fence
-		extracted := extractJSON(string(out))
-		if extracted != "" {
-			if err := json.Unmarshal([]byte(extracted), &result); err == nil {
-				return result.Briefs, nil
-			}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		extracted := extractJSON(out)
+		if extracted == "" {
+			return nil, fmt.Errorf("failed to parse response: %w", err)
 		}
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		if err := json.Unmarshal([]byte(extracted), &result); err != nil {
+			return nil, fmt.Errorf("failed to parse response: %w", err)
+		}
 	}
-
+	if len(result.Briefs) == 0 {
+		return nil, fmt.Errorf("agent returned no briefs")
+	}
 	return result.Briefs, nil
 }
 

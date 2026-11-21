@@ -12,51 +12,6 @@ import (
 
 // --- Dispatch Operations ---
 
-// DispatchOption configures a DispatchSpawn call.
-type DispatchOption func(*dispatchOpts)
-
-type dispatchOpts struct {
-	dispatchType string
-	agent        string
-	name         string
-}
-
-// WithDispatchType sets the dispatch type (e.g., "task", "review").
-func WithDispatchType(t string) DispatchOption {
-	return func(o *dispatchOpts) { o.dispatchType = t }
-}
-
-// WithAgent sets the agent name for the dispatch.
-func WithAgent(name string) DispatchOption {
-	return func(o *dispatchOpts) { o.agent = name }
-}
-
-// WithDispatchName sets the dispatch name.
-func WithDispatchName(name string) DispatchOption {
-	return func(o *dispatchOpts) { o.name = name }
-}
-
-// DispatchSpawn spawns an agent dispatch. Returns the dispatch ID.
-func (c *Client) DispatchSpawn(ctx context.Context, runID string, opts ...DispatchOption) (string, error) {
-	var o dispatchOpts
-	for _, fn := range opts {
-		fn(&o)
-	}
-
-	args := []string{"dispatch", "spawn", "--run-id=" + runID}
-	if o.dispatchType != "" {
-		args = append(args, "--type="+o.dispatchType)
-	}
-	if o.agent != "" {
-		args = append(args, "--agent="+o.agent)
-	}
-	if o.name != "" {
-		args = append(args, "--name="+o.name)
-	}
-
-	return c.execText(ctx, args...)
-}
-
 // DispatchStatus returns the status of a dispatch.
 func (c *Client) DispatchStatus(ctx context.Context, dispatchID string) (*Dispatch, error) {
 	data, err := c.execJSON(ctx, "dispatch", "status", dispatchID)

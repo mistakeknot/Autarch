@@ -82,7 +82,7 @@ export function updateLabel(info: UpdateInfoView | null): { label: string; state
 
 function PendingText({ note }: { note: PendingNote }) {
   return (
-    <p className={`mt-2 ${note.kind === "stuck" ? "font-medium text-destructive" : "text-muted-foreground"}`} data-update-pending data-update-pending-kind={note.kind}>
+    <p className={`mt-2 ${note.kind === "stuck" ? "font-medium text-[var(--destructive-text,var(--destructive))]" : "text-muted-foreground"}`} data-update-pending data-update-pending-kind={note.kind}>
       {note.text}
     </p>
   );
@@ -105,7 +105,7 @@ export function UpdateMenu({ info, onRequest, error }: { info: UpdateInfoView | 
           </ul>
         ) : null}
         {result !== null ? <p className="mt-2" data-update-result data-ok={result.ok ? "true" : "false"}>{`Last update ${short(result.sha)} ${result.ok ? "succeeded" : "failed"} at ${result.finished_at}: ${result.message}`}</p> : null}
-        {error ? <p role="alert" className="mt-2 font-medium text-destructive" data-update-error>{error}</p> : null}
+        {error ? <p role="alert" className="mt-2 font-medium text-[var(--destructive-text,var(--destructive))]" data-update-error>{error}</p> : null}
         {info.pending ? (
           <PendingText note={pendingNote(info)} />
         ) : info.available ? (

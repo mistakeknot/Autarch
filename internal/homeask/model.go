@@ -26,12 +26,13 @@ import (
 
 // Option is one answer mk can pick.
 type Option struct {
-	ID          string    `json:"id,omitempty"`
-	Label       string    `json:"label"`
-	Kind        string    `json:"kind,omitempty"`
-	Reversible  bool      `json:"reversible,omitempty"`
-	Instruction string    `json:"instruction,omitempty"`
-	Approval    *Approval `json:"approval,omitempty"`
+	OnPick      json.RawMessage `json:"on_pick,omitempty"`
+	ID          string          `json:"id,omitempty"`
+	Label       string          `json:"label"`
+	Kind        string          `json:"kind,omitempty"`
+	Reversible  bool            `json:"reversible,omitempty"`
+	Instruction string          `json:"instruction,omitempty"`
+	Approval    *Approval       `json:"approval,omitempty"`
 }
 
 // Approval is the spec an option may carry (P-12). It makes the option
@@ -67,6 +68,10 @@ type Question struct {
 
 // Ask is the filing request for every caller.
 type Ask struct {
+	// These filing attributes are outside the normalized ask hashes.
+	Urgent         bool       `json:"urgent,omitempty"`
+	KeepList       string     `json:"keep_list,omitempty"`
+	RootRun        *RootRun   `json:"root_run,omitempty"`
 	V              int        `json:"v"`
 	Kind           string     `json:"kind"`
 	RequestID      string     `json:"request_id,omitempty"`
@@ -87,6 +92,11 @@ type Ask struct {
 	// Urgency is an optional delivery attribute: only "blocker" is accepted. It is not part of the
 	// identity, revision, semantic key or normalized JSON, so every hash filed before it existed is unchanged.
 	Urgency string `json:"urgency,omitempty"`
+	Stopped string `json:"stopped,omitempty"`
+	// Evidence is delivery content, excluded from all hashes and normalized JSON.
+	// A filing or update that changes only evidence is a no-op, like Urgency.
+	Evidence EvidenceList `json:"evidence,omitempty"`
+	Group    *Group       `json:"group,omitempty"` // display only, excluded from canonical hashes
 }
 
 const (
@@ -111,7 +121,44 @@ var (
 
 // Parse decodes a request strictly (unknown fields are refused) and returns it
 // normalized and validated.
-func Parse(data []byte) (Ask, error) {
+func Parse(data []byte) (Ask, error) { return parseAsk(data, true) }
+
+func parseExistingAsk(data []byte) (Ask, error) { return parseAsk(data, false) }
+
+func parseAsk(data []byte, requireStopped bool) (Ask, error) {
+	return parseAskSource(data, requireStopped, false)
+}
+
+func parseAskSource(data []byte, requireStopped, cardSource bool) (Ask, error) {
+	if err := ValidateOnPickJSON(data); err != nil {
+		return Ask{}, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err == nil {
+		var m map[string]any
+		_ = json.Unmarshal(data, &m)
+		if err := checkStopped(m, requireStopped); err != nil {
+			return Ask{}, err
+		}
+		for k, raw := range fields {
+			if strings.EqualFold(k, "stopped") {
+				if k != "stopped" {
+					return Ask{}, fmt.Errorf("invalid ask field %q", k)
+				}
+			}
+			if strings.EqualFold(k, "group") {
+				if k != "group" {
+					return Ask{}, fmt.Errorf("invalid ask field %q", k)
+				}
+				var g Group
+				if err := json.Unmarshal(raw, &g); err != nil {
+					return Ask{}, err
+				}
+				// Collapse duplicate members before struct decoding, matching JSON.parse.
+				data, _ = json.Marshal(fields)
+			}
+		}
+	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	var a Ask
@@ -120,6 +167,18 @@ func Parse(data []byte) (Ask, error) {
 	}
 	if _, err := dec.Token(); err != io.EOF {
 		return Ask{}, errors.New("invalid ask: trailing data after the JSON value")
+	}
+	for _, o := range a.Options {
+		if len(o.OnPick) > 0 {
+			// Before normalization, a non-nil slice distinguishes an explicit
+			// questions array (even empty) from omitted or null questions.
+			if !cardSource || a.Kind != "decide" || a.Asker != "thread" || a.Questions != nil {
+				return Ask{}, errors.New("on_pick requires card source")
+			}
+			if _, err := ValidateOnPick(o.OnPick, o, CardValidationContext{Source: "card"}); err != nil {
+				return Ask{}, err
+			}
+		}
 	}
 	return Normalize(a)
 }
@@ -244,6 +303,12 @@ func Normalize(in Ask) (Ask, error) {
 
 func normalize(in Ask) (Ask, []Problem) {
 	var ps problemList
+	if err := validateGroup(in.Group); err != nil {
+		ps.add("group", err.Error())
+	}
+	if err := ValidateEvidence(in.Evidence); err != nil {
+		ps.add("evidence", err.Error())
+	}
 	a := in
 	a.Options = append([]Option(nil), in.Options...)
 	a.Steps = append([]string(nil), in.Steps...)
@@ -301,6 +366,12 @@ func normalize(in Ask) (Ask, []Problem) {
 	}
 	for i := range a.Options {
 		o := &a.Options[i]
+		if len(o.OnPick) > 0 {
+			if _, err := ValidateOnPick(o.OnPick, *o, CardValidationContext{Source: "card"}); err != nil {
+				ps.add("on_pick", err.Error())
+			}
+			o.OnPick = append(json.RawMessage(nil), o.OnPick...)
+		}
 		for _, s := range []struct {
 			field string
 			p     *string
@@ -337,6 +408,15 @@ func normalize(in Ask) (Ask, []Problem) {
 	}
 	if a.Urgency != "" && a.Urgency != "blocker" {
 		ps.add("urgency", `urgency must be "blocker" when set`)
+	}
+	m := map[string]any{"urgency": a.Urgency}
+	if a.Stopped != "" {
+		m["stopped"] = a.Stopped
+	}
+	if err := checkStopped(m, false); err != nil {
+		ps.add("stopped", err.Error())
+	} else if s, ok := m["stopped"].(string); ok {
+		a.Stopped = s
 	}
 	switch a.Kind {
 	case "decide", "steps", "machine":
@@ -600,11 +680,27 @@ func normalizeOptions(a *Ask, ps *problemList) {
 // canonValue is one of: string, int, bool, []any, map[string]any.
 type canonValue = any
 
+// optionNode requires a validated option. Parse and Normalize reject invalid
+// declarations before hashing; violated internal invariants must not erase them.
 func optionNode(o Option) map[string]any {
 	m := map[string]any{"id": o.ID, "label": o.Label, "kind": o.Kind, "instruction": o.Instruction, "reversible": o.Reversible}
 	if o.Approval != nil {
 		m["approval"] = map[string]any{"kind": o.Approval.Kind, "target": o.Approval.Target,
 			"identity": o.Approval.Identity, "ttl": o.Approval.TTL}
+	}
+	if len(o.OnPick) > 0 {
+		var v any
+		d := json.NewDecoder(bytes.NewReader(o.OnPick))
+		d.UseNumber()
+		if err := d.Decode(&v); err != nil {
+			panic(fmt.Errorf("invalid on_pick in normalized option: %w", err))
+		}
+		var err error
+		v, err = fromDecoded(v)
+		if err != nil {
+			panic(fmt.Errorf("invalid on_pick in normalized option: %w", err))
+		}
+		m["on_pick"] = v
 	}
 	return m
 }
@@ -803,6 +899,10 @@ func prune(v any) any {
 	case map[string]any:
 		out := map[string]any{}
 		for k, e := range x {
+			if k == "on_pick" {
+				out[k] = e
+				continue
+			}
 			p := prune(e)
 			if !empty(p) {
 				out[k] = p
@@ -835,7 +935,27 @@ func utf16Less(a, b string) bool {
 	return len(ua) < len(ub)
 }
 
-func writeCanon(b *strings.Builder, v any) {
+func writeCanon(b *strings.Builder, v any) { writeCanonExact(b, v, false) }
+
+// CanonicalOnPick preserves the complete validated declaration, including opaque
+// decoded strings and required false, null and empty members.
+func CanonicalOnPick(raw json.RawMessage) (string, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return "", err
+	}
+	node, err := fromDecoded(v)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	writeCanonExact(&b, node, true)
+	return b.String(), nil
+}
+
+func writeCanonExact(b *strings.Builder, v any, exact bool) {
 	switch x := v.(type) {
 	case nil:
 		b.WriteString("null")
@@ -848,14 +968,18 @@ func writeCanon(b *strings.Builder, v any) {
 	case int:
 		b.WriteString(strconv.Itoa(x))
 	case string:
-		writeString(b, norm.NFC.String(x))
+		if exact {
+			writeString(b, x)
+		} else {
+			writeString(b, norm.NFC.String(x))
+		}
 	case []any:
 		b.WriteByte('[')
 		for i, e := range x {
 			if i > 0 {
 				b.WriteByte(',')
 			}
-			writeCanon(b, e)
+			writeCanonExact(b, e, exact)
 		}
 		b.WriteByte(']')
 	case map[string]any:
@@ -874,7 +998,7 @@ func writeCanon(b *strings.Builder, v any) {
 			}
 			writeString(b, k)
 			b.WriteByte(':')
-			writeCanon(b, nx[k])
+			writeCanonExact(b, nx[k], exact || k == "on_pick")
 		}
 		b.WriteByte('}')
 	}

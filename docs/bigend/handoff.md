@@ -8,7 +8,7 @@
 cd ~/projects/Vauxhall
 go build ./cmd/vauxhall
 ./vauxhall --scan-root ~/projects
-# Server runs at http://0.0.0.0:8099
+# Server runs at http://127.0.0.1:8099
 ```
 
 ## Project Location
@@ -152,16 +152,16 @@ Both have `.praude/` or `.tandemonium/` directories that Vauxhall should discove
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     Vauxhall Web UI                         │
-│         http://0.0.0.0:8099 (htmx + Tailwind)              │
+│         http://127.0.0.1:8099 (htmx + Tailwind)             │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    Vauxhall Server (Go)                     │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────┐    │
-│  │   Discovery  │ │  Aggregator  │ │  WebSocket Hub   │    │
-│  │   Scanner    │ │   (SQLite)   │ │  (tmux streams)  │    │
-│  └──────────────┘ └──────────────┘ └──────────────────┘    │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────┐     │
+│  │   Discovery  │ │  Aggregator  │ │  WebSocket Hub   │     │
+│  │   Scanner    │ │   (SQLite)   │ │  (tmux streams)  │     │
+│  └──────────────┘ └──────────────┘ └──────────────────┘     │
 └─────────────────────────────────────────────────────────────┘
          │                   │                    │
          ▼                   ▼                    ▼

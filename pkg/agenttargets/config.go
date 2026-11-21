@@ -1,6 +1,7 @@
 package agenttargets
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -112,8 +113,12 @@ func registryFromConfig(cfg fileConfig) Registry {
 // and applies environment variable overrides. Returns DefaultDispatchConfig() if
 // no config file is found.
 func LoadDispatchConfig(projectRoot string) DispatchConfig {
-	cfg := DefaultDispatchConfig()
+	return LoadDispatchConfigWithDefaults(projectRoot, DefaultDispatchConfig())
+}
 
+// LoadDispatchConfigWithDefaults applies project preferences and environment overrides
+// over caller defaults. Environment overrides take precedence over project settings.
+func LoadDispatchConfigWithDefaults(projectRoot string, cfg DispatchConfig) DispatchConfig {
 	if projectRoot == "" {
 		applyDispatchEnvOverrides(&cfg)
 		return cfg
@@ -131,12 +136,16 @@ func LoadDispatchConfig(projectRoot string) DispatchConfig {
 
 	agentsPath := filepath.Join(configDir, "agents.toml")
 	if _, err := os.Stat(agentsPath); err != nil {
+		if !os.IsNotExist(err) {
+			slog.Warn("dispatch preferences unavailable; using defaults", "path", agentsPath, "error", err)
+		}
 		applyDispatchEnvOverrides(&cfg)
 		return cfg
 	}
 
 	var fileCfg fileConfig
 	if _, err := toml.DecodeFile(agentsPath, &fileCfg); err != nil {
+		slog.Warn("dispatch preferences unavailable; using defaults", "path", agentsPath, "error", err)
 		applyDispatchEnvOverrides(&cfg)
 		return cfg
 	}
@@ -147,6 +156,7 @@ func LoadDispatchConfig(projectRoot string) DispatchConfig {
 	}
 	if d.PreferredAgent != "" {
 		cfg.PreferredAgent = d.PreferredAgent
+		cfg.PreferredAgentSource = agentsPath
 	}
 	if d.Timeout != "" {
 		if dur, err := time.ParseDuration(d.Timeout); err == nil {
@@ -165,5 +175,6 @@ func applyDispatchEnvOverrides(cfg *DispatchConfig) {
 	}
 	if v := os.Getenv("AUTARCH_DISPATCH_AGENT"); v != "" {
 		cfg.PreferredAgent = v
+		cfg.PreferredAgentSource = "AUTARCH_DISPATCH_AGENT"
 	}
 }

@@ -21,6 +21,7 @@ import (
 
 // fakeBB puts a fake `bb` first on PATH. `home <verb>` sources $FAKE_DIR/<verb>.sh.
 func fakeBB(t *testing.T) string {
+	t.Setenv("BB_CLI", "") // This fixture exercises PATH, not an inherited configured CLI.
 	t.Helper()
 	dir := t.TempDir()
 	script := `#!/bin/sh
@@ -55,7 +56,7 @@ func withCardFiler(t *testing.T, s *stubBB, tune ...func(*homeask.CardFiler)) {
 	old := newFiler
 	t.Cleanup(func() { newFiler = old })
 	newFiler = func() *homeask.CardFiler {
-		f := &homeask.CardFiler{Run: s.run, LockDir: t.TempDir(), TasksProject: "P1"}
+		f := &homeask.CardFiler{Now: filingTestNow, Run: s.run, LockDir: t.TempDir(), TasksProject: "P1"}
 		for _, fn := range tune {
 			fn(f)
 		}
@@ -158,7 +159,7 @@ func TestDecideNeedsAThread(t *testing.T) {
 	}
 }
 
-// The autarch CLI has no way to file threadless: only Mycroft's FileForPull does (operator question 4).
+// The autarch CLI refuses legacy threadless Mycroft asks before running any command.
 func TestDecideRefusesAThreadlessMycroftAskAndRunsNothing(t *testing.T) {
 	s := &stubBB{}
 	withCardFiler(t, s)
@@ -176,7 +177,7 @@ func TestDecideFileUsesTheConfiguredTasksProjectBinding(t *testing.T) {
 	t.Cleanup(func() { newFiler = old })
 	newFiler = func() *homeask.CardFiler {
 		f := homeask.CardFilerFromEnv(filerTimeout)
-		f.Run, f.LockDir = s.run, t.TempDir()
+		f.Run, f.LockDir, f.Now = s.run, t.TempDir(), filingTestNow
 		return f
 	}
 	t.Setenv("BB_THREAD_ID", "thr-x")
@@ -198,6 +199,34 @@ func TestDecideFileUsesTheConfiguredTasksProjectBinding(t *testing.T) {
 	}
 	if !strings.Contains(created, "--project P1") {
 		t.Fatalf("created: %q", created)
+	}
+}
+
+func TestDecideFileReportsHeldRequest(t *testing.T) {
+	s := &stubBB{}
+	withCardFiler(t, s, func(f *homeask.CardFiler) {
+		f.Now = func() time.Time { return time.Date(2026, 11, 16, 18, 0, 0, 0, time.UTC) }
+	})
+	t.Setenv("BB_THREAD_ID", "")
+	var ask map[string]any
+	if err := json.Unmarshal([]byte(askJSON("thr-x")), &ask); err != nil {
+		t.Fatal(err)
+	}
+	ask["request_id"] = "held-request"
+	raw, err := json.Marshal(ask)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := runDecide(t, string(raw), "file")
+	if exitCode(err) != 6 {
+		t.Fatalf("held request needs exit 6, got %d: %v", exitCode(err), err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("held request needs explicit queue output: %q: %v", out, err)
+	}
+	if result["queued"] != true || result["request"] != "held-request" || result["id"] != nil || !strings.Contains(out, "queued for the Thursday batch") || s.creates != 0 {
+		t.Fatalf("held request reported as filed: %s creates=%d", out, s.creates)
 	}
 }
 
@@ -245,7 +274,7 @@ func TestDecideExitCodesTwoThreeAndBBAbsent(t *testing.T) {
 	} {
 		old := newFiler
 		newFiler = func() *homeask.CardFiler {
-			return &homeask.CardFiler{Run: tc.run, LockDir: t.TempDir(), TasksProject: "P1"}
+			return &homeask.CardFiler{Now: filingTestNow, Run: tc.run, LockDir: t.TempDir(), TasksProject: "P1"}
 		}
 		_, err := runDecide(t, askJSON("thr-x"), "file")
 		newFiler = old
@@ -287,8 +316,9 @@ func TestExitCodeMapping(t *testing.T) {
 		errors.New("x"):                          1,
 		fmt.Errorf("w: %w", homeask.ErrInvalid):  2,
 		fmt.Errorf("w: %w", homeask.ErrHomeDown): 3,
-		fmt.Errorf("w: %w", homeask.ErrOutcomeUnknown): 4,
-		fmt.Errorf("w: %w", homeask.ErrAlreadyRuled):   5,
+		fmt.Errorf("w: %w", homeask.ErrOutcomeUnknown):              4,
+		fmt.Errorf("w: %w", homeask.ErrAlreadyRuled):                5,
+		fmt.Errorf("w: %w", &homeask.HeldError{RequestKey: "held"}): 6,
 	} {
 		if got := exitCode(err); got != want {
 			t.Errorf("exitCode(%v) = %d, want %d", err, got, want)
@@ -357,11 +387,24 @@ func TestBuildAskRejectsNonObjectJSON(t *testing.T) {
 					t.Fatalf("buildAsk(%s) panicked: %v", raw, r)
 				}
 			}()
-			_, err := buildAsk([]byte(raw), "thread-a", "", "/srv/x", "x")
+			_, err := buildAsk([]byte(raw), "thread-a", "", "/srv/x", "x", nil)
 			var ue *usageError
 			if !errors.As(err, &ue) {
 				t.Fatalf("buildAsk(%s) = %v, want a usageError", raw, err)
 			}
 		})
+	}
+}
+
+func TestDecideMergeFilesImmediatelyDuringHold(t *testing.T) {
+	s := &stubBB{}
+	withCardFiler(t, s, func(f *homeask.CardFiler) {
+		f.Now = func() time.Time { return time.Date(2026, 11, 16, 18, 0, 0, 0, time.UTC) }
+	})
+	t.Setenv("BB_THREAD_ID", "")
+	raw := strings.Replace(askJSON("thr-x"), "A first", "Manually merge it at abc123", 1)
+	out, err := runDecide(t, raw, "file")
+	if err != nil || out != "T1" || s.creates != 1 {
+		t.Fatalf("merge held: out=%s err=%v creates=%d", out, err, s.creates)
 	}
 }

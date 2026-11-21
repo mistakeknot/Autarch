@@ -12,10 +12,12 @@ import (
 	"sync"
 
 	"github.com/mistakeknot/autarch/internal/homeask"
+	"github.com/mistakeknot/autarch/pkg/callerlog"
 )
 
 // Server implements the MCP protocol for Autarch tools.
 type Server struct {
+	callerLog   *callerlog.Log
 	projectPath string
 	tools       map[string]Tool
 	mu          sync.RWMutex
@@ -37,6 +39,13 @@ func NewServer(projectPath string) *Server {
 		stderr:      os.Stderr,
 	}
 	s.registerDefaultTools()
+	return s
+}
+
+// WithCallerLog injects an audit writer and its directory. The caller owns Close.
+// Configure before serving requests.
+func (s *Server) WithCallerLog(log *callerlog.Log) *Server {
+	s.callerLog = log
 	return s
 }
 
@@ -241,10 +250,13 @@ func (s *Server) registerDefaultTools() {
 			"type":     "object",
 			"required": []string{"kind", "question"},
 			"properties": map[string]interface{}{
-				"kind":     map[string]interface{}{"type": "string", "description": "decide, steps or machine"},
-				"question": map[string]interface{}{"type": "string"},
-				"subject":  map[string]interface{}{"type": "string"},
-				"thread":   map[string]interface{}{"type": "string", "description": "Asking thread; must match BB_THREAD_ID when that is set"},
+				"kind":      map[string]interface{}{"type": "string", "description": "decide, steps or machine"},
+				"question":  map[string]interface{}{"type": "string"},
+				"subject":   map[string]interface{}{"type": "string"},
+				"urgent":    map[string]interface{}{"type": "boolean", "description": "Bypass the weekday hold and ordinary filing budget"},
+				"root_run":  map[string]interface{}{"type": "object", "description": "Root-run filing tuple: script, sha256, timeout and set; sha256 must match the readable script"},
+				"keep_list": map[string]interface{}{"type": "string", "description": "Budget/hold exception, using the needs-mk --keep-list values"},
+				"thread":    map[string]interface{}{"type": "string", "description": "Asking thread; must match BB_THREAD_ID when that is set"},
 				"options": map[string]interface{}{
 					"type":  "array",
 					"items": map[string]interface{}{"type": "object"},
@@ -349,6 +361,11 @@ func (s *Server) handleToolsCall(ctx context.Context, req *JSONRPCRequest) {
 	// points attach StdioCaller explicitly.
 	if tool.RequiredScope != "" {
 		caller, hasCaller := CallerFromContext(ctx)
+		log := s.callerLog
+		if log == nil {
+			log = callerlog.Default()
+		}
+		log.Record(map[string]any{"tool": params.Name, "required_scope": tool.RequiredScope, "caller_id": caller.AgentID, "draft_would_allow": hasCaller && (tool.RequiredScope == "read" || tool.RequiredScope == "write" || caller.HasScope("admin")), "would_deny_cards:file": !hasCaller || tool.RequiredScope != "write", "would_deny_cards:read": !hasCaller || tool.RequiredScope != "read", "would_deny_admin": !hasCaller}, "")
 		if !hasCaller || !caller.HasScope(tool.RequiredScope) {
 			s.sendError(req.ID, -32603, "Forbidden", fmt.Sprintf("tool %s requires scope %q", params.Name, tool.RequiredScope))
 			return

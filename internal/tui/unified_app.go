@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ type UnifiedApp struct {
 
 	// Agent for AI generation
 	codingAgent   *agent.Agent
+	projectRoot   string
 	agentSelector *pkgtui.AgentSelector
 	selectedAgent string
 
@@ -87,7 +89,7 @@ type UnifiedApp struct {
 
 // NewUnifiedApp creates a new unified application
 func NewUnifiedApp(client *autarch.Client) *UnifiedApp {
-	tabNames := []string{"Bigend", "Gurgeh", "Coldwine", "Pollard", "Mycroft"}
+	tabNames := []string{"Bigend", "Gurgeh", "Coldwine", "Pollard"}
 	return &UnifiedApp{
 		client:          client,
 		tabs:            NewTabBar(tabNames),
@@ -200,9 +202,9 @@ func (a *UnifiedApp) initAgentSelector() {
 		return
 	}
 
-	projectRoot := ""
-	if cwd, err := os.Getwd(); err == nil {
-		projectRoot = cwd
+	projectRoot := a.projectRoot
+	if projectRoot == "" {
+		projectRoot, _ = os.Getwd()
 	}
 
 	options, err := LoadAgentOptions(projectRoot)
@@ -210,26 +212,49 @@ func (a *UnifiedApp) initAgentSelector() {
 		return
 	}
 
-	options = filterSupportedAgentOptions(options)
-	if len(options) == 0 {
-		return
-	}
+	a.initAgentSelectorWithOptions(projectRoot, options)
+}
 
-	a.agentSelector = pkgtui.NewAgentSelector(options)
-	if a.selectedAgent != "" {
-		a.setSelectorIndex(a.selectedAgent)
-		return
-	}
+// initAgentSelectorWithOptions separates preference resolution from tool discovery.
+func (a *UnifiedApp) initAgentSelectorWithOptions(projectRoot string, options []pkgtui.AgentOption) {
+	a.projectRoot = projectRoot
 	if a.codingAgent != nil {
-		a.selectedAgent = string(a.codingAgent.Type)
-		a.setSelectorIndex(a.selectedAgent)
-		return
+		a.codingAgent = a.codingAgent.Clone()
+		a.codingAgent.ProjectRoot = projectRoot
 	}
-
-	a.selectedAgent = options[0].Name
-	if resolved, err := agent.DetectAgentByName(a.selectedAgent, exec.LookPath); err == nil {
-		a.codingAgent = resolved
+	options = filterSupportedAgentOptions(options)
+	selection := a.codingAgent
+	if selection == nil {
+		selection = &agent.Agent{}
 	}
+	var source string
+	a.selectedAgent, source = selection.DispatchPreference(projectRoot)
+	baseline := &agent.Agent{Type: selection.Type}
+	if name, baselineSource := baseline.DispatchPreference(projectRoot); strings.EqualFold(name, a.selectedAgent) && baselineSource != "automatic detection" {
+		source = baselineSource
+	}
+	if a.selectedAgent == "" {
+		if len(options) == 0 {
+			return
+		}
+		a.selectedAgent = options[0].Name
+		source = "configured, not detected"
+	}
+	if filepath.IsAbs(source) {
+		source = "project config"
+	}
+	found := false
+	for i := range options {
+		if strings.EqualFold(options[i].Name, a.selectedAgent) {
+			options[i].Source = source
+			found = true
+		}
+	}
+	if !found {
+		options = append(options, pkgtui.AgentOption{Name: a.selectedAgent, Source: source})
+	}
+	a.agentSelector = pkgtui.NewAgentSelector(options)
+	a.setSelectorIndex(a.selectedAgent)
 }
 
 func (a *UnifiedApp) setSelectorIndex(name string) {
@@ -242,6 +267,15 @@ func (a *UnifiedApp) setSelectorIndex(name string) {
 			return
 		}
 	}
+}
+
+// attachDashboardAgents keeps inactive tabs and the current view on the same selection.
+// enterDashboard also attaches this state to each newly created view.
+func (a *UnifiedApp) attachDashboardAgents() {
+	for _, view := range a.dashViews {
+		a.attachAgentSelector(view)
+	}
+	a.attachAgentSelector(a.currentView)
 }
 
 func (a *UnifiedApp) attachAgentSelector(view View) {
@@ -258,8 +292,11 @@ func (a *UnifiedApp) attachAgentSelector(view View) {
 }
 
 func (a *UnifiedApp) attachAgentName(view View) {
-	if view == nil || a.selectedAgent == "" {
+	if view == nil {
 		return
+	}
+	if setter, ok := view.(interface{ SetCodingAgent(*agent.Agent) }); ok {
+		setter.SetCodingAgent(a.codingAgent)
 	}
 	if setter, ok := view.(agentNameSetter); ok {
 		setter.SetAgentName(a.selectedAgent)
@@ -300,7 +337,6 @@ func (a *UnifiedApp) Init() tea.Cmd {
 	detectedAgent, err := agent.DetectAgent()
 	if err == nil {
 		a.codingAgent = detectedAgent
-		a.selectedAgent = string(detectedAgent.Type)
 	}
 	// Note: We don't error here - we'll handle missing agent when we need it
 	a.initAgentSelector()
@@ -381,9 +417,9 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.openChatSettings()
 			return a, nil
 		case "model", "m":
-			// Toggle model selector
+			// Toggle the Dispatch agent selector.
 			if a.agentSelector != nil {
-				a.agentSelector.Open = !a.agentSelector.Open
+				a.agentSelector.Toggle()
 			}
 			return a, nil
 		case "palette", "p":
@@ -424,8 +460,6 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, a.switchToTab(2) // fallback
 		case "pollard", "pol":
 			return a, a.switchToTab(3)
-		case "mycroft", "myc":
-			return a, a.switchToTab(4)
 		case "signals", "sig":
 			return a, a.signalsOverlay.Toggle()
 		case "logs", "log", "l":
@@ -529,12 +563,50 @@ func (a *UnifiedApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case pkgtui.AgentSelectedMsg:
-		a.selectedAgent = msg.Name
-		a.setSelectorIndex(msg.Name)
 		if resolved, err := agent.DetectAgentByName(msg.Name, exec.LookPath); err == nil {
+			baseline := &agent.Agent{}
+			if a.codingAgent != nil {
+				baseline.Type = a.codingAgent.Type
+			}
+			previous, source := baseline.DispatchPreference(a.projectRoot)
+			if a.codingAgent != nil && source == "automatic detection" {
+				if current, currentSource := a.codingAgent.DispatchPreference(a.projectRoot); strings.EqualFold(current, msg.Name) && currentSource == "explicit agent selection" {
+					source = currentSource
+				}
+			}
+			resolved.ProjectRoot = a.projectRoot
 			a.codingAgent = resolved
+			a.selectedAgent = msg.Name
+			a.setSelectorIndex(msg.Name)
+			if a.agentSelector != nil && len(a.agentSelector.Options) > 0 {
+				if !strings.EqualFold(previous, msg.Name) {
+					source = "explicit agent selection"
+				}
+				a.agentSelector.Options[a.agentSelector.Index].Source = source
+			}
+			a.attachDashboardAgents()
+		} else {
+			// Navigation moves the cursor before confirmation; restore the
+			// effective preference if the requested agent is unavailable.
+			a.setSelectorIndex(a.selectedAgent)
 		}
-		a.attachAgentName(a.currentView)
+		return a, nil
+
+	case ScanCodebaseMsg:
+		a.projectRoot = msg.Path
+		if options, err := LoadAgentOptions(msg.Path); err == nil {
+			a.initAgentSelectorWithOptions(msg.Path, options)
+		}
+		if a.codingAgent != nil {
+			a.codingAgent = a.codingAgent.Clone()
+			a.codingAgent.ProjectRoot = msg.Path
+		}
+		a.attachDashboardAgents()
+		if a.currentView != nil {
+			var cmd tea.Cmd
+			a.currentView, cmd = a.currentView.Update(msg)
+			return a, cmd
+		}
 		return a, nil
 
 	case OnboardingCompleteMsg:
@@ -711,8 +783,8 @@ func (a *UnifiedApp) initPaletteCommands() {
 		})
 	}
 	cmds = append(cmds, Command{
-		Name:        "Switch model",
-		Description: "Toggle model selector",
+		Name:        "Choose Dispatch agent (Ctrl+G / F2)",
+		Description: "Choose Dispatch agent",
 		Action: func() tea.Cmd {
 			return func() tea.Msg {
 				return tea.KeyMsg{Type: tea.KeyF2}
@@ -771,8 +843,8 @@ func (a *UnifiedApp) updateCommands() {
 	var cmds []Command
 
 	cmds = append(cmds, Command{
-		Name:        "Switch model",
-		Description: "Toggle model selector",
+		Name:        "Choose Dispatch agent (Ctrl+G / F2)",
+		Description: "Choose Dispatch agent",
 		Action: func() tea.Cmd {
 			return func() tea.Msg {
 				return tea.KeyMsg{Type: tea.KeyF2}
@@ -1083,7 +1155,7 @@ func (a *UnifiedApp) renderHelpOverlay() string {
 		{Key: "/big /gur etc.", Description: "Switch tabs (Bigend/Gurgeh/Coldwine/Pollard)"},
 		{Key: "ctrl+left/right", Description: "Cycle tabs"},
 		{Key: "ctrl+p", Description: "Command palette"},
-		{Key: "ctrl+g", Description: "Agent selector"},
+		{Key: "ctrl+g", Description: "Choose Dispatch agent"},
 		{Key: "/bigend, etc.", Description: "Switch to tool by name"},
 		{Key: "ctrl+l", Description: "Toggle log pane"},
 		{Key: "/sig", Description: "Toggle signals overlay"},

@@ -111,13 +111,9 @@ describe("prose is not promoted to a command", () => {
 });
 
 describe("the definition is a tap target", () => {
-  it("What this counts has a 44px minimum at every width", () => {
-    const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={() => {}} counts={null} definition="d" />);
-    expect(html).toMatch(/<summary[^>]*class="[^"]*min-h-11/);
-  });
   it("below sm the Queue tabs wrap instead of scrolling off-screen, and no label splits", () => {
     const html = renderToStaticMarkup(<QueueTabs tab="decide" onTab={() => {}} counts={null} />);
-    expect(html).toMatch(/class="[^"]*\bflex-wrap\b[^"]*\bsm:flex-nowrap\b[^"]*" data-queue-tabs/);
+    expect(html).toMatch(/class="relative flex flex-wrap items-center gap-x-1 /);
     expect(html).not.toMatch(/[" ]overflow-x-auto/);
     expect(html.match(/data-queue-tab="[^"]+" class="[^"]*whitespace-nowrap/g)).toHaveLength(4);
   });

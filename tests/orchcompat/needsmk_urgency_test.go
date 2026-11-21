@@ -19,8 +19,8 @@ func TestUrgencyBlockerWhereTheBuildHasIt(t *testing.T) {
 		extra map[string]any
 		more  []string
 	}{
-		{name: "urgency flag", more: []string{"--urgency", "blocker"}},
-		{name: "urgency in the ask file", extra: map[string]any{"urgency": "blocker"}},
+		{name: "urgency flag", more: []string{"--urgency", "blocker", "--stopped", "Release waits"}},
+		{name: "urgency in the ask file", extra: map[string]any{"urgency": "blocker", "stopped": "Release waits"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := newEnv(t)
@@ -29,6 +29,7 @@ func TestUrgencyBlockerWhereTheBuildHasIt(t *testing.T) {
 			wantCode(t, r, 0)
 			wire := askMap(t, c.extra)
 			wire["urgency"] = "blocker"
+			wire["stopped"] = "Release waits"
 			o := oracleReq{project: "alpha", title: "Ship it?", ask: wire}
 			ident := oracleIdent(t, o)
 			key := oracleKey("thr_a", ident)
@@ -77,4 +78,23 @@ func TestUrgencyAbsentWhereTheBuildLacksIt(t *testing.T) {
 	r = e.autarch(fileArgs(ask)...)
 	wantCode(t, r, 2, `unknown field "urgency" in home-ask/v2`)
 	nothingFiled(t, e)
+}
+
+func TestBlockerWithoutStoppedRefusedBeforeHome(t *testing.T) {
+	if !strings.Contains(helpOutput(t, "needs-mk", "file", "--help"), "--stopped") {
+		t.Skip("build predates stopped")
+	}
+	for _, jsonUrgency := range []bool{false, true} {
+		e := newEnv(t)
+		extra := map[string]any{}
+		more := []string{"--urgency", "blocker"}
+		if jsonUrgency {
+			extra["urgency"] = "blocker"
+			more = nil
+		}
+		ask := e.writeFile("ask.json", askJSON(extra))
+		r := e.autarch(fileArgs(ask, more...)...)
+		wantCode(t, r, 2, "stopped", "without blocker urgency", "no phone push")
+		nothingFiled(t, e)
+	}
 }

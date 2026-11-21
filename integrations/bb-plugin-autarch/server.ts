@@ -7,13 +7,14 @@
 // (cli.ts) and the skill in skills/home/SKILL.md that tells agents how to use it. A write
 // publishes a realtime signal so every open page refetches.
 import { postNoteOnce } from "./notepost.js";
+import { wireGovernor } from "./governor-runtime.js";
 import { threadEventLimit } from "./hostLimits.js";
-import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { homeMethods } from "./contract.js";
+import { readTargetEvidence } from "./picktarget.js";
 import { sourceSha256 } from "./scripts/source-hash.mjs";
 import { Asks } from "./asks.js";
 import { Catchup } from "./catchup.js";
@@ -23,16 +24,14 @@ import { ledgerPath } from "./ledger.js";
 import { Delegation, type ThreadRow } from "./delegation.js";
 import { exportEvents } from "./export.js";
 import { FeedCaches } from "./feed.js";
-import { parseAsk } from "./model.js";
+import { owedAsk } from "./askbody.js";
 import { ServeClient, tokenReader } from "./serve.js";
 import { CardWriter } from "./cardwrites.js";
 import { Queue } from "./queue.js";
 import { touchTrigger } from "./trigger.js";
 import { checkRequest, updateInfo } from "./updates.js";
-import { ghViewReal, PrPoller } from "./movepoll.js";
+import { ghViewReal } from "./ghview.js";
 import { MergeRecheck } from "./mergerecheck.js";
-import { ReportWatcher } from "./movereport.js";
-import { moveViews } from "./moveview.js";
 import { CommentPoller, conversationView, openTaskIds, unreadCounts } from "./conversation.js";
 import { readDoc, resolveOpenTarget } from "./docread.js";
 import { rootRun } from "./rootrun.js";
@@ -49,6 +48,10 @@ import { cardStateOf } from "./cardstate.js";
 import { createStoreHandle, type Store, type StoreHandle } from "./store.js";
 import { defaultImagesRoot, ImageStore } from "./otherimages.js";
 import { sdkAdapter, WakeLoop, type ThreadsLike, type WakeSdk } from "./wakes.js";
+// Evidence has a separate store and a read-only RPC; it never uses Other-box attachments.
+// Keep this import beside that store's existing wiring.
+
+import { readEvidence } from "./evidencestore.js";
 
 // Both schemas run at the wire boundary. Handler input/output are inferred
 // from the shared contract; app.tsx imports only its type.
@@ -99,6 +102,7 @@ export function wireStore(bb: BbPluginApi): StoreHandle {
 }
 
 export interface HomeConfig {
+  pickHandlerMode?: unknown;
   serveAddr: string;
   serveTokenFile: string;
   serveProjectDirs: string[];
@@ -142,7 +146,6 @@ const FEED_REFRESH_MS = 30_000;
 const VIZIER_MESSAGE_POLL_MS = 15_000;
 const SERVE_CHECK_MS = 15_000;
 const MK = "mk";
-const MOVE_REPORT_SWEEP_MS = 60_000;
 
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
@@ -216,20 +219,13 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     // The blocker phone push goes over plugins.callRpc to the push-notifications plugin; a host without
     // bb.sdk.plugins simply makes no push.
     const sdkPlugins = (bb.sdk as { plugins?: PluginsLike }).plugins;
-    const svc = new Service({ store, images, projects: () => serve.projects(), nudge, ...(sdkPlugins ? { notifier: new RpcNotifier(sdkPlugins) } : {}), log: (m) => bb.log.warn(m), rulingsLedger: cfg.rulingsLedger !== undefined ? cfg.rulingsLedger : ledgerPath() });
+    const svc = new Service({ store, images, pickHandlerMode: cfg.pickHandlerMode, tasks: () => { if (!sdkPlugins) throw new Error("Tasks unavailable"); return new TasksClient(sdkPlugins); }, readTargetEvidence: threadId => readTargetEvidence(bb.sdk, threadId), projects: () => serve.projects(), nudge, ...(sdkPlugins ? { notifier: new RpcNotifier(sdkPlugins) } : {}), log: (m) => bb.log.warn(m), rulingsLedger: cfg.rulingsLedger !== undefined ? cfg.rulingsLedger : ledgerPath() });
     const dele = new Delegation(svc, listThreadRows, getThreadRow);
     const asks = new Asks(svc);
     const catchup = new Catchup(svc, dele);
     const loop = new WakeLoop(svc, deps.sdk ?? sdkAdapter(bb.sdk.threads as unknown as ThreadsLike), (gone) => resolveWakeTarget("", gone, true));
     const caches = new FeedCaches(() => store.db, () => Date.now());
     parts = { store, svc, asks, dele, catchup, loop, caches };
-    // Moves are retired (bead mk-1k8pg): close any left open as soon as the store is ready, before any reader or
-    // poller sees them and whether or not the tasks client exists. A picked card's held unlabel waits for the writer.
-    try {
-      svc.retireMoves();
-    } catch (e) {
-      bb.log.warn(`retire moves: ${e instanceof Error ? e.message : String(e)}`);
-    }
     svc.start();
   });
   bb.onDispose(() => parts?.svc.stop());
@@ -271,6 +267,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     new Proxy({} as T, { get: (_t, k) => (pick(need()) as Record<string | symbol, unknown>)[k] });
   bb.cli.register(
     homeCli({
+      readTargetEvidence: (threadId) => readTargetEvidence(bb.sdk, threadId),
       svc: lazy((p) => p.svc),
       asks: lazy((p) => p.asks),
       catchup: lazy((p) => p.catchup),
@@ -432,16 +429,6 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       await queue.run(signal, sleep);
     },
   });
-  // PR poller (plan D2): the only automatic closer of a move. Read-only `gh pr view`; a failure leaves the move open.
-  // Home opens no moves since mk-1k8pg, so after the retirement at store ready it finds nothing to poll.
-  bb.background.service("home-move-poll", {
-    async start(signal) {
-      while (!signal.aborted && !parts) await sleep(1000, signal);
-      if (!parts || signal.aborted) return;
-      const poller = new PrPoller({ svc: parts.svc, ghView: ghViewReal, log: (m) => console.error(`home-move-poll: ${m}`) });
-      await poller.run(signal, sleep);
-    },
-  });
   // Merge recheck (bead mk-g1t73): a merge pick whose PR is still open five minutes later brings the card back.
   // Read-only `gh pr view`, no model; the bring-back is the Archive's own.
   bb.background.service("home-merge-recheck", {
@@ -459,9 +446,9 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
           const cur = p.svc.currentGeneration(taskId);
           const recipient = cur && cur.thread ? await resolveWakeTarget(taskId, String(cur.thread), true) : null;
           const r = p.dele.bringBack(taskId, decisionId, recipient, {}, [
-            `Citadel brought the decision ${decisionId} back on its own: mk picked a merge, and ${pr.url} was still not merged five minutes later.`,
+            `Citadel brought ${p.svc.cardNoticeLabel(taskId, cur?.subject)} (${decisionId}) back on its own: mk picked a merge, and ${pr.url} was still not merged five minutes later.`,
             `The card is open again, so mk will be asked afresh. If the PR merges first, tell mk on the card. If you have already received mk's answer on the new card, that answer stands.`,
-          ]);
+          ], "merge-recheck");
           if (r.ok && !r.replay) {
             p.caches.invalidate();
             bb.realtime.publish("home-queue-changed", {});
@@ -488,45 +475,6 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         log: (m) => console.error(`home-card-comments: ${m}`),
       }));
       await poller.run(signal, sleep);
-    },
-  });
-  // Script reports and the report deadline. Wakes the owner once on a failed report or no report.
-  bb.background.service("home-move-reports", {
-    async start(signal) {
-      while (!signal.aborted && !(parts && tasksRef)) await sleep(1000, signal);
-      if (!parts || !tasksRef || signal.aborted) return;
-      const p = parts;
-      const tasks = tasksRef;
-      const watcher = new ReportWatcher({
-        svc: p.svc,
-        listComments: (id) => tasks.listComments(id),
-        resolveTarget: async (m) => resolveWakeTarget(m.task_id, m.owner),
-        isReporter: async (m, thread) => {
-          if (m.owner === null) return false;
-          if (thread === m.owner) return true;
-          try {
-            const rows = await listThreadRows({ cached: false }); // never a stale cache: a just-archived successor must not report
-            const mine = rows.find((r) => r.id === m.owner);
-            if (!mine?.title) return false;
-            const succ = rows.filter((r) => r.archivedAt == null && r.deletedAt == null && r.title === mine.title);
-            return succ.length === 1 && succ[0]!.id === thread;
-          } catch {
-            return false;
-          }
-        },
-        reportRoots: [join(homedir(), ".bb-machines")].filter((d) => existsSync(d)),
-        log: (m) => console.error(`home-move-reports: ${m}`),
-      });
-      while (!signal.aborted) {
-        try {
-          const st = await watcher.sweep();
-          if (st.wakes > 0) void p.loop.nudge();
-          if (st.reports > 0 || st.wakes > 0) bb.realtime.publish("home-queue-changed", {});
-        } catch (e) {
-          console.error(`home-move-reports: ${e instanceof Error ? e.message : String(e)}`);
-        }
-        await sleep(MOVE_REPORT_SWEEP_MS, signal);
-      }
     },
   });
   // Owner thread, else the one live thread with the owner's title (its successor), else the vizier, else nobody.
@@ -596,6 +544,16 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   const SERVE_READ_TTL_MS = 20_000;
   let serveRead: { at: number; projects: unknown; projectsError: string | undefined; build: unknown } | undefined;
   const handlers = {
+    pilotMetrics(_: null) { return { metrics: need().svc.store.pilotMetrics() }; },
+    pickAction(input: import("./pickreadback.js").PickActionQuery) {
+      const query = homeMethods.pickAction.input.safeParse(input);
+      if (!query.success) return { ok: false, kind: "invalid-query", status: 400, error: "original pick or exact decision/generation required", ordinary_continuation: false };
+      try { return need().svc.readPickAction(query.data); }
+      catch { return { ok: false, kind: "unavailable", status: 503, error: "pick action service unavailable", ordinary_continuation: false }; }
+    },
+    async evidenceImage(i: { sha256: string }) {
+      return readEvidence(i.sha256);
+    },
     async listAsks(_: null) {
       const p = need();
       const titles = await threadTitles();
@@ -613,7 +571,8 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         filed_at: d.filed_at,
         revision: d.revision,
         task_id: d.task_id ?? null,
-        ask: parseAsk(JSON.parse(d.body_json)),
+        ...owedAsk(d.body_json, d.source),
+        pick_targets: p.svc.pickTargetPresentation(d.id),
         mentions: p.store.mentions(d.id).length,
       }));
       let machineOwners: unknown = {};
@@ -629,6 +588,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       settings.vizierThreadId = resolved.ok ? resolved.id : undefined;
       return {
         owed: rows,
+        pick_actions: p.svc.pickActionSummaries(),
         runbook: p.asks.runbook(),
         ...p.asks.lists(),
         undeliverable: p.svc.undeliverable(),
@@ -673,9 +633,6 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     async listRecent(i: { project: string; limit: number }) {
       return { recent: need().svc.recent(i.project, i.limit) };
     },
-    async moves(_: null) {
-      return moveViews(need().svc);
-    },
     async conversation(i: { task_id: string }) {
       commentPoller?.select(i.task_id);
       const vizier = await parts?.dele.resolveVizier({ adopt: false }).then((v) => (v.ok ? v.id : null), () => null);
@@ -710,17 +667,25 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       return r;
     },
     async pick(i: { decision_id: string; option_id: string; revision: string; pick_id: string; reason?: string; images?: { mime: string; data_base64: string }[]; answers?: Record<string, string>; surface?: "home" | "overlay" }) {
-      return need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, i.surface ?? "home", i.reason, undefined, i.images, i.answers);
+      return need().svc.withValidatedPick(i.decision_id,
+        guard => need().svc.pick(i.decision_id, i.option_id, i.revision, i.pick_id, MK, i.surface ?? "home", i.reason, undefined, i.images, i.answers, guard),
+        () => {
+          if (tasksRef) return tasksRef;
+          const plugins = (bb.sdk as { plugins?: PluginsLike }).plugins;
+          if (!plugins) throw new Error("Tasks unavailable; refresh before picking");
+          return new TasksClient(plugins);
+        });
     },
     async note(i: { task_id?: string; decision_id?: string; text: string; note_id: string; images?: { mime: string; data_base64: string }[] }) {
       // Comment first: the card comment is posted before any wake obligation exists. If the tasks write fails nothing is woken.
       const r = need().svc.note({ ...(i.task_id !== undefined ? { task_id: i.task_id } : {}), ...(i.decision_id !== undefined ? { decision_id: i.decision_id } : {}) }, i.text, i.note_id, { deferWake: true, ...(i.images ? { images: i.images } : {}) });
       if (!r.ok) return r;
       if (r.task_id !== null) {
-        if (!tasksRef) return { ok: false as const, status: 503, error: "tasks unavailable; nothing was sent" };
+        if (!tasksRef) { r.commit("Tasks unavailable"); return { ok: false as const, status: 503, error: "tasks unavailable; nothing was sent" }; }
         try {
           await postNoteOnce(tasksRef, r.task_id, i.note_id, r.body);
         } catch {
+          r.commit("Tasks posting failed");
           return { ok: false as const, status: 502, error: "the card comment could not be posted, so nobody was woken; send it again" };
         }
         void commentPoller?.readNow(r.task_id);
@@ -787,12 +752,17 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       if (r.ok) need().caches.invalidate();
       return r;
     },
-    /** Archive tab: reopen a decided card as a new generation. The notice goes to the asking thread, or the vizier when it is gone. */
-    async bringBack(i: { task_id: string; decision_id: string }) {
+    /** Declared Archive or waiting-sweep request; notify the asker, or the vizier when it is gone. */
+    async bringBack(input: { task_id: string; decision_id: string } & ({ confirmed: true } | { by: "waiting-sweep" })) {
+      const parsed = homeMethods.bringBack.input.safeParse(input);
+      if (!parsed.success) return { ok: false as const, status: 409, error: "declare either Archive confirmation or waiting-sweep origin" };
+      const i = parsed.data;
       const p = need();
       const cur = p.svc.currentGeneration(i.task_id);
       const recipient = cur && cur.thread ? await resolveWakeTarget(i.task_id, String(cur.thread), true) : cur ? await resolveWakeTarget(i.task_id, null, true) : null;
-      const r = p.dele.bringBack(i.task_id, i.decision_id, recipient, {});
+      const r = "by" in i
+        ? p.dele.bringBack(i.task_id, i.decision_id, recipient, {}, undefined, "waiting-sweep")
+        : p.dele.archiveBringBack(i.task_id, i.decision_id, recipient, i.confirmed);
       if (r.ok) p.caches.invalidate();
       return r;
     },
@@ -816,7 +786,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         return { ok: true };
       }
       const o0 = performance.now();
-      const open = p.svc.owed().some((d) => d.id === i.decision_id);
+      const open = p.svc.isOwed(i.decision_id);
       timingLog(`rpc-timing setViewing owed=${Math.round(performance.now() - o0)}ms`);
       if (!open) return { ok: false, error: "not an open ask" };
       p.store.setSetting("viewing", JSON.stringify({ decision_id: i.decision_id, at: p.svc.time() }));
@@ -960,6 +930,10 @@ export default async function plugin(bb: BbPluginApi) {
   // Settings are read once per load, except the three vizier message settings, which the watcher reads on every tick.
   // The Home surfaces: RPC handlers, the `bb home` CLI, wakes, feed injection, serve link.
   const homeSettings = bb.settings.define({
+    quota_governor_mode: { type: "string", label: "Quota governor mode (off, shadow or live)", default: "off" },
+    quota_governor_host: { type: "string", label: "Quota governor host (empty uses environment or config)", default: "" },
+    quota_governor_card_project: { type: "string", label: "Quota governor card project (empty uses environment or config)", default: "" },
+    pickHandlerMode: { type: "string", label: "Pick handler mode (off or shadow)", default: "off" },
     serveAddr: { type: "string", label: "autarch serve address", default: "127.0.0.1:8110" },
     serveTokenFile: { type: "string", label: "autarch serve token file", default: "" },
     serveProjectDirs: { type: "string", label: "Project scan roots (comma separated; empty uses Bigend's)", default: "" },
@@ -969,6 +943,7 @@ export default async function plugin(bb: BbPluginApi) {
     vizierCardProject: { type: "string", label: "Tasks project (id, prefix or name) that receives vizier message cards", default: "" },
   });
   const hs = await homeSettings.get();
+  const governorView = wireGovernor(bb, handle, () => homeSettings.get());
   const vizierSettings: VizierSettingsSource = async () => {
     const v = await homeSettings.get();
     return {
@@ -978,6 +953,7 @@ export default async function plugin(bb: BbPluginApi) {
     };
   };
   const home = wireHome(bb, handle, {
+    pickHandlerMode: hs.pickHandlerMode,
     serveAddr: hs.serveAddr || "127.0.0.1:8110",
     serveTokenFile: hs.serveTokenFile || join(homedir(), ".autarch", "serve.token"),
     serveProjectDirs: (hs.serveProjectDirs || "").split(",").map((d: string) => d.trim()).filter(Boolean),
@@ -989,6 +965,7 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.rpc.register(rpcContract, {
     ...home.handlers,
+    quotaGovernor: input => homeMethods.quotaGovernor.output.parse(governorView(input)),
   });
 
   // Cleanup on reload/disable/shutdown; hooks run LIFO. The sanctioned place

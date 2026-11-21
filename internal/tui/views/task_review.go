@@ -25,7 +25,7 @@ type TaskReviewView struct {
 
 	// Shell layout for unified 3-pane layout (chat only, no sidebar)
 	shell *pkgtui.ShellLayout
-	// Model selector shown under chat pane
+	// Dispatch selector shown under chat pane
 	agentSelector *pkgtui.AgentSelector
 
 	// Callbacks
@@ -293,7 +293,7 @@ func (v *TaskReviewView) renderChat() string {
 
 	if v.agentSelector != nil {
 		lines = append(lines, "")
-		lines = append(lines, v.agentSelector.View())
+		lines = append(lines, v.agentSelector.View(max(0, v.shell.SplitLayout().RightWidth()-4)))
 	}
 
 	return strings.Join(lines, "\n")

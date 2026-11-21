@@ -1,21 +1,22 @@
 # Autarch - Development Guide
 
 ## Canonical References
-1. [`PHILOSOPHY.md`](../../PHILOSOPHY.md) — direction for ideation and planning decisions.
-2. `CLAUDE.md` — implementation details, architecture, testing, and release workflow.
+1. [`PHILOSOPHY.md`](PHILOSOPHY.md) — direction for ideation and planning decisions.
+2. `CLAUDE.md` — Claude Code session rules (workflow discipline, bug-reproduction rule, design decisions); it points back here for the development guide.
 3. `CODING_STANDARDS.md` — reviewer-only judgement rules (Bubble Tea message handling, `Clone()` snapshots, chrome dimensions). The review sub-agent reads it; the implementing agent does not. Pilot: measured after two weeks, reverted if nothing changes.
 
-Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, and Pollard.
+Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, Pollard, and Mycroft.
 
 ## Quick Reference
 
 | Tool | Purpose | CLI | Docs |
 |------|---------|-----|------|
 | **Autarch** | Unified TUI (all tools in tabs) | `./dev autarch tui` | This file |
-| **Bigend** | Multi-project agent mission control | `./dev bigend` (web) | [docs/bigend/](docs/bigend/AGENTS.md) |
-| **Gurgeh** | PRD generation and validation | `./dev gurgeh list` (CLI) | [docs/gurgeh/](docs/gurgeh/AGENTS.md) |
-| **Coldwine** | Task orchestration | `./dev coldwine status` (CLI) | [docs/coldwine/](docs/coldwine/AGENTS.md) |
-| **Pollard** | Research intelligence (hunters + reports) | `./dev pollard scan` (CLI) | [docs/pollard/](docs/pollard/AGENTS.md) |
+| **Bigend** | Multi-project agent mission control (web + TUI) | `./dev bigend` (web) | [docs/bigend/](docs/bigend/AGENTS.md) |
+| **Gurgeh** | TUI-first PRD generation and validation | `./dev gurgeh list` (CLI) | [docs/gurgeh/](docs/gurgeh/AGENTS.md) |
+| **Coldwine** | Task orchestration + sprint runs (Epics/Runs mode toggle, inline/split layouts) | `./dev coldwine status` (CLI) | [docs/coldwine/](docs/coldwine/AGENTS.md) |
+| **Pollard** | General-purpose research intelligence (tech, medicine, law, economics, etc.; hunters + reports) | `./dev pollard scan` (CLI) | [docs/pollard/](docs/pollard/AGENTS.md) |
+| **Mycroft** | Routed bb worker spawner and standalone pre-dispatch check | `go run ./cmd/mycroft spawn --help` | [docs/mycroft-bb-spawner.md](docs/mycroft-bb-spawner.md) |
 
 **Recommended:** Use `./dev autarch tui` for all TUI access. Standalone TUI modes are deprecated.
 
@@ -50,7 +51,7 @@ Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, and P
 | [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) | Command cheat sheet |
 | [docs/tui/SHORTCUTS.md](docs/tui/SHORTCUTS.md) | TUI keyboard shortcut conventions |
 | [docs/plans/INDEX.md](docs/plans/INDEX.md) | Planning documents index |
-| [docs/VISION.md](docs/VISION.md) | Strategic vision and coordination infrastructure |
+| [docs/vision.md](docs/vision.md) | Strategic vision and coordination infrastructure |
 | [docs/solutions/](docs/solutions/) | Solved problems by category -- **check before debugging!** |
 
 ### Topic References
@@ -96,9 +97,6 @@ print a deprecation notice.
 - **No decisions:** `serve` holds no decisions code and no `/api/decisions` route.
 - **Pollard:** Pollard's watcher still publishes to the standalone Signals server on 8092
   (`internal/signals/cli/serve.go`, not deprecated); it does not reach the `serve` broker yet.
-- **Mycroft:** needs `autarch serve` running (loopback, token in `~/.autarch/serve.token`;
-  override with `AUTARCH_SERVE_URL` / `AUTARCH_SERVE_TOKEN_FILE`) to file asks into Home. It asks
-  serve for project roots and files nothing (fails closed) when serve is down.
 - **MCP:** `autarch mcp --project <dir>` runs the MCP server; `autarch-mcp` is an alias.
 
 ## Home asks
@@ -128,11 +126,13 @@ backfilled.
 
 - Module: `github.com/mistakeknot/autarch`
 - Shared TUI package with Tokyo Night colors
-- Bubble Tea for all TUIs; htmx + Tailwind for Bigend web
+- Bubble Tea for all TUIs
+- htmx + Tailwind for Bigend web
 - SQLite for local state (read-only to external DBs)
-- Local-only by default: servers bind to loopback; remote deferred
+- Local-only by default: servers bind to loopback; remote/multi-host deferred; non-loopback requires explicit opt-in + auth
 - tmux integration via CLI commands
 - Pollard tech hunters use free API tiers (no auth required)
-- Intermute for cross-tool coordination
+- Pollard general-purpose hunters: some require API keys (USDA, CourtListener)
+- Intermute for cross-tool coordination (REST + WebSocket + embedded in-process; first-class Spec, Insight, CUJ entities)
 - L2 (Clavain) for policy-governing sprint mutations; L1 (Intercore) for kernel state
 - Legacy tool names (Vauxhall/Praude/Tandemonium) still work via aliases

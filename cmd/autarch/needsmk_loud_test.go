@@ -3,11 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -26,7 +29,7 @@ func execNeedsMkFile(args ...string) (string, error) {
 	var out, errb bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&errb)
-	root.SetArgs(append([]string{"needs-mk", "file"}, args...))
+	root.SetArgs(append([]string{"needs-mk", "file"}, filingOwnerArgs(args)...))
 	err := root.Execute()
 	return errb.String(), err
 }
@@ -39,14 +42,16 @@ func TestNeedsMkFileRefusesUppercaseOptionIDsBeforeAnyCall(t *testing.T) {
 	probed := false
 	ask := writeAskBody(t, `{"project":"autarch","project_root":"/srv/autarch","question":"Ship it?","options":[{"id":"A","label":"A","kind":"ruling-only"},{"id":"B","label":"B","kind":"ruling-only"}]}`)
 	oldF, oldC := newCardFiler, checkFilingPreconditions
-	newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Run: s.run, LockDir: t.TempDir()} }
+	newCardFiler = func() *homeask.CardFiler {
+		return &homeask.CardFiler{Now: filingTestNow, Run: s.run, LockDir: t.TempDir()}
+	}
 	checkFilingPreconditions = func(string, string) error { probed = true; return nil }
 	t.Cleanup(func() { newCardFiler, checkFilingPreconditions = oldF, oldC })
 	_, err := execNeedsMkFile("--project", "P1", "--title", "Ship?", "--ask-file", ask)
 	if exitCode(err) != 2 || err == nil || !strings.Contains(err.Error(), "lowercase") || !strings.Contains(err.Error(), `"A"`) {
 		t.Fatalf("exit=%d err=%v", exitCode(err), err)
 	}
-	if probed || len(s.calls) != 0 {
+	if !probed || s.creates != 0 {
 		t.Fatalf("probed=%v bb calls=%v", probed, s.calls)
 	}
 }
@@ -68,7 +73,9 @@ func runWithBinding(t *testing.T, s *stubBB, project string, check func(string, 
 	t.Helper()
 	t.Setenv("BB_THREAD_ID", "thread-x")
 	oldF, oldC := newCardFiler, checkFilingPreconditions
-	newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Run: bindingStub(s), LockDir: t.TempDir()} }
+	newCardFiler = func() *homeask.CardFiler {
+		return &homeask.CardFiler{Now: filingTestNow, Run: bindingStub(s), LockDir: t.TempDir()}
+	}
 	checkFilingPreconditions = check
 	t.Cleanup(func() { newCardFiler, checkFilingPreconditions = oldF, oldC })
 	ask := writeAskBody(t, `{"project":"`+project+`","project_root":"/srv/autarch","question":"Ship it?","options":[{"id":"a","label":"A","kind":"ruling-only"},{"id":"b","label":"B","kind":"ruling-only"}]}`)
@@ -114,7 +121,9 @@ func TestNeedsMkFileRealServeProbeFailsLoudlyWhenServeIsDown(t *testing.T) {
 	t.Setenv("AUTARCH_SERVE_URL", "http://127.0.0.1:1")
 	s := &stubBB{}
 	oldF := newCardFiler
-	newCardFiler = func() *homeask.CardFiler { return &homeask.CardFiler{Run: s.run, LockDir: t.TempDir()} }
+	newCardFiler = func() *homeask.CardFiler {
+		return &homeask.CardFiler{Now: filingTestNow, Run: s.run, LockDir: t.TempDir()}
+	}
 	t.Cleanup(func() { newCardFiler = oldF })
 	_, err := execNeedsMkFile("--project", "P1", "--title", "x", "--ask-file", writeAsk(t))
 	if exitCode(err) != 3 || err == nil || !strings.Contains(err.Error(), "not running") || len(writeCalls(s)) != 0 {
@@ -122,13 +131,13 @@ func TestNeedsMkFileRealServeProbeFailsLoudlyWhenServeIsDown(t *testing.T) {
 	}
 }
 
-// The filer prints card_key once Home has indexed the card, and warns when it had not.
+// An index timeout is an ambiguous outcome, never a successful filing without a key.
 func TestNeedsMkFilePrintsCardKeyFromReadback(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thread-x")
 	s := &stubBB{}
 	oldF := newCardFiler
 	newCardFiler = func() *homeask.CardFiler {
-		return &homeask.CardFiler{LockDir: t.TempDir(), ReadbackTimeout: 1, Run: func(ctx context.Context, env []string, args ...string) homeask.BBResult {
+		return &homeask.CardFiler{Now: filingTestNow, LockDir: t.TempDir(), ReadbackTimeout: 1, Run: func(ctx context.Context, env []string, args ...string) homeask.BBResult {
 			if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
 				return homeask.BBResult{Code: 1, Stderr: []byte("unknown card")}
 			}
@@ -140,7 +149,132 @@ func TestNeedsMkFilePrintsCardKeyFromReadback(t *testing.T) {
 	checkFilingPreconditions = func(string, string) error { return nil }
 	t.Cleanup(func() { checkFilingPreconditions = oldC })
 	stderr, err := execNeedsMkFile("--project", "P1", "--title", "x", "--ask-file", writeAsk(t))
-	if err != nil || !strings.Contains(stderr, "not indexed") {
+	if exitCode(err) != 4 || !strings.Contains(fmt.Sprint(err), "may have been filed") || !strings.Contains(fmt.Sprint(err), "--request") {
 		t.Fatalf("err=%v stderr=%q", err, stderr)
+	}
+}
+
+// B5: with no project in the ask, needs-mk file takes the project from the task board's binding, not
+// from the folder name, which is wrong in a bb worktree.
+func TestNeedsMkFileDefaultsTheProjectToTheBoardBindingInAWorktree(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thread-x")
+	s := &stubBB{}
+	var gotProject string
+	oldF, oldC := newCardFiler, checkFilingPreconditions
+	newCardFiler = func() *homeask.CardFiler {
+		return &homeask.CardFiler{Now: filingTestNow, Run: bindingStub(s), LockDir: t.TempDir()}
+	}
+	checkFilingPreconditions = func(project, _ string) error { gotProject = project; return nil }
+	t.Cleanup(func() { newCardFiler, checkFilingPreconditions = oldF, oldC })
+	ask := writeAskBody(t, `{"project_root":"`+worktreeRoot+`","question":"Ship it?","options":[{"id":"a","label":"A","kind":"ruling-only"},{"id":"b","label":"B","kind":"ruling-only"}]}`)
+	_, err := execNeedsMkFile("--project", "SHWK", "--title", "Ship?", "--ask-file", ask)
+	if err != nil || gotProject != "shadow-work" {
+		t.Fatalf("err=%v checked project=%q", err, gotProject)
+	}
+}
+
+func TestNeedsMkCardKeyGuarantee(t *testing.T) {
+	for _, mode := range []string{"late", "timeout", "outside", "json", "legacy", "mismatch", "no-project"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv("BB_THREAD_ID", "thread-x")
+			if mode == "outside" {
+				t.Chdir(t.TempDir())
+				t.Setenv("BB_PROJECT_ID", "other")
+			}
+			s := &stubBB{}
+			oldF, oldC := newCardFiler, checkFilingPreconditions
+			polls := 0
+			indexReady := false
+			newCardFiler = func() *homeask.CardFiler {
+				return &homeask.CardFiler{Now: filingTestNow, LockDir: t.TempDir(), ReadbackTimeout: 40 * time.Millisecond, ReadbackInterval: time.Millisecond, Run: func(ctx context.Context, env []string, args ...string) homeask.BBResult {
+					if strings.Join(args[:min(len(args), 3)], " ") == "home get --card" {
+						polls++
+						if mode == "no-project" {
+							return homeask.BBResult{Stdout: []byte(`{"card_key":""}`)}
+						}
+						if mode == "mismatch" {
+							return homeask.BBResult{Stdout: []byte(`{"project_id":"P2","card_key":"P2-1"}`)}
+						}
+						if (mode == "timeout" && !indexReady) || (mode == "late" && polls < 4) {
+							return homeask.BBResult{Stdout: []byte(`{"project_id":"P1","card_key":""}`)}
+						}
+						if mode == "outside" {
+							for _, kv := range env {
+								if strings.HasPrefix(kv, "BB_PROJECT_ID=") {
+									t.Fatalf("ambient project leaked: %s", kv)
+								}
+							}
+						}
+						if mode == "legacy" {
+							for _, arg := range args {
+								if arg == "--project" {
+									return homeask.BBResult{Code: 2, Stderr: []byte("unknown option --project")}
+								}
+							}
+						}
+					}
+					return s.run(ctx, env, args...)
+				}}
+			}
+			checkFilingPreconditions = func(string, string) error { return nil }
+			t.Cleanup(func() { newCardFiler, checkFilingPreconditions = oldF, oldC })
+			cmd := needsMkCmd()
+			var out, errs bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&errs)
+			args := []string{"file", "--project", "P1", "--title", "Choice?", "--ask-file", writeAsk(t), "--request", "key-index-test"}
+			if mode == "json" {
+				args = append(args, "--json")
+			}
+			cmd.SetArgs(filingOwnerArgs(args))
+			err := cmd.Execute()
+			if mode == "mismatch" {
+				if exitCode(err) != 2 || out.Len() != 0 || polls != 1 || s.creates != 1 || !errors.Is(err, homeask.ErrCardProjectMismatch) || !strings.Contains(err.Error(), `"P1"`) || !strings.Contains(err.Error(), `"P2"`) {
+					t.Fatalf("exit=%d err=%v stdout=%q polls=%d creates=%d", exitCode(err), err, out.String(), polls, s.creates)
+				}
+				return
+			}
+			if mode == "no-project" {
+				if exitCode(err) != 4 || out.Len() != 0 || polls < 2 || errors.Is(err, homeask.ErrCardProjectMismatch) || !strings.Contains(errs.String(), "may have been filed") {
+					t.Fatalf("exit=%d err=%v stdout=%q polls=%d", exitCode(err), err, out.String(), polls)
+				}
+				return
+			}
+			if mode == "timeout" {
+				if exitCode(err) != 4 || out.Len() != 0 || !strings.Contains(errs.String(), "key-index-test") || !strings.Contains(errs.String(), "may have been filed") {
+					t.Fatalf("exit=%d err=%v stdout=%q", exitCode(err), err, out.String())
+				}
+				// Retry using exactly the key the first invocation printed.
+				_, after, ok := strings.Cut(errs.String(), "--request ")
+				if !ok {
+					t.Fatalf("missing retry key: %s", errs.String())
+				}
+				key := strings.Fields(after)[0]
+				args[len(args)-1] = key
+				indexReady = true
+				out.Reset()
+				errs.Reset()
+				retry := needsMkCmd()
+				retry.SetOut(&out)
+				retry.SetErr(&errs)
+				retry.SetArgs(filingOwnerArgs(args))
+				err = retry.Execute()
+				var replay homeask.CardResult
+				if err != nil || json.Unmarshal(out.Bytes(), &replay) != nil || !replay.Replay || replay.CardKey == "" || replay.Key != key || s.creates != 1 {
+					t.Fatalf("retry err=%v result=%+v creates=%d stdout=%q", err, replay, s.creates, out.String())
+				}
+				return
+			}
+			var res homeask.CardResult
+			if err != nil || json.Unmarshal(out.Bytes(), &res) != nil || res.CardKey == "" {
+				t.Fatalf("err=%v stdout=%q polls=%d", err, out.String(), polls)
+			}
+		})
+	}
+}
+
+func TestNeedsMkReadbackAllowsSlowIndex(t *testing.T) {
+	if readbackTimeout != 30*time.Second {
+		t.Fatalf("readback timeout=%s, want 30s", readbackTimeout)
 	}
 }

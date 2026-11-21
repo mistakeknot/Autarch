@@ -1,3 +1,5 @@
+import { parseOnPick, type OnPick } from "./onpick.js";
+import { validateStopped } from "./stopped.js";
 // The TypeScript side of the Home ask protocol: the shared filing request
 // (schema/home-ask/v1), its validation and defaults, and the three hashes
 // derived from it (identity, revision, semanticKey).
@@ -9,6 +11,8 @@
 
 import { createHash } from "node:crypto";
 
+import { validateEvidence, type Evidence } from "./evidence.js";
+import { validateGroup, type MergeGroup } from "./group.js";
 export type AskKind = "decide" | "steps" | "machine";
 export type OptionKind = "instruction" | "needs-context" | "ruling-only";
 
@@ -26,6 +30,7 @@ export interface AskOption {
   reversible?: boolean;
   instruction?: string;
   approval?: Approval;
+  on_pick?: OnPick;
 }
 
 /** One option of a sub-question: a label and an optional one-line detail shown under it. */
@@ -69,6 +74,11 @@ export interface Ask {
   machine?: Machine;
   /** Optional delivery attribute: only "blocker" is accepted. Not part of the identity, revision, semantic key or normalized JSON. */
   urgency?: "blocker";
+  stopped?: string;
+  // Delivery-only: excluded from identity, revision, semantic key and normalized JSON.
+  // A filing or update changing only evidence is a no-op, like Urgency.
+  evidence?: Evidence[];
+  group?: MergeGroup;
 }
 
 const MAX_INSTRUCTION = 8000;
@@ -133,7 +143,7 @@ function slug(label: string): string {
   return firstChars(out, 32).replace(/-+$/, "");
 }
 
-const TOP_FIELDS = ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine", "urgency"];
+const TOP_FIELDS = ["v", "kind", "request_id", "ask_key", "subject", "project", "project_root", "asker", "thread", "question", "recommendation", "supersedes", "mention_of", "options", "questions", "steps", "machine", "urgency", "stopped", "evidence", "group"];
 const OPTION_FIELDS = ["id", "label", "kind", "reversible", "instruction", "approval"];
 const QUESTION_FIELDS = ["id", "prompt", "options", "recommendation"];
 const QUESTION_OPTION_FIELDS = ["id", "label", "detail"];
@@ -157,10 +167,19 @@ function str(o: Record<string, unknown>, k: string): string {
 }
 
 /** Strictly decodes a parsed JSON request (unknown fields are refused) and returns it normalized. */
-export function parseAsk(input: unknown): Ask {
+export function parseAsk(input: unknown): Ask { return parseAskValue(input, true); }
+
+/** Read an existing ask; legacy blockers can omit stopped. Present values remain validated. */
+export function parseExistingAsk(input: unknown): Ask { return parseAskValue(input, false); }
+
+export function parseStoredCardAsk(input: unknown): Ask { return parseAskValue(input, false, true); }
+
+function parseAskValue(input: unknown, requireStopped: boolean, cardSource = false): Ask {
   const o = obj(input, "ask");
   known(o, TOP_FIELDS, "ask");
   const a: Record<string, unknown> = {};
+  if (o.evidence !== undefined) a.evidence = validateEvidence(o.evidence);
+  if (o.group !== undefined) a.group = validateGroup(o.group);
   if (o.v !== undefined && o.v !== null) {
     if (typeof o.v !== "number") fail("invalid ask: v must be a number");
     a.v = o.v;
@@ -170,7 +189,7 @@ export function parseAsk(input: unknown): Ask {
     if (!Array.isArray(o.options)) fail("invalid ask: options must be an array");
     a.options = (o.options as unknown[]).map((raw) => {
       const p = obj(raw, "option");
-      known(p, OPTION_FIELDS, "option");
+      known(p, cardSource ? [...OPTION_FIELDS, "on_pick"] : OPTION_FIELDS, "option");
       const opt: Record<string, unknown> = { id: str(p, "id"), label: str(p, "label"), kind: str(p, "kind"), instruction: str(p, "instruction") };
       if (p.reversible !== undefined && p.reversible !== null) {
         if (typeof p.reversible !== "boolean") fail("invalid ask: reversible must be a boolean");
@@ -185,6 +204,10 @@ export function parseAsk(input: unknown): Ask {
           ap.ttl = q.ttl;
         }
         opt.approval = ap;
+      }
+      if (Object.hasOwn(p, "on_pick")) {
+        if (o.kind !== "decide" || o.asker !== "thread" || o.questions) fail("on_pick requires a thread card decision");
+        opt.on_pick = parseOnPick(p.on_pick, p as unknown as AskOption, { source: "card" });
       }
       return opt;
     });
@@ -212,6 +235,8 @@ export function parseAsk(input: unknown): Ask {
     if (u !== "blocker") fail('invalid ask: urgency must be "blocker" when set');
     a.urgency = u;
   }
+  const stopped = validateStopped(o, requireStopped);
+  if (stopped !== undefined) a.stopped = stopped;
   if (o.steps !== undefined && o.steps !== null) {
     if (!Array.isArray(o.steps) || (o.steps as unknown[]).some((s) => typeof s !== "string")) fail("invalid ask: steps must be an array of strings");
     a.steps = [...(o.steps as string[])];
@@ -304,6 +329,7 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
         kind: (o.kind ?? "") as OptionKind,
         instruction: clean("instruction", o.instruction ?? ""),
       };
+      if (o.on_pick !== undefined) opt.on_pick = parseOnPick(o.on_pick, o, { source: "card" });
       if (o.reversible) opt.reversible = true;
       if (o.approval) {
         opt.approval = {
@@ -406,6 +432,14 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
   };
   if (a.questions.length > 0) out.questions = a.questions;
   if (a.urgency === "blocker") out.urgency = "blocker";
+  try {
+    const stopped = validateStopped(input, false);
+    if (stopped !== undefined) out.stopped = stopped;
+  } catch (e) {
+    add("stopped", (e as Error).message);
+  }
+  if (input.evidence !== undefined) out.evidence = validateEvidence(input.evidence);
+  if (input.group !== undefined) out.group = validateGroup(input.group);
   if (out.request_id === "") out.request_id = identityOf(out);
   return { ask: out, problems: ps };
 }
@@ -502,6 +536,7 @@ function prune(v: Node): Node {
   if (v !== null && typeof v === "object") {
     const out: { [k: string]: Node } = {};
     for (const [k, e] of Object.entries(v)) {
+      if (k === "on_pick") { out[k] = e; continue; }
       const p = prune(e);
       if (!isEmpty(p)) out[k] = p;
     }
@@ -510,17 +545,22 @@ function prune(v: Node): Node {
   return v;
 }
 
-function write(v: Node): string {
+function write(v: Node, exact = false): string {
   if (v === null || v === undefined) return "null";
   if (typeof v === "boolean") return v ? "true" : "false";
   if (typeof v === "number") return String(v);
-  if (typeof v === "string") return JSON.stringify(nfc(v));
-  if (Array.isArray(v)) return `[${v.map(write).join(",")}]`;
+  if (typeof v === "string") return JSON.stringify(exact ? v : nfc(v));
+  if (Array.isArray(v)) return `[${v.map(e => write(e, exact)).join(",")}]`;
   // Default string sort compares UTF-16 code units, which is the required key order.
   const keys = Object.keys(v).map(nfc).sort();
   const src = v as { [k: string]: Node };
   const lookup = new Map(Object.keys(src).map((k) => [nfc(k), src[k]]));
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${write(lookup.get(k) as Node)}`).join(",")}}`;
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${write(lookup.get(k) as Node, exact || k === "on_pick")}`).join(",")}}`;
+}
+
+/** Complete validated declaration: sorted keys, exact decoded strings, no pruning. */
+export function canonicalOnPick(value: NonNullable<AskOption["on_pick"]>): string {
+  return write(value as unknown as Node, true);
 }
 
 function canon(v: Node): string {
@@ -543,6 +583,7 @@ const sha = (v: Node) => createHash("sha256").update(canon(v)).digest("hex");
 function optionNode(o: AskOption): Node {
   const n: { [k: string]: Node } = { id: o.id, label: o.label, kind: o.kind, instruction: o.instruction, reversible: o.reversible ?? false };
   if (o.approval) n.approval = { kind: o.approval.kind, target: o.approval.target, identity: o.approval.identity, ttl: o.approval.ttl ?? 0 };
+  if (o.on_pick) n.on_pick = JSON.parse(JSON.stringify(o.on_pick));
   return n;
 }
 const optionsNode = (os?: AskOption[]): Node => (os ?? []).map(optionNode);

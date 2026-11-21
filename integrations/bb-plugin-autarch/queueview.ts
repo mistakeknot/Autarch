@@ -5,7 +5,7 @@ import type Database from "better-sqlite3";
 import { COUNTED } from "./cards.js";
 import { ROUTING_PREFIX, type Hold, type Service } from "./service.js";
 import { OPEN_STATUSES } from "./tasks.js";
-import { parseAsk } from "./model.js";
+import { owedAsk, readAsk, UNREADABLE_ASK } from "./askbody.js";
 import type { Asks } from "./asks.js";
 
 /**
@@ -66,6 +66,7 @@ export function removeBinding(
 }
 
 export interface QueueRow {
+  pick_targets?: ReturnType<Service["pickTargetPresentation"]>;
   /** The open decision id, or `card:<task id>` for a display-only card. */
   id: string;
   decision_id: string | null;
@@ -82,6 +83,8 @@ export interface QueueRow {
   pinned: boolean;
   /** Present only on an open generation: the ask, as stored. */
   ask: { question: string; recommendation?: string; options: { id: string; label: string; kind: string; reversible?: boolean; instruction?: string }[] } | null;
+  /** The stored ask body could not be read: shown marked, with no answer buttons (bead mk-j5ipa.14). `ask` is then the empty placeholder. */
+  unreadable?: boolean;
   revision: string | null;
   mentions: number;
   /** Why the card is display-only (no pick buttons); null on an open generation. */
@@ -99,9 +102,9 @@ export interface QueueData {
   rows: QueueRow[];
   legacy: {
     count: number;
-    owed: { id: string; project: string; thread: string; subject: string; filed_at: string; revision: string; mentions: number; ask: unknown }[];
+    owed: { id: string; project: string; thread: string; subject: string; filed_at: string; revision: string; mentions: number; ask: unknown; unreadable?: boolean }[];
     runbook: ReturnType<Asks["runbook"]>;
-    machine: ReturnType<Asks["lists"]>;
+    machine: Omit<ReturnType<Asks["lists"]>, "notDelivered">;
   };
   bindings: { tasks_project_id: string; home_project: string; state: BindingState; suggested_at: string | null; confirmed_at: string | null }[];
   /** Tasks projects with open cards and no binding row (no name match), for mk to bind by hand. */
@@ -143,7 +146,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
     const refs = refsOf(d.id);
     const over = svc.store.overriddenRuling(d.id);
     const prior = over ? (svc.store.decision(over.decision_id) as { generation: number | null } | undefined) : undefined;
-    const ask = parseAsk(JSON.parse(d.body_json));
+    const ask = readAsk(d.body_json, {}, d.source);
     const rootOk = c?.root_state === "verified";
     rows.push({
       id: d.id,
@@ -159,7 +162,9 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
       created_at: c?.created_at ?? d.filed_at,
       thread: c?.asking_thread ?? (d.thread || null),
       pinned: pinnedBy(refs, c?.asking_thread ?? (d.thread || null)),
-      ask: { question: ask.question, ...(ask.recommendation ? { recommendation: ask.recommendation } : {}), options: ask.options as never },
+      ask: ask ? { question: ask.question, ...(ask.recommendation ? { recommendation: ask.recommendation } : {}), options: ask.options as never } : UNREADABLE_ASK,
+      pick_targets: svc.pickTargetPresentation(d.id),
+      ...(ask ? {} : { unreadable: true }),
       revision: d.revision,
       mentions: svc.store.mentions(d.id).length,
       display_reason: null,
@@ -217,7 +222,9 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
 
   const legacyOwed = owed.filter((x) => x.source !== "card");
   const runbook = asks.runbook();
-  const machine = asks.lists();
+  // The not-delivered list is for the Asks panel only: the queue payload and its count stay as they were.
+  const { lane, asks: machineAsks } = asks.lists();
+  const machine = { lane, asks: machineAsks };
   const unbound = (
     db
       .prepare(
@@ -242,7 +249,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
     rows: sortRows(rows),
     legacy: {
       count: legacyOwed.length + runbook.reduce((n, g) => n + g.items.length, 0) + machine.lane.length + machine.asks.length,
-      owed: legacyOwed.map((d) => ({ id: d.id, project: d.project, thread: d.thread, subject: d.subject, filed_at: String(d.filed_at), revision: d.revision, mentions: svc.store.mentions(d.id).length, ask: parseAsk(JSON.parse(d.body_json)) })),
+      owed: legacyOwed.map((d) => ({ id: d.id, project: d.project, thread: d.thread, subject: d.subject, filed_at: String(d.filed_at), revision: d.revision, mentions: svc.store.mentions(d.id).length, ...owedAsk(d.body_json, d.source) })),
       runbook,
       machine,
     },

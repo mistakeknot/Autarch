@@ -183,6 +183,32 @@ describe("Ask / note", () => {
     expect(q("[data-other-result='ok']")!.textContent).toContain("Your newer draft was kept.");
   });
 
+  // The late-success check reads the box text through a ref that follows the typed text; these two pin what it must decide.
+  it("a late send success clears the box when the text is still what was sent", async () => {
+    vi.useFakeTimers();
+    let land!: (r: { ok: boolean }) => void;
+    mount(ask(OWN_OTHER), { onNote: () => new Promise((res) => { land = res; }) });
+    type(TEXT);
+    await click(noteBtn());
+    await advance(SEND_TIMEOUT_MS + 1);
+    await act(async () => { land({ ok: true }); });
+    expect(q<HTMLTextAreaElement>("[data-other-text]")!.value).toBe("");
+    expect(q("[data-other-result='ok']")!.textContent).not.toContain("newer draft");
+  });
+
+  it("a late send success does not clear the box when the text was edited after the send", async () => {
+    vi.useFakeTimers();
+    let land!: (r: { ok: boolean }) => void;
+    mount(ask(OWN_OTHER), { onNote: () => new Promise((res) => { land = res; }) });
+    type(TEXT);
+    await click(noteBtn());
+    await advance(SEND_TIMEOUT_MS + 1);
+    type(TEXT + " and more");
+    await act(async () => { land({ ok: true }); });
+    expect(q<HTMLTextAreaElement>("[data-other-text]")!.value).toBe(TEXT + " and more");
+    expect(q("[data-other-result='ok']")!.textContent).toContain("Your newer draft was kept.");
+  });
+
   it("does not stay disabled behind an image read that never settles", async () => {
     vi.useFakeTimers();
     const { onNote } = mount(ask(OWN_OTHER));

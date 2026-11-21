@@ -415,7 +415,7 @@ stories:
 ### Direct Go Commands
 
 ```bash
-go build ./cmd/...     # Build all binaries
+go build ./cmd/...     # Compile-check every program (writes no executables)
 go test ./...          # Run all tests
 go run ./cmd/pollard   # Run Pollard CLI
 ```
@@ -462,7 +462,6 @@ command = "codex"
 | `INTERMUTE_URL` | All | Intermute server URL |
 | `INTERMUTE_API_KEY` | All | Intermute authentication |
 | `INTERMUTE_PROJECT` | All | Project scope |
-| `VAUXHALL_PORT` | Bigend | Web server port (default: 8099) |
 | `GITHUB_TOKEN` | Pollard | GitHub API access |
 
 ---

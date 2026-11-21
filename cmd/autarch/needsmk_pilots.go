@@ -1,0 +1,54 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"github.com/mistakeknot/autarch/internal/homeask"
+	"github.com/spf13/cobra"
+)
+
+func needsMkPilotsCmd() *cobra.Command {
+	c := &cobra.Command{Use: "pilots", Short: "Inspect or start/stop two-week filing pilots (missing entries are off)", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		p, e := newCardFiler().Pilots()
+		if e != nil {
+			return e
+		}
+		type pilotView struct {
+			homeask.Pilot
+			Retired bool `json:"retired,omitempty"`
+		}
+		view := make(map[string]pilotView, len(p))
+		for name, pilot := range p {
+			view[name] = pilotView{Pilot: pilot, Retired: name == "daycap"}
+		}
+		return json.NewEncoder(c.OutOrStdout()).Encode(view)
+	}}
+	for _, action := range []string{"start", "stop"} {
+		action := action
+		c.AddCommand(&cobra.Command{Use: action + " NAME", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, a []string) error {
+			if e := newCardFiler().SetPilot(a[0], action == "start"); e != nil {
+				return e
+			}
+			if a[0] == "daycap" {
+				fmt.Fprintln(c.OutOrStdout(), "daycap is retired and inert since card limits were removed; pilot state is unchanged.")
+				return nil
+			}
+			fmt.Fprintln(c.OutOrStdout(), a[0], action)
+			return nil
+		}})
+	}
+	var since string
+	report := &cobra.Command{Use: "report", Short: "Count pilot events by Pacific day", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error { return newCardFiler().PilotReport(c.OutOrStdout(), since) }}
+	report.Flags().StringVar(&since, "since", "", "First Pacific day (YYYY-MM-DD)")
+	c.AddCommand(report)
+	return c
+}
+
+func needsMkRecheckLinksCmd() *cobra.Command {
+	var dry bool
+	c := &cobra.Command{Use: "recheck-links", Short: "Check open delivered cards; failures wake owners only", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		return newCardFiler().RecheckLinks(c.Context(), c.OutOrStdout(), dry)
+	}}
+	c.Flags().BoolVar(&dry, "dry-run", false, "Read-only checks: do not write state, metrics or wake anyone")
+	return c
+}

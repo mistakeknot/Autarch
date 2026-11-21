@@ -1,7 +1,7 @@
 // "At a glance" for play and walk cards (bead mk-a4o0.19). A card that asks mk to go and look at something (play a
 // build, walk a route, check a page) buried its link, its time and the things to judge in one long paragraph, so
 // the phone showed a wall of text before any of it. This reads those out of the card's own words and puts them in
-// one short block at the top: what it is, the link, how long, what is being judged and what each answer does.
+// one short block at the top: what it is, the link, how long, what is being judged.
 // Display only: nothing is sent, the full text stays on the card below, and where the card does not say a thing
 // (a time, a list) the block says so instead of guessing. Filers who want exact fields need the v2 contract
 // extended in both parsers; that is not done here.
@@ -15,8 +15,6 @@ export interface GlanceLink {
   text: string;
 }
 export interface Glance {
-  /** The card's first sentence: what it is and why it is here. */
-  lead: string;
   link: GlanceLink | null;
   /** "About 2 min", from the title or the text; null when the card states no time. */
   time: string | null;
@@ -140,21 +138,13 @@ export function glance(ask: Pick<OwedAsk, "subject" | "ask">): Glance | null {
   const time = timeInTitle === AMBIGUOUS || timeInText === AMBIGUOUS || (timeInTitle !== null && timeInText !== null && timeInTitle !== timeInText) ? null : either;
   if (time === null && !ACTION.test(flat)) return null;
   if (link === null && time === null && judging.length === 0) return null;
-  return { lead: clip(firstSentence(flat), 220), link, time, judging };
-}
-
-export interface GlanceAnswer {
-  id: string;
-  label: string;
-  recommended: boolean;
-  /** What picking it does; null when there is nothing to add (a ruling-only answer). */
-  effect: string | null;
+  return { link, time, judging };
 }
 
 const SMALL = "m-0 mt-2 text-xs font-semibold uppercase text-muted-foreground";
 
-/** The block itself: link and time on the first line, then the lead, what is judged and what each answer does. */
-export function GlanceBlock({ g, answers }: { g: Glance; answers: GlanceAnswer[] }) {
+/** Link, optional time and judging criteria; answers and opening prose stay in the card body. */
+export function GlanceBlock({ g }: { g: Glance }) {
   return (
     <section className="mt-3 min-w-0 rounded-lg border border-border bg-muted/40 p-3" aria-label="At a glance" data-glance>
       <div className="flex flex-wrap items-center gap-2">
@@ -169,29 +159,14 @@ export function GlanceBlock({ g, answers }: { g: Glance; answers: GlanceAnswer[]
             <code className="select-all rounded bg-muted px-1.5 py-1 font-mono text-xs [overflow-wrap:anywhere]" data-glance-path>{g.link.text}</code>
           </span>
         ) : null}
-        <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground" data-glance-time>{g.time ?? "Time not stated"}</span>
+        {g.time ? <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground" data-glance-time>{g.time}</span> : null}
       </div>
-      <p className="m-0 mt-2 text-sm [overflow-wrap:anywhere]" data-glance-lead>{g.lead}</p>
       {g.judging.length > 0 ? (
         <>
           <p className={SMALL}>{g.judging.length > 1 ? "You are judging" : "You are checking"}</p>
           <ol className="m-0 mt-1 list-decimal space-y-1 pl-5 text-sm" data-glance-judging>
             {g.judging.map((j, i) => <li key={i} className="[overflow-wrap:anywhere]" data-glance-item>{j}</li>)}
           </ol>
-        </>
-      ) : null}
-      {answers.length > 0 ? (
-        <>
-          <p className={SMALL}>Your answers</p>
-          <ul className="m-0 mt-1 list-none space-y-1 p-0 text-sm" data-glance-answers>
-            {answers.map((a) => (
-              <li key={a.id} className="[overflow-wrap:anywhere]" data-glance-answer={a.id}>
-                <span className={a.recommended ? "font-medium" : ""}>{a.label}</span>
-                {a.recommended ? <span className="ml-1 text-xs text-primary">(recommended)</span> : null}
-                {a.effect ? <span className="block text-xs text-muted-foreground">{a.effect}</span> : null}
-              </li>
-            ))}
-          </ul>
         </>
       ) : null}
     </section>

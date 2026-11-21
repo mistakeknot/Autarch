@@ -4,22 +4,11 @@
 
 ## Overview
 
-Unified monorepo for AI agent development tools:
-- **Bigend**: Multi-project agent mission control (web + TUI)
-- **Gurgeh**: TUI-first PRD generation and validation
-- **Coldwine**: Task orchestration + sprint runs (Epics/Runs mode toggle, inline/split layouts)
-- **Pollard**: General-purpose research intelligence (tech, medicine, law, economics, etc.)
-- **Mycroft**: Fleet orchestrator — escalating autonomy (T0 observe → T1 suggest → T2/T3 auto-dispatch)
+Unified monorepo for AI agent development tools: Bigend, Gurgeh, Coldwine, Pollard, and the Mycroft bb worker spawner. What each tool does, its CLI and its docs: the Quick Reference table in `AGENTS.md`.
 
 ## Quick Commands
 
-```bash
-./dev autarch tui                    # Unified TUI (recommended)
-go build ./cmd/...                   # Build all
-go test ./...                        # Test all
-```
-
-Full command reference for each tool: see `AGENTS.md` → tool-specific docs.
+Build, test and run commands: `agents/development.md`.
 
 ## Workflow Discipline
 
@@ -34,7 +23,7 @@ codex-first: true
 
 ## Concurrency Rules
 
-- Run tests with `-race` flag.
+Test-run and concurrency conventions (including the `-race` flag): `agents/conventions.md`.
 
 Review-only judgement rules (message fall-through, `Clone()` snapshots, chrome dimensions, ANSI-safe truncation) live in `CODING_STANDARDS.md`, which the review sub-agent reads.
 
@@ -44,14 +33,4 @@ Review-only judgement rules (message fall-through, `Clone()` snapshots, chrome d
 
 ## Design Decisions (Do Not Re-Ask)
 
-- Module: `github.com/mistakeknot/autarch`
-- Shared TUI package with Tokyo Night colors
-- Bubble Tea for all TUIs
-- htmx + Tailwind for Bigend web
-- SQLite for local state (read-only to external DBs)
-- Local-only by default: servers bind to loopback; remote/multi-host deferred; non-loopback requires explicit opt-in + auth
-- tmux integration via CLI commands
-- Pollard tech hunters use free API tiers (no auth required)
-- Pollard general-purpose hunters: some require API keys (USDA, CourtListener)
-- Intermute for cross-tool coordination (REST + WebSocket + embedded in-process; first-class Spec, Insight, CUJ entities)
-- Legacy tool names (Vauxhall/Praude/Tandemonium) still work via aliases
+See [Design Decisions (Do Not Re-Ask) in AGENTS.md](AGENTS.md#design-decisions-do-not-re-ask).

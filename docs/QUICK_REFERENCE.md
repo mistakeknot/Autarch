@@ -174,7 +174,7 @@ todo → in_progress → review → done
 | `Ctrl+F` | Search |
 | `Ctrl+R` | Refresh |
 | `Ctrl+P` | Command palette |
-| `Ctrl+G` | Model selector |
+| `Ctrl+G` | Choose Dispatch agent |
 | `Ctrl+A` | Accept (context-dependent) |
 | `Ctrl+X` | Delete (context-dependent) |
 | `Ctrl+S` | Scan (in kickoff) |
@@ -190,7 +190,7 @@ Type `/` in the chat composer to open a fuzzy finder for commands. Use `↑`/`�
 | `/help` | `/h` | Show help overlay |
 | `/quit` | `/q`, `/exit` | Quit the application |
 | `/settings` | `/config` | Open chat settings |
-| `/model` | `/m` | Toggle model selector |
+| `/model` | `/m` | Choose Dispatch agent |
 | `/palette` | `/p` | Open command palette (dashboard) |
 | `/refresh` | `/r` | Refresh current view |
 | `/back` | `/b` | Go back / cancel |
@@ -275,13 +275,61 @@ Type `/` in the chat composer to open a fuzzy finder for commands. Use `↑`/`�
 
 ## Environment Variables
 
+### Agent dispatch
+
+Autarch generation, Gurgeh exploration and `gurgeh export briefs` read project preferences from
+`.gurgeh/agents.toml`. They use `.praude/agents.toml` only when `.gurgeh` is absent.
+Autarch generation uses the process working directory; exploration uses its
+supplied project directory, as does brief export. Global agent target files do not supply dispatch preferences.
+
+```toml
+[dispatch]
+preferred_agent = "codex" # claude or codex
+preferred_backend = "subscription-cli"
+timeout = "5m"
+```
+
+| Variable | Effect |
+|----------|--------|
+| `AUTARCH_DISPATCH_AGENT` | Overrides the project's preferred agent (`claude` or `codex`) |
+| `AUTARCH_DISPATCH_BACKEND` | Overrides the project's backend; only `subscription-cli` is supported |
+
+Precedence is explicit agent selection > environment > project > caller default.
+An explicit selection is a named user choice through the TUI selector or
+`DetectAgentByName`; an automatically detected agent is only a caller default.
+Without an agent preference, exploration detects an available agent, preferring
+Claude. An unknown agent fails with its value and configuration source. The
+backend defaults to `subscription-cli`; `api` and unknown backend values are
+rejected before launch. Dispatch does not start paid API calls.
+
+A valid project `timeout` (Go duration syntax) replaces each site's timeout:
+Autarch generation defaults to 30 minutes; exploration, phase generation,
+phase generation from context, revision and change propagation default to
+10, 5, 3, 5 and 8 minutes respectively. Brief export defaults to 10 minutes and
+Claude, with an optional explicit agent choice through the Decompose Go API. An invalid duration leaves the caller's
+timeout unchanged. Explicit model and session arguments retain precedence;
+this configuration defines no model or session preference or environment override.
+Malformed or unreadable files produce a warning naming the file and fall back to
+caller defaults plus environment overrides. Missing files silently use those defaults.
+
+The Claude chat shim ignores these dispatch environment variables and project
+preferences. Chats remain on Claude with no dispatch deadline, preserving
+Claude-specific flags and session IDs.
+
 ### Bigend
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `VAUXHALL_PORT` | 8099 | Web port |
-| `VAUXHALL_HOST` | 0.0.0.0 | Web host |
-| `VAUXHALL_SCAN_ROOTS` | ~/projects | Scan paths |
+Bigend has no tool-specific environment variables. Configure it with flags (`--port`, default 8099; `--host`; `--config`; `--scan-root`; `--tui`; `--daemon`) and `~/.config/bigend/config.toml`. For shared settings, see [Autarch-wide](#autarch-wide) and [Intermute (Cross-Tool)](#intermute-cross-tool) below; these tables are not an exhaustive list of environment variables read by dependencies.
+
+### Autarch-wide
+
+Shared packages read these variables when their theme or signals functionality is used.
+
+| Variable | Default | Accepted values / effect |
+|----------|---------|--------------------------|
+| `AUTARCH_THEME` | `auto` | Case-insensitive, whitespace-trimmed: `auto`, `tokyo`/`tokyo-night`, `mocha`, `macchiato`, `latte`/`light`, `nord`, `plain`/`none`/`no-color`/`nocolor`. Empty or unknown values use automatic detection: Tokyo Night for dark backgrounds, Catppuccin Latte for light backgrounds. Auto-detection assumes a dark background over SSH (`SSH_CONNECTION` or `SSH_TTY` nonempty). Color disabling takes precedence. |
+| `AUTARCH_NO_COLOR` | Unset (defer to `NO_COLOR`) | Case-insensitive, whitespace-trimmed: `1`/`true`/`yes`/`on` disable colors; `0`/`false`/`no`/`off` force colors on even with `NO_COLOR` set. Other values defer to `NO_COLOR`. |
+| `NO_COLOR` | Unset (colors enabled) | Any set value, including empty, disables colors unless overridden by a recognized `AUTARCH_NO_COLOR` value. |
+| `AUTARCH_SIGNALS_URL` | `http://127.0.0.1:8092` | Whitespace-trimmed signals server address; empty uses the default. The client accepts HTTP/HTTPS URLs and prepends `http://` when neither scheme is present. |
 
 ### Intermute (Cross-Tool)
 
@@ -290,6 +338,8 @@ Type `/` in the chat composer to open a fuzzy finder for commands. Use `↑`/`�
 | `INTERMUTE_URL` | Server URL |
 | `INTERMUTE_API_KEY` | Auth token |
 | `INTERMUTE_PROJECT` | Project scope |
+| `INTERMUTE_AGENT_NAME` | Registration name override (only when `INTERMUTE_URL` is set; whitespace-trimmed); defaults to the caller's agent name, or the tool name with `RegisterTool`. |
+| `INTERMUTE_HEARTBEAT_INTERVAL` | Registration heartbeat interval (only when `INTERMUTE_URL` is set); default `30s`. Accepts Go duration strings such as `10s` or `1m`; empty or invalid strings retain the default. Use a positive duration (zero or negative durations panic when the ticker starts). |
 
 ### Pollard
 

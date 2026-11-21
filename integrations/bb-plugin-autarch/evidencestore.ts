@@ -1,0 +1,40 @@
+import { createHash } from "node:crypto";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join, normalize, parse, sep } from "node:path";
+import { detectKind } from "./otherimages.js";
+
+// Like filepath.Clean, normalize lexically and remove trailing separators except at the root.
+function cleanEvidenceRoot(root: string): string {
+ let cleaned = normalize(root);
+ const volume = parse(cleaned).root;
+ while (cleaned.length > volume.length && cleaned.endsWith(sep)) cleaned = cleaned.slice(0, -1);
+ return cleaned;
+}
+
+export function defaultEvidenceRoot(env: Record<string, string | undefined> = process.env): string {
+ const override = env.AUTARCH_HOME_EVIDENCE;
+ return override && isAbsolute(override) ? cleanEvidenceRoot(override) : join(homedir(), ".autarch", "home-evidence");
+}
+/** Reads a hash, never a supplied path. All failures look like a missing image. */
+export function readEvidence(sha256: string, root = defaultEvidenceRoot(), platform: NodeJS.Platform = process.platform): { ok: true; mime: string; data_base64: string } | { ok: false } {
+ if (!/^[0-9a-f]{64}$/.test(sha256)) return { ok: false };
+ let fd: number | undefined;
+ try {
+  root = cleanEvidenceRoot(root);
+  const dir = lstatSync(root);
+  if (!dir.isDirectory() || dir.isSymbolicLink() || (platform !== "win32" && (dir.mode & 0o077) !== 0)) return { ok: false };
+  fd = openSync(join(root, sha256), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const st = fstatSync(fd);
+  if (!st.isFile() || st.size > 2 * 1024 * 1024) return { ok: false };
+  const buf = Buffer.alloc(2 * 1024 * 1024 + 1);
+  let n = 0;
+  while (n < buf.length) { const got = readSync(fd, buf, n, buf.length - n, null); if (!got) break; n += got; }
+  const b = buf.subarray(0, n);
+  if (b.length > 2 * 1024 * 1024 || createHash("sha256").update(b).digest("hex") !== sha256) return { ok: false };
+  const kind = detectKind(b);
+  if (!kind) return { ok: false };
+  return { ok: true, mime: `image/${kind}`, data_base64: b.toString("base64") };
+ } catch { return { ok: false }; }
+ finally { if (fd !== undefined) closeSync(fd); }
+}

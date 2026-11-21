@@ -6,21 +6,21 @@
 // own browser, can. Exit codes: 2 usage or validation, 3 not filed, 5 already ruled, replaced
 // or closed, 1 anything else.
 import { homeMethods, verbSummary } from "./contract.js";
-import { groupMoves } from "./moveselect.js";
+import { groupMoves } from "./moveexport.js";
 import { cliCommand, defineCli, type PluginCliResult } from "@get-bb/plugin-sdk";
 import type { Asks, LifecycleResult } from "./asks.js";
 import type { Catchup } from "./catchup.js";
 import type { Waiting } from "./waiting.js";
 import { readSettled } from "./settled.js";
-import { plainLine } from "./movereport.js";
-import { validScriptPath } from "./moves.js";
 import { buildQueue } from "./queueview.js";
 import type { PickResult, Service } from "./service.js";
+import type { TargetEvidence } from "./picktarget.js";
 
 export const REQUEST_LIMIT = 16 * 1024;
 const DAY_MS = 86_400_000;
 
 export interface HomeCliParts {
+  readTargetEvidence?: (threadId: string) => Promise<TargetEvidence>;
   svc: Service;
   asks: Asks;
   catchup: Catchup;
@@ -69,7 +69,7 @@ export function homeCli(p: HomeCliParts) {
   };
 
   const cardView = (taskId: string) => {
-    const c = svc.store.db.prepare("SELECT task_id, project_id, card_key, title, state, asking_thread, routing_mode FROM cards WHERE task_id = ?").get(taskId) as Record<string, unknown> | undefined;
+    const c = svc.store.db.prepare("SELECT task_id, project_id, card_key, title, state, asking_thread, routing_mode FROM cards WHERE task_id = ?").get(taskId) as (Record<string, unknown> & { project_id: string }) | undefined;
     if (!c) return undefined;
     const g = svc.store.db.prepare("SELECT id, generation FROM decisions WHERE task_id = ? ORDER BY generation DESC LIMIT 1").get(taskId) as { id: string; generation: number } | undefined;
     // time_to_answer is additive: null for a card whose ask never carried urgency "blocker" and so never pushed.
@@ -82,6 +82,43 @@ export function homeCli(p: HomeCliParts) {
     summary: "Look up cards and asks; report progress on asks filed before cards",
     usageErrorExitCode: 2,
     commands: {
+      "pick-action": cliCommand({
+        summary: verbSummary("pickAction"),
+        options: {
+          pick: { type: "string", description: "Original pick identifier (exclusive of decision/generation)." },
+          decision: { type: "string", description: "Original decision identifier; requires generation." },
+          generation: { type: "string", description: "Exact positive generation." },
+          json: { type: "boolean", description: "Print full JSON evidence and owner words." },
+        },
+        run({ options }) {
+          if (options.generation !== undefined && !/^[1-9][0-9]*$/.test(options.generation)) return err(2, "generation must be an exact positive integer");
+          const query = homeMethods.pickAction.input.safeParse({
+            ...(options.pick !== undefined ? { pick_id: options.pick } : {}),
+            ...(options.decision !== undefined ? { decision_id: options.decision } : {}),
+            ...(options.generation !== undefined ? { generation: Number(options.generation) } : {}),
+          });
+          if (!query.success) return err(2, "use --pick OR --decision with --generation");
+          try {
+            const view = svc.readPickAction(query.data);
+            if (!view.ok) return { exitCode: view.kind === "invalid-query" ? 2 : 1, ...(options.json ? { stdout: JSON.stringify(view) } : {}), stderr: `${view.error}\n` };
+            return options.json ? out(view) : { exitCode: 0, stdout: view.kind === "action" ? view.text : "No participating action; ordinary continuation applies.\n" };
+          } catch { return err(1, "unavailable: pick action service"); }
+        },
+      }),
+      capabilities: cliCommand({
+        summary: "Read supported card declaration and target lookup versions",
+        options: { json: { type: "boolean", description: "Print JSON." } },
+        run: () => out({ schema: 1, on_pick: p.readTargetEvidence && svc.supportsOnPick() ? [1] : [], target_lookup: p.readTargetEvidence ? [1] : [], pick_action: [1], live_delivery: false }),
+      }),
+      target: cliCommand({
+        summary: "Read host thread title and project evidence",
+        options: { thread: { type: "string", required: true, description: "Concrete thread identifier." }, json: { type: "boolean", description: "Print JSON." } },
+        async run({ options }) {
+          if (!p.readTargetEvidence) return err(1, "unavailable: target lookup");
+          try { return out(await p.readTargetEvidence(options.thread)); }
+          catch (e) { return err(1, e instanceof Error ? e.message : "unavailable: target lookup"); }
+        },
+      }),
       ask: cliCommand({
         summary: "Retired: file a card with `autarch needs-mk file`",
         options: {
@@ -94,6 +131,7 @@ export function homeCli(p: HomeCliParts) {
         summary: "Look up a card, a filed ask by request key, or a legacy decision id",
         options: {
           card: { type: "string", description: "A tasks card (task) id." },
+          project: { type: "string", description: "Tasks project id for --card; empty means no filter, independent of the working directory." },
           request: { type: "string", description: "The request key: a card's, or a pre-card ask's request id." },
           "request-id": { type: "string", description: "Alias of --request." },
           id: { type: "string", description: "A decision id." },
@@ -103,7 +141,7 @@ export function homeCli(p: HomeCliParts) {
         run({ options }) {
           if (options.card !== undefined) {
             const c = cardView(options.card);
-            return c ? out(c) : err(1, "unknown card");
+            return c && (!options.project || c.project_id === options.project) ? out(c) : err(1, options.project ? "unknown card in the requested project" : "unknown card");
           }
           const key = options.request ?? options["request-id"];
           if (key !== undefined) {
@@ -153,10 +191,19 @@ export function homeCli(p: HomeCliParts) {
       pushes: cliCommand({
         summary: "List blocker asks (urgency blocker) with push time and time to answer; read-only",
         options: {
+          "by-thread": { type: "boolean", description: "Count blocker cards by filing thread and first-generation filing time; task-less older asks are excluded. Read-only." },
+          days: { type: "string", description: "Audit window in days (default 7, at most 365). Requires --by-thread." },
           limit: { type: "string", description: "Most recent N blocker asks (default 100, at most 1000)." },
           json: { type: "boolean", description: "Print JSON (the only format)." },
         },
         run({ options }) {
+          if (options["by-thread"]) {
+            const days = options.days === undefined ? 7 : Number(options.days);
+            if (!Number.isInteger(days) || days < 1 || days > 365) return err(2, "days must be an integer from 1 to 365");
+            if (options.limit !== undefined) return err(2, "limit cannot be used with --by-thread");
+            return out(svc.blockersByThread(days));
+          }
+          if (options.days !== undefined) return err(2, "days requires --by-thread");
           const n = options.limit === undefined ? undefined : Number(options.limit);
           if (n !== undefined && (!Number.isInteger(n) || n < 1)) return err(2, "limit must be a positive integer");
           return out({ pushes: svc.pushes(n) });
@@ -164,7 +211,7 @@ export function homeCli(p: HomeCliParts) {
       }),
 
       moves: cliCommand({
-        summary: verbSummary("moves"),
+        summary: "Every stored Your move row with its claim, report and closing evidence (rollback export; nothing opens or closes a move any more)",
         options: { json: { type: "boolean", description: "Print JSON (the only format)." } },
         run() {
           const rows = svc.store.moves();
@@ -262,13 +309,38 @@ export function homeCli(p: HomeCliParts) {
       }),
 
       hold: cliCommand({
-        summary: "Vizier only: put a card on hold (greyed out with a reason, out of needs-you-now). A later comment carrying a sha256, or `unhold`, makes it live",
+        summary: "Vizier only: put a card on hold (greyed out with a reason, out of needs-you-now). A new hold names its end: --until DATE, or an event. When the date passes the card is back at mk's pick and you are told once; an event end is reported with `hold-ended`. A later comment carrying a sha256, or `unhold`, also makes it live",
         positionals: [{ name: "card", description: "Task id or tasks key (PROJ-24).", required: true }],
-        options: { reason: { type: "string", required: true, description: "Why it is on hold (one line)." } },
+        options: {
+          reason: { type: "string", required: true, description: "Why it is on hold (one line)." },
+          until: { type: "string", description: "The date the hold ends: 2026-11-14 (holds through that UTC day) or a full time such as 2026-11-14T18:00:00Z." },
+          "event-kind": { type: "string", description: "With --event-ref and --event-label: the kind of event that ends the hold, lowercase with hyphens (pr-merge)." },
+          "event-ref": { type: "string", description: "The thing to watch (mistakeknot/Autarch#114)." },
+          "event-label": { type: "string", description: "What mk reads on the card: the words after 'until' (PR 114 merges). One line." },
+        },
         async run({ positionals, options }, ctx) {
           if (!(await p.isVizier(ctx.threadId)) || (p.stillVizier && !p.stillVizier(ctx.threadId))) return err(1, "only the vizier thread may hold a card");
-          const r = svc.hold(positionals.card, options.reason, ctx.threadId!);
+          const named = [options["event-kind"], options["event-ref"], options["event-label"]].filter((v) => v !== undefined).length;
+          if (named > 0 && named < 3) return err(1, "an event end needs --event-kind, --event-ref and --event-label together");
+          if (options.until !== undefined && named > 0) return err(1, "name one end: --until, or an event, not both");
+          const end = options.until !== undefined ? { until: String(options.until) } : named === 3 ? { event: { kind: String(options["event-kind"]), ref: String(options["event-ref"]), label: String(options["event-label"]) } } : undefined;
+          const r = svc.hold(positionals.card, options.reason, ctx.threadId!, end);
           return r.ok ? out({ ok: true, task_id: r.task_id, held: true }) : err(1, r.error);
+        },
+      }),
+
+      "hold-ended": cliCommand({
+        summary: "Vizier only: report that the event a hold was waiting for has happened (name it with --event-kind and --event-ref). The card is back at mk's pick and the thread that held it is told once. Repeating it does nothing",
+        positionals: [{ name: "card", description: "Task id or tasks key (PROJ-24).", required: true }],
+        options: {
+          "event-kind": { type: "string", description: "The kind of the event that happened, as given to the hold (--event-kind). Required." },
+          "event-ref": { type: "string", description: "The ref of the event that happened, as given to the hold (--event-ref). Required: a report for any other event does nothing." },
+        },
+        async run({ positionals, options }, ctx) {
+          if (!(await p.isVizier(ctx.threadId)) || (p.stillVizier && !p.stillVizier(ctx.threadId))) return err(1, "only the vizier thread may report a hold's end");
+          if (typeof options["event-kind"] !== "string" || options["event-kind"].trim() === "" || typeof options["event-ref"] !== "string" || options["event-ref"].trim() === "") return err(1, "name the event that happened with --event-kind and --event-ref (the kind and ref the hold was set with)");
+          const r = svc.endHold(positionals.card, ctx.threadId!, options["event-kind"].trim(), options["event-ref"].trim());
+          return r.ok ? out({ ok: true, task_id: r.task_id, ended: r.ended, ...(r.held_for !== undefined ? { held_for: r.held_for } : {}) }) : err(1, r.error);
         },
       }),
 
@@ -331,62 +403,17 @@ export function homeCli(p: HomeCliParts) {
       }),
 
       report: cliCommand({
-        summary: "Record a script's report against the open Your move script row with that sha256 (display only; never closes the move)",
+        summary: "Retired: Home keeps no Your move row to report against, so this records nothing and answers matched 0 (report-tell still calls it)",
         options: {
-          "script-sha256": { type: "string", description: "The 64-hex sha256 of the script that ran." },
-          "script-path": { type: "string", description: "The absolute path of the script that ran; must be the move's script path." },
-          result: { type: "string", description: "ok or failed." },
-          step: { type: "string", description: "The failing step, when failed." },
-          log: { type: "string", description: "Absolute path of the script's log." },
-          "report-id": { type: "string", description: "One id per run of the sender; sending the same id again changes nothing. Default: a fresh id per call." },
+          "script-sha256": { type: "string", description: "Ignored." },
+          "script-path": { type: "string", description: "Ignored." },
+          result: { type: "string", description: "Ignored." },
+          step: { type: "string", description: "Ignored." },
+          log: { type: "string", description: "Ignored." },
+          "report-id": { type: "string", description: "Ignored." },
         },
-        run({ options }) {
-          const sha = String(options["script-sha256"] ?? "");
-          const result = String(options.result ?? "");
-          const path = String(options["script-path"] ?? "");
-          if (!validScriptPath(path)) return err(2, "--script-path must be an absolute path of safe characters");
-          if (!/^[0-9a-f]{64}$/.test(sha)) return err(2, "--script-sha256 must be 64 lowercase hex digits");
-          if (result !== "ok" && result !== "failed") return err(2, "--result must be ok or failed");
-          const log = options.log === undefined ? null : String(options.log);
-          if (log !== null && !validScriptPath(log)) return err(2, "--log must be an absolute path of safe characters");
-          const step = options.step === undefined ? null : plainLine(String(options.step), 100) || null;
-          const rid = options["report-id"] === undefined ? crypto.randomUUID() : String(options["report-id"]);
-          if (!/^[A-Za-z0-9._:-]{1,64}$/.test(rid)) return err(2, "--report-id must be 1 to 64 of letters, digits and . _ : -");
-          const state = result === "ok" ? "succeeded" : "failed";
-          const at = svc.time();
-          const hits = svc.store.moves().filter((m) => {
-            if (m.kind !== "script" || m.state === "closed") return false;
-            try {
-              const sc = (JSON.parse(m.payload_json) as { script?: { sha256?: unknown; path?: unknown } }).script;
-              return sc?.sha256 === sha && sc?.path === path;
-            } catch {
-              return false;
-            }
-          });
-          let n = 0;
-          // Each run has its own id, so two runs with the same outcome are two reports (each failure wakes the owner).
-          // A retry of the same run carries the same id and is skipped, even after a later report replaced the display.
-          const reportId = `cli:${sha}:${rid}`;
-          for (const m of hits) {
-            const prev = m.report_json ? (JSON.parse(m.report_json) as { cli_ids?: string[]; cli_failed?: { id: string; step: string | null }[] }) : {};
-            const ids = prev.cli_ids ?? [];
-            if (ids.includes(reportId)) continue;
-            const done = svc.store.setMoveReport(m.task_id, m.generation, state, {
-              outcome: state,
-              failing_step: state === "failed" ? step : null,
-              error_line: null,
-              comment_id: reportId,
-              author: "report-tell",
-              thread_id: null,
-              report_link: log,
-              reported_at: at,
-              source: "cli",
-              cli_ids: [...ids, reportId],
-              cli_failed: state === "failed" ? [...(prev.cli_failed ?? []), { id: reportId, step }] : (prev.cli_failed ?? []),
-            });
-            if (done) n++;
-          }
-          return out({ ok: true, matched: n });
+        run() {
+          return out({ ok: true, matched: 0 });
         },
       }),
 
