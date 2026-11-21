@@ -1,8 +1,8 @@
 import type { ThreadRow, VizierResolution } from "./delegation.js";
 
 export type RerouteDiagnostic = {
-  reason: "no-target" | "resolver-unavailable" | "resolver-error" | "same-thread" | "retarget-race"
-    | "no-live-target" | "thread-list-error" | "thread-list-unavailable" | "vizier-error";
+  reason: "no-target" | "resolver-unavailable" | "resolver-error" | "same-thread" | "retarget-race" | "reroute-not-allowed" | "row-closed"
+    | "no-live-target" | "thread-list-error" | "vizier-list-unavailable" | "vizier-error";
   error?: string;
   ownerState?: "live" | "archived" | "deleted" | "missing";
   liveSuccessors?: number;
@@ -17,7 +17,7 @@ export function rerouteError(err: unknown): string {
   return message.trim().split(/[\r\n]/, 1)[0]!.trim()
     .replace(/https?:\/\/\S+/gi, "[url]")
     .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
-    .replace(/\b(token|password|secret|api[_-]?key|authorization)\s*[:=].*$/gi, "$1=[redacted]")
+    .replace(/\b([\w-]*(?:token|password|secret|api[_-]?key|authorization))\s*[:=].*$/gi, "$1=[redacted]")
     .slice(0, 240);
 }
 
@@ -43,7 +43,7 @@ export async function resolveWakeTarget(
     stage = "vizier-error";
     const v = await vizier();
     if (v && v.ok) return v.id;
-    report?.({ reason: v && !v.ok && v.status === 503 ? "thread-list-unavailable" : "no-live-target",
+    report?.({ reason: v && !v.ok && v.status === 503 ? "vizier-list-unavailable" : "no-live-target",
       ownerState: !mine ? "missing" : mine.deletedAt != null ? "deleted" : "archived", liveSuccessors: successors,
       ...(v && !v.ok ? { vizierStatus: v.status } : {}) });
     return null;

@@ -162,7 +162,13 @@ export class WakeLoop {
       }
     }
     const moved = !!next && next !== gone && this.store.retarget(row.id, gone, next);
-    if (next && !moved) diagnostic = { reason: next === gone ? "same-thread" : "retarget-race" };
+    if (next && !moved) {
+      // Diagnose the refused write from the fresh row; do not change the retarget predicates or retry it.
+      const current = this.store.obligation(row.id);
+      diagnostic = { reason: next === gone ? "same-thread"
+        : current?.allow_reroute === 0 ? "reroute-not-allowed"
+        : current?.state === "done" || current?.state === "dismissed" ? "row-closed" : "retarget-race" };
+    }
     this.store.recordEvent(moved ? "rerouted" : "reroute-failed", row.decision_id,
       { obligation: row.id, from: gone, to: moved ? next : null, ...(!moved ? diagnostic : {}) });
     return moved;

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { createWakeTargetResolver } from "../server.js";
+import { describe, expect, it, vi } from "vitest";
 import type { ThreadRow, VizierResolution } from "../delegation.js";
 import { rerouteError, resolveWakeTarget, type RerouteDiagnostic } from "../wake-target.js";
 
@@ -22,7 +23,7 @@ describe("wake target diagnostics preserve resolution", () => {
     expect(lists).toBe(2);
     expect(viziers).toBe(target === "owner" || target === "next" ? 0 : 2);
     if (target) expect(diagnostics).toEqual([]);
-    else expect(diagnostics[0]).toMatchObject({ reason: vizier?.ok === false && vizier.status === 503 ? "thread-list-unavailable" : "no-live-target",
+    else expect(diagnostics[0]).toMatchObject({ reason: vizier?.ok === false && vizier.status === 503 ? "vizier-list-unavailable" : "no-live-target",
       ownerState: rows.length ? "archived" : "missing", liveSuccessors: 0 });
   });
 
@@ -42,4 +43,39 @@ it("bounds and redacts exception messages without storing stacks or objects", ()
   expect(rerouteError(new Error("x".repeat(300)))).toHaveLength(240);
   expect(rerouteError({ message: " plain error " })).toBe("plain error");
   expect(rerouteError({ token: "placeholder" })).toBe("lookup failed");
+});
+
+it.each(["access_token", "refresh_token", "client_secret", "client-secret"])("redacts compound credential key %s", key => {
+  expect(rerouteError(`${key}=placeholder`)).toBe(`${key}=[redacted]`);
+});
+
+it.each([
+  { rows: [thread("owner", { deletedAt: 1 })], ownerState: "deleted", liveSuccessors: 0 },
+  { rows: [thread("owner", { archivedAt: 1 }), thread("one"), thread("two")], ownerState: "archived", liveSuccessors: 2 },
+])("records failed candidate details: $ownerState / $liveSuccessors", async ({ rows, ownerState, liveSuccessors }) => {
+  let detail: RerouteDiagnostic | undefined;
+  expect(await resolveWakeTarget("owner", async () => rows, async () => null, d => { detail = d; })).toBeNull();
+  expect(detail).toMatchObject({ reason: "no-live-target", ownerState, liveSuccessors });
+});
+
+it.each([undefined, false, true])("server resolver keeps the fresh/cache and read-only vizier contract: %s", async fresh => {
+  const list = vi.fn(async () => []);
+  const vizier = vi.fn(async (_opts: { adopt?: boolean }): Promise<VizierResolution> => ({ ok: true, id: "vizier", via: "stored" }));
+  const resolve = createWakeTargetResolver(list, () => ({ resolveVizier: vizier }));
+  expect(await resolve("task", "owner", fresh)).toBe("vizier");
+  expect(list).toHaveBeenCalledExactlyOnceWith({ cached: !(fresh ?? false) });
+  expect(vizier).toHaveBeenCalledExactlyOnceWith({ adopt: false });
+});
+
+it("server resolver reads parts at call time and returns null before parts exist", async () => {
+  const list = vi.fn(async () => []);
+  const resolveVizier = vi.fn(async (): Promise<VizierResolution> => ({ ok: true, id: "vizier", via: "stored" }));
+  let parts: { resolveVizier: typeof resolveVizier } | undefined;
+  const resolve = createWakeTargetResolver(list, () => parts);
+  expect(await resolve("task", "owner", true)).toBeNull();
+  expect(resolveVizier).not.toHaveBeenCalled();
+  parts = { resolveVizier };
+  expect(await resolve("task", "owner", true)).toBe("vizier");
+  expect(resolveVizier).toHaveBeenCalledExactlyOnceWith({ adopt: false });
+  expect(list).toHaveBeenCalledTimes(2);
 });

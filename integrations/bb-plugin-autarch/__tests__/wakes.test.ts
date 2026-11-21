@@ -686,14 +686,14 @@ describe("archived recipient routing (Stalled addendum)", () => {
 
   const evs = (type: string) => svc.store.events().filter((e) => e.type === type);
 
-  it.each(["no-live-target", "thread-list-error", "thread-list-unavailable", "vizier-error"])("records the resolver diagnostic in the event: %s", async reason => {
+  it.each(["no-live-target", "thread-list-error", "vizier-list-unavailable", "vizier-error"])("records the resolver diagnostic in the event: %s", async reason => {
     loop = new WakeLoop(svc, sdk, (gone, report) => resolveWakeTarget(gone,
       async () => {
         if (reason === "thread-list-error") throw new Error("list unavailable");
         return [{ id: gone, title: "Worker", archivedAt: 1, pinnedAt: null }];
       }, async () => {
         if (reason === "vizier-error") throw new Error("lookup unavailable");
-        return { ok: false, status: reason === "thread-list-unavailable" ? 503 : 409, error: "No candidate" };
+        return { ok: false, status: reason === "vizier-list-unavailable" ? 503 : 409, error: "No candidate" };
       }, report));
     const a = await wake("thr-a");
     sdk.script = [{ kind: "throw", err: archived() }];
@@ -701,6 +701,19 @@ describe("archived recipient routing (Stalled addendum)", () => {
     expect(JSON.parse(evs("reroute-failed")[0]!.detail_json)).toMatchObject({ reason, from: "thr-a", to: null });
     expect(row(a.id)).toMatchObject({ recipient: "thr-a", state: "undeliverable" });
     expect(states(a.id)).toEqual(["not-delivered"]);
+    expect(sdk.sent).toHaveLength(1);
+  });
+
+  it.each(["done", "dismissed"])("a row closed during resolution is not a retarget race: %s", async state => {
+    const a = await wake("thr-a");
+    loop = new WakeLoop(svc, sdk, async () => {
+      svc.store.db.prepare("UPDATE obligations SET state = ? WHERE id = ?").run(state, a.id);
+      return "thr-next";
+    });
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    expect(JSON.parse(evs("reroute-failed")[0]!.detail_json)).toMatchObject({ reason: "row-closed", to: null });
+    expect(row(a.id)).toMatchObject({ state, recipient: "thr-a" });
     expect(sdk.sent).toHaveLength(1);
   });
 

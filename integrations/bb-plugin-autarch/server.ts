@@ -165,6 +165,17 @@ interface Parts {
   caches: FeedCaches;
 }
 
+/** The server closure keeps fresh listing and read-only vizier resolution lazy. */
+export function createWakeTargetResolver(
+  listThreadRows: (opts: { cached: boolean }) => Promise<ThreadRow[]>,
+  delegation: () => Pick<Delegation, "resolveVizier"> | null | undefined,
+) {
+  return (_taskId: string, owner: string | null, fresh = false, report?: ReportReroute): Promise<string | null> =>
+    resolveWakeTargetWithReason(owner,
+      () => listThreadRows({ cached: !fresh }),
+      () => delegation()?.resolveVizier({ adopt: false }) ?? Promise.resolve(null), report);
+}
+
 /**
  * Home wiring (Task 1.7). Everything that needs the store waits for the handle to be ready;
  * until then RPC handlers refuse with "not ready" and the feed injects nothing. Returns the
@@ -479,11 +490,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     },
   });
   // Owner thread, else the one live thread with the owner's title (its successor), else the vizier, else nobody.
-  const resolveWakeTarget = (_taskId: string, owner: string | null, fresh = false, report?: ReportReroute): Promise<string | null> =>
-    resolveWakeTargetWithReason(owner,
-      // A host-rejected archived recipient must list fresh, just as before.
-      () => listThreadRows({ cached: !fresh }),
-      () => parts?.dele.resolveVizier({ adopt: false }) ?? Promise.resolve(null), report);
+  const resolveWakeTarget = createWakeTargetResolver(listThreadRows, () => parts?.dele);
 
   bb.background.service("home-feed-refresh", {
     async start(signal) {
