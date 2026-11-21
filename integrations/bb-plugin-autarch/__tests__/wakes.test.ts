@@ -717,6 +717,24 @@ describe("archived recipient routing (Stalled addendum)", () => {
     expect(sdk.sent).toHaveLength(1);
   });
 
+  it("a missing obligation after a refused retarget has its own diagnostic", async () => {
+    const a = await wake("thr-a");
+    loop = new WakeLoop(svc, sdk, async () => {
+      // Model the row disappearing during resolution, including its foreign-key dependants.
+      svc.store.db.prepare("DELETE FROM attempts WHERE obligation_id = ?").run(a.id);
+      svc.store.db.prepare("DELETE FROM obligations WHERE id = ?").run(a.id);
+      return "thr-next";
+    });
+    sdk.script = [{ kind: "throw", err: archived() }];
+    await loop.drain();
+    expect(JSON.parse(evs("reroute-failed")[0]!.detail_json)).toEqual({
+      obligation: a.id, from: "thr-a", to: null, reason: "obligation-missing",
+    });
+    expect(svc.store.obligation(a.id)).toBeUndefined();
+    expect(evs("rerouted")).toHaveLength(0);
+    expect(sdk.sent.map(s => s.threadId)).toEqual(["thr-a"]);
+  });
+
   it.each(["missing", "same", "throws", "race", "stranded"])("records why rerouting failed: %s", async mode => {
     loop = new WakeLoop(svc, sdk, mode === "missing" ? undefined : async () => {
       if (mode === "throws") throw new Error("  resolver unavailable  ");

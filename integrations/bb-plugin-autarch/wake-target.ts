@@ -1,7 +1,7 @@
 import type { ThreadRow, VizierResolution } from "./delegation.js";
 
 export type RerouteDiagnostic = {
-  reason: "no-target" | "resolver-unavailable" | "resolver-error" | "same-thread" | "retarget-race" | "reroute-not-allowed" | "row-closed"
+  reason: "no-target" | "resolver-unavailable" | "resolver-error" | "same-thread" | "retarget-race" | "reroute-not-allowed" | "row-closed" | "obligation-missing"
     | "no-live-target" | "thread-list-error" | "vizier-list-unavailable" | "vizier-error";
   error?: string;
   ownerState?: "live" | "archived" | "deleted" | "missing";
