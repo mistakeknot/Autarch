@@ -6,6 +6,7 @@
 // The Home store serves the Home page (app.tsx, over RPC), the `bb home` CLI command
 // (cli.ts) and the skill in skills/home/SKILL.md that tells agents how to use it. A write
 // publishes a realtime signal so every open page refetches.
+import { resolveWakeTarget as resolveWakeTargetWithReason, type ReportReroute } from "./wake-target.js";
 import { postNoteOnce } from "./notepost.js";
 import { wireGovernor } from "./governor-runtime.js";
 import { threadEventLimit } from "./hostLimits.js";
@@ -164,6 +165,17 @@ interface Parts {
   caches: FeedCaches;
 }
 
+/** The server closure keeps fresh listing and read-only vizier resolution lazy. */
+export function createWakeTargetResolver(
+  listThreadRows: (opts: { cached: boolean }) => Promise<ThreadRow[]>,
+  delegation: () => Pick<Delegation, "resolveVizier"> | null | undefined,
+) {
+  return (_taskId: string, owner: string | null, fresh = false, report?: ReportReroute): Promise<string | null> =>
+    resolveWakeTargetWithReason(owner,
+      () => listThreadRows({ cached: !fresh }),
+      () => delegation()?.resolveVizier({ adopt: false }) ?? Promise.resolve(null), report);
+}
+
 /**
  * Home wiring (Task 1.7). Everything that needs the store waits for the handle to be ready;
  * until then RPC handlers refuse with "not ready" and the feed injects nothing. Returns the
@@ -223,7 +235,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     const dele = new Delegation(svc, listThreadRows, getThreadRow);
     const asks = new Asks(svc);
     const catchup = new Catchup(svc, dele);
-    const loop = new WakeLoop(svc, deps.sdk ?? sdkAdapter(bb.sdk.threads as unknown as ThreadsLike), (gone) => resolveWakeTarget("", gone, true));
+    const loop = new WakeLoop(svc, deps.sdk ?? sdkAdapter(bb.sdk.threads as unknown as ThreadsLike), (gone, report) => resolveWakeTarget("", gone, true, report));
     const caches = new FeedCaches(() => store.db, () => Date.now());
     parts = { store, svc, asks, dele, catchup, loop, caches };
     svc.start();
@@ -478,23 +490,8 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     },
   });
   // Owner thread, else the one live thread with the owner's title (its successor), else the vizier, else nobody.
-  const resolveWakeTarget = async (_taskId: string, owner: string | null, fresh = false): Promise<string | null> => {
-    const live = (r: ThreadRow) => r.archivedAt == null && r.deletedAt == null;
-    try {
-      // A wake the host refused as "archived" lists fresh: a cached row may still call the thread live.
-      const rows = await listThreadRows({ cached: !fresh });
-      const mine = owner ? rows.find((r) => r.id === owner) : undefined;
-      if (mine && live(mine)) return mine.id;
-      if (mine?.title) {
-        const succ = rows.filter((r) => live(r) && r.title === mine.title);
-        if (succ.length === 1) return succ[0]!.id;
-      }
-      const v = await parts?.dele.resolveVizier({ adopt: false });
-      return v && v.ok ? v.id : null;
-    } catch {
-      return null;
-    }
-  };
+  const resolveWakeTarget = createWakeTargetResolver(listThreadRows, () => parts?.dele);
+
   bb.background.service("home-feed-refresh", {
     async start(signal) {
       while (!signal.aborted) {

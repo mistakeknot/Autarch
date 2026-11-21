@@ -6,7 +6,7 @@ import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { envs } from "./card-rig.js";
 import { recoveryRig } from "./pickhandler-stage4-rig.js";
-import { FakeSdk, econnrefused } from "./wakes-helpers.js";
+import { FakeSdk, econnrefused, archived } from "./wakes-helpers.js";
 import { WakeLoop } from "../wakes.js";
 import { readPickHandlerStatus } from "../pickhandler.js";
 import { claimPickRelay, reconcilePickReceipts } from "../pickcapture.js";
@@ -352,4 +352,16 @@ it("accepted-event proof remains distinct when its ID equals the old queue handl
   expect(sdk.sent.filter(s => s.input.includes("already relayed; do not act"))).toHaveLength(1);
   expect(sdk.sent.filter(s => s.threadId === "thr_target")).toHaveLength(1);
   expect(r.svc.store.attempts(relay.id)).toHaveLength(1);
+});
+
+it("an archived pick-relay target records policy refusal, not a retarget race", async () => {
+  const { r, g, relay } = await prepared();
+  expect(relay.allow_reroute).toBe(0);
+  const sdk = new FakeSdk();
+  sdk.script = [{ kind: "throw", err: archived() }];
+  await new WakeLoop(r.svc, sdk, async () => "thr-next").drain();
+  const events = r.svc.store.events().filter(e => e.type === "reroute-failed" && e.decision_id === g.id);
+  expect(events.map(e => JSON.parse(e.detail_json))).toContainEqual({ obligation: relay.id, from: relay.recipient, to: null, reason: "reroute-not-allowed" });
+  expect(r.svc.store.obligation(relay.id)).toMatchObject({ recipient: relay.recipient, allow_reroute: 0, state: "undeliverable" });
+  expect(sdk.sent.map(s => s.threadId)).toEqual([relay.recipient]);
 });
