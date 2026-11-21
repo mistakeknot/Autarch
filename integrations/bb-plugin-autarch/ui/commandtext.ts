@@ -99,7 +99,7 @@ function commandOf(line: string): string | null {
 const LIST_MARKER = /^\s*(?:\(\d{1,3}\)|\d{1,3}[.)])\s+/;
 /** A trailing note in square brackets that holds words and opens right at its text ("[read-only: one GET]"). A shell test ("[ -f x ]", "[[ ... ]]") opens with a space or a second bracket, and one without a space ("[a-z]") is an argument. */
 const MAX_NOTE_LINE = 2000; // longer lines skip note splitting, which keeps the match cheap
-const TRAILING_NOTE = /\s+(\[[^\[\]\s\\'"][^\[\]\\'"]*\s[^\[\]\\'"]*\])\s*$/; // no backslash or quote inside: "[a\ b]" and '[a" "b]' are arguments
+const TRAILING_NOTE = /\s+(\[[^[\]\s\\'"][^[\]\\'"]*\s[^[\]\\'"]*\])\s*$/; // no backslash or quote inside: "[a\ b]" and '[a" "b]' are arguments
 const ENDS_IN_ESCAPE = /(?:^|[^\\])(?:\\\\)*\\$/;
 const ENDS_IN_OPERATOR = /(?:&&|\|\||[|;&])\s*$/;
 
