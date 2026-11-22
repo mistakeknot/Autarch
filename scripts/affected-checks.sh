@@ -13,6 +13,17 @@ import shlex
 import subprocess
 import sys
 
+def go_plugin_input(text):
+    # Tokenize literals before comments so comment markers inside paths survive.
+    import re
+    token = re.compile(
+        r'"(?:\\.|[^"\\])*"'
+        r"|`[^`]*`"
+        r"|'(?:\\.|[^'\\])*'"
+        r"|//[^\n]*|/\*[\s\S]*?\*/")
+    code = token.sub(lambda m: ' ' if m[0].startswith(('//', '/*')) and not m[0].startswith('//go:') else m[0], text)
+    return re.search(r"bb-plugin-autarch|[\"'/`]integrations[\"'/`]|[/\\]\bintegrations\b|\bintegrations\b[/\\]", code) is not None
+
 script_dir = Path(sys.argv[1])
 base, head = sys.argv[2:4]
 run = len(sys.argv) == 5 and sys.argv[4] == '--run'
@@ -93,7 +104,7 @@ if (reason or go_files or ts_files):
     for path in [Path(f) for f in tracked if f.endswith('.go')]:
         package = './' if path.parent == Path('.') else './' + path.parent.as_posix()
         text = path.read_text()
-        if re.search(r'bb-plugin-autarch|\bintegrations\b', text) and 'plugin' not in readers['go'].get(package, {}).get('sides', []):
+        if go_plugin_input(text) and 'plugin' not in readers['go'].get(package, {}).get('sides', []):
             reason = 'Go reader missing plugin side: ' + path.as_posix()
             break
         if path.name.endswith('_test.go') and audit_go.search(text) and package not in readers['go']:

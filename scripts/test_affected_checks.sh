@@ -7,6 +7,31 @@ scratch_root=${AFFECTED_CHECKS_SCRATCH:-$root/build/affected-checks}
 mkdir -p "$scratch_root"
 scratch=$(mktemp -d "$scratch_root/affected-fixture.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
+# Exercise comment tokenization without executing the selector's main program.
+python3 - "$script" <<'PYLEX'
+import ast
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text().split("<<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
+func = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == 'go_plugin_input')
+ns = {}
+exec(compile(ast.Module(body=[func], type_ignores=[]), 'go-scan-fixture', 'exec'), ns)
+scan = ns['go_plugin_input']
+for text, expected in [
+    ('// scanner for integrations', False),
+    ('/* bb-plugin-autarch */', False),
+    ('const note = "third-party integrations"', False),
+    ('const path = "../../integrations"', True),
+    ('const path = `integrations`', True),
+    ('const path = "//bb-plugin-autarch"', True),
+    ('const path = `/*name*/integrations`', True),
+    (r'const path = "integrations\\value"', True),
+    (r'const path = "..\\integrations"', True),
+    ('//go:embed integrations/plugin/file.json', True),
+    ('/* //go:embed integrations/plugin/file.json */', False),
+]:
+    assert scan(text) == expected, text
+PYLEX
 cd "$scratch"
 git init -q
 git config user.name Fixture
@@ -75,7 +100,7 @@ check leaf/leaf.go 'mode: affected'
 grep -q 'go list -buildvcs=false' "$AFFECTED_LOG"
 check integrations/bb-plugin-autarch/value.ts 'vitest run --maxWorkers=2'
 go_plan=$(printf '%s\n' "$plan" | sed -n '/^Go packages:/p')
-[[ $go_plan == 'Go packages: ./docs/wiki ./internal/gurgeh/architecture ./internal/gurgeh/dependency ./internal/gurgeh/patterns ./internal/gurgeh/spec ./internal/gurgeh/validation ./internal/homeask ./internal/pollard/server ./pkg/plan ./scripts/verify' ]]
+[[ $go_plan == 'Go packages: ./docs/wiki ./internal/gurgeh/dependency ./internal/homeask ./scripts/verify' ]]
 for reader in no-exec.test.ts seams.test.ts write-scope.test.ts rigexec.test.ts docs.test.ts build-identity.test.ts design-roles.test.tsx; do
   [[ $plan == *"$reader"* ]]
 done
@@ -141,6 +166,24 @@ AFFECTED_NO_RELATED=yes check integrations/bb-plugin-autarch/orphan.ts 'no relat
 # A source read without an import still schedules the audited readers.
 check integrations/bb-plugin-autarch/read-by-static-scan.ts 'source readers:'
 [[ $plan == *'./docs/wiki'* && $plan != *'./internal/door'* && $plan == *'./__tests__/no-exec.test.ts'* ]]
+# Non-path prose in a Go-only package must not poison later plugin-only plans.
+mkdir -p cmd/autarch
+for style in line block prose rawprose; do
+  case $style in
+    line) printf 'package fixture\n// scanner for integrations\n' > cmd/autarch/prose_test.go ;;
+    block) printf 'package fixture\n/* scanner for\n bb-plugin-autarch integrations\n*/\n' > cmd/autarch/prose_test.go ;;
+    prose) printf 'package fixture\nconst note = "third-party integrations"\n' > cmd/autarch/prose_test.go ;;
+    rawprose) printf 'package fixture\nconst note = `third-party integrations`\n' > cmd/autarch/prose_test.go ;;
+  esac
+  git add cmd/autarch/prose_test.go
+  git commit -qm prose
+  check integrations/bb-plugin-autarch/value.ts 'mode: affected'
+  go_plan=$(printf '%s\n' "$plan" | sed -n '/^Go packages:/p')
+  [[ $go_plan != *'./cmd/autarch'* ]]
+  printf 'package fixture\n' > cmd/autarch/prose_test.go
+  git add cmd/autarch/prose_test.go
+  git commit -qm prose-complete
+done
 # A plugin read added to either an existing Go-only reader or a new package
 # must remain visible to a later TS-only change.
 for package in cmd/autarch newpackage; do
@@ -150,7 +193,7 @@ for package in cmd/autarch newpackage; do
   printf 'package fixture\nimport ("os"; "testing")\nfunc TestPlugin(t *testing.T) { if _, err := os.ReadFile("%s/integrations/bb-plugin-autarch/value.ts"); err != nil { t.Fatal(err) } }\n' "$prefix" > "$package/plugin_test.go"
   git add "$package/plugin_test.go"
   git commit -qm plugin-reader
-  check integrations/bb-plugin-autarch/value.ts 'Go reader missing plugin side'
+  check integrations/bb-plugin-autarch/value.ts "Go reader missing plugin side: $package/plugin_test.go"
   printf 'package fixture\n' > "$package/plugin_test.go"
   git add "$package/plugin_test.go"
   git commit -qm fixture-reader-complete
@@ -173,7 +216,9 @@ for style in literal segments prefix raw helper; do
   fi
   git add cmd/autarch/helper.go cmd/autarch/plugin_test.go
   git commit -qm helper-reader
-  check integrations/bb-plugin-autarch/value.ts 'Go reader missing plugin side'
+  reader_path=cmd/autarch/plugin_test.go
+  if [[ $style == helper ]]; then reader_path=cmd/autarch/helper.go; fi
+  check integrations/bb-plugin-autarch/value.ts "Go reader missing plugin side: $reader_path"
   printf 'package fixture\n' > cmd/autarch/plugin_test.go
   git add cmd/autarch/plugin_test.go
   git commit -qm fixture-helper-complete
@@ -183,6 +228,29 @@ for style in literal segments prefix raw helper; do
     git commit -qm helper-neutral
   fi
 done
+# Paths in shell/regexp strings still couple a Go-only test to plugin inputs.
+for shape in shell regexp; do
+  if [[ $shape == shell ]]; then
+    printf 'package fixture\nimport "os/exec"\nvar command = exec.Command("sh", "-c", "git ls-files integrations/")\n' > cmd/autarch/path_test.go
+  else
+    printf 'package fixture\nimport "regexp"\nvar filter = regexp.MustCompile("^integrations/")\n' > cmd/autarch/path_test.go
+  fi
+  git add cmd/autarch/path_test.go
+  git commit -qm path-context
+  check integrations/bb-plugin-autarch/value.ts 'Go reader missing plugin side: cmd/autarch/path_test.go'
+  printf 'package fixture\n' > cmd/autarch/path_test.go
+  git add cmd/autarch/path_test.go
+  git commit -qm path-context-complete
+done
+# Go directives are build inputs, rather than discardable comments.
+printf '{}\n' > integrations/bb-plugin-autarch/package.json
+printf 'package fixture\nimport _ "embed"\n//go:embed integrations/bb-plugin-autarch/package.json\nvar embedded []byte\n' > embed.go
+git add embed.go integrations/bb-plugin-autarch/package.json
+git commit -qm embed-input
+check integrations/bb-plugin-autarch/value.ts 'Go reader missing plugin side: embed.go'
+printf 'package fixture\n' > embed.go
+git add embed.go
+git commit -qm embed-complete
 # New readers fail closed pending an explicit manifest audit.
 mkdir -p integrations/bb-plugin-autarch/__tests__
 printf '/* readFileSync */\n' > integrations/bb-plugin-autarch/__tests__/new-reader.test.ts
