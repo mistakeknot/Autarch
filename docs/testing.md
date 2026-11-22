@@ -23,9 +23,16 @@ the pinned Vitest specification API; an unavailable API fails safely to full.
 [scripts/affected-readers.json](../scripts/affected-readers.json) is the explicit
 reader manifest. Vitest readers run for every non-documentation change.
 Each Go entry records its audited input sides, test evidence and rationale.
+Every tracked Go source (including non-test helpers) is checked for the word
+`integrations` or `bb-plugin-autarch`. A match forces full checks unless the
+package explicitly lists the plugin side. This covers prefix paths, quoted or
+raw segments and helpers holding a path that their tests never mention.
 Go changes retain all Go readers; plugin-only changes keep the entries with
 plugin inputs: docs/wiki (ghsync.ts), internal/homeask (plugin card fixtures),
-and scripts/verify (plugin UI/server/e2e sources). Other entries read Go
+and scripts/verify (plugin UI/server/e2e sources), plus packages conservatively
+listed because general integration terminology matches the word-level audit.
+These additional packages need not currently read plugin input; the manifest
+records the matching source evidence. Other entries read Go
 sources, generated fixtures or local test outputs and do not read plugin inputs.
 The list deliberately over-includes direct filesystem/process readers rather than assume a read is
 only a fixture. It includes:
@@ -39,9 +46,12 @@ only a fixture. It includes:
 
 The audit searches tracked Go tests for os.ReadFile, os.Open, filepath.Walk
 and exec.Command("go"), and Vitest tests for readFileSync, readdirSync,
+callback readFile, createReadStream, existsSync, statSync, exec/execSync, fork,
 execFile/execFileSync, spawn/spawnSync, copyFileSync, cpSync, new Worker,
 fs/promises, and imports of v2build, v6build, hash-golden-helper, deploy-tool/rig
 and static-scan. A matching test missing from the manifest selects full checks.
+Existing filesystem/process consumers, including temporary-file writers and
+mocks, are conservatively listed rather than exempted.
 Review new helper designs when maintaining this audit; import graphs alone
 do not establish coverage.
 

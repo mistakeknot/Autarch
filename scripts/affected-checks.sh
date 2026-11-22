@@ -88,13 +88,15 @@ if not reason and go_files:
 if (reason or go_files or ts_files):
     import re
     audit_go = re.compile(r'os\.ReadFile|os\.Open|filepath\.Walk|exec\.Command\("go"')
-    audit_ts = re.compile('readFileSync|readdirSync|\\bexecFile(?:Sync)?\\b|\\bspawn(?:Sync)?\\b|copyFileSync|cpSync|new\\s+Worker\\s*\\(|fs/promises|v2build|v6build|hash-golden-helper|deploy-tool/rig|static-scan|["\']\\./rig(?:\\.js)?["\']')
+    audit_ts = re.compile('readFileSync|readdirSync|\\bexecFile(?:Sync)?\\b|\\bspawn(?:Sync)?\\b|copyFileSync|cpSync|new\\s+Worker\\s*\\(|fs/promises|v2build|v6build|hash-golden-helper|deploy-tool/rig|static-scan|["\']\\./rig(?:\\.js)?["\']|\\breadFile\\b|\\bcreateReadStream\\b|\\bexec\\s*\\(|\\bexecSync\\b|\\bfork\\s*\\(|\\bexistsSync\\b|\\bstatSync\\b')
     tracked = subprocess.check_output(['git', 'ls-files', '-z'], text=True).split('\0')
-    for path in [Path(f) for f in tracked if f.endswith('_test.go')]:
-        if any(x in path.parts for x in ('node_modules', 'build', '.git', 'vendor')):
-            continue
+    for path in [Path(f) for f in tracked if f.endswith('.go')]:
         package = './' if path.parent == Path('.') else './' + path.parent.as_posix()
-        if audit_go.search(path.read_text()) and package not in readers['go']:
+        text = path.read_text()
+        if re.search(r'bb-plugin-autarch|\bintegrations\b', text) and 'plugin' not in readers['go'].get(package, {}).get('sides', []):
+            reason = 'Go reader missing plugin side: ' + path.as_posix()
+            break
+        if path.name.endswith('_test.go') and audit_go.search(text) and package not in readers['go']:
             reason = 'unlisted source reader: ' + path.as_posix()
             break
     for path in [Path(f) for f in tracked if f.startswith(plugin + '__tests__/') and '.test.' in f]:

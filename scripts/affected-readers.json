@@ -119,6 +119,16 @@
       ],
       "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
     },
+    "./internal/gurgeh/architecture": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "strategist_test.go"
+      ],
+      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+    },
     "./internal/gurgeh/brief": {
       "sides": [
         "go"
@@ -139,6 +149,27 @@
       ],
       "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
     },
+    "./internal/gurgeh/dependency": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "tracer.go",
+        "tracer_test.go"
+      ],
+      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+    },
+    "./internal/gurgeh/patterns": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "recognizer.go"
+      ],
+      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+    },
     "./internal/gurgeh/research": {
       "sides": [
         "go"
@@ -147,6 +178,16 @@
         "research_test.go"
       ],
       "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/gurgeh/spec": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "specflow_analyzer.go"
+      ],
+      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
     },
     "./internal/gurgeh/specs": {
       "sides": [
@@ -174,6 +215,17 @@
         "suggestions_test.go"
       ],
       "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/gurgeh/validation": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "validation.go",
+        "validation_test.go"
+      ],
+      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
     },
     "./internal/homeask": {
       "sides": [
@@ -266,6 +318,16 @@
       ],
       "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
     },
+    "./internal/pollard/server": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "server.go"
+      ],
+      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+    },
     "./internal/reviewagent": {
       "sides": [
         "go"
@@ -345,6 +407,16 @@
       ],
       "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
     },
+    "./pkg/plan": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "plan_test.go"
+      ],
+      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+    },
     "./pkg/review": {
       "sides": [
         "go"
@@ -386,12 +458,18 @@
   "vitest": [
     "__tests__/activation-refusal.test.ts",
     "__tests__/approvals.test.ts",
+    "__tests__/backtick-command.test.tsx",
     "__tests__/backup.test.ts",
     "__tests__/batch-a-buttons.test.tsx",
+    "__tests__/blocker-push.test.ts",
+    "__tests__/bringback.test.ts",
     "__tests__/build-identity.test.ts",
     "__tests__/card-integration.test.ts",
     "__tests__/cards.test.ts",
     "__tests__/check-e2e.test.ts",
+    "__tests__/cli.test.ts",
+    "__tests__/commandblock-ui.test.tsx",
+    "__tests__/conversation.test.ts",
     "__tests__/cutover.test.ts",
     "__tests__/delegation.test.ts",
     "__tests__/deploy-tool/binding.test.ts",
@@ -411,6 +489,7 @@
     "__tests__/deploy-tool/round5.test.ts",
     "__tests__/deploy-tool/trust.test.ts",
     "__tests__/design-roles.test.tsx",
+    "__tests__/docread.test.ts",
     "__tests__/docs.test.ts",
     "__tests__/event-loop-turns.test.ts",
     "__tests__/evidence-parity.test.ts",
@@ -426,6 +505,8 @@
     "__tests__/home-ui-engine.test.ts",
     "__tests__/home-ui-install-build.test.ts",
     "__tests__/home-ui-script.test.ts",
+    "__tests__/home-wiring.test.ts",
+    "__tests__/inline-command.test.tsx",
     "__tests__/install-failure-paths.test.ts",
     "__tests__/install-script.test.ts",
     "__tests__/learn.test.tsx",
@@ -435,23 +516,31 @@
     "__tests__/migrations.test.ts",
     "__tests__/model.test.ts",
     "__tests__/move-filing.test.ts",
+    "__tests__/multi-pick.test.tsx",
     "__tests__/no-exec.test.ts",
     "__tests__/onpick-ingest.test.ts",
     "__tests__/onpick-vectors.test.ts",
     "__tests__/other-images.test.ts",
     "__tests__/ownership.test.ts",
     "__tests__/pick-ledger-readback.test.ts",
+    "__tests__/pick-reason-digest.test.ts",
     "__tests__/pick-relay-core.test.ts",
+    "__tests__/pick-send-deadline.test.ts",
     "__tests__/pickhandler-native-races.test.ts",
     "__tests__/pickhandler-recovery.test.ts",
+    "__tests__/pickhandler-review232.test.tsx",
     "__tests__/pickhandler-rollback.test.ts",
     "__tests__/pickhead.test.ts",
+    "__tests__/pilotmetrics.test.ts",
     "__tests__/properties.test.ts",
+    "__tests__/real-env.test.ts",
     "__tests__/restore-script.test.ts",
     "__tests__/rig-acceptance.test.ts",
     "__tests__/rig-isolation.test.ts",
     "__tests__/rigexec.test.ts",
+    "__tests__/root-fsid-migration.test.ts",
     "__tests__/root-launcher.test.ts",
+    "__tests__/rootrun.test.ts",
     "__tests__/ruling-race.test.ts",
     "__tests__/ruling.test.ts",
     "__tests__/seams.test.ts",
@@ -459,9 +548,14 @@
     "__tests__/settled.test.ts",
     "__tests__/stopped.test.ts",
     "__tests__/store-crash.test.ts",
+    "__tests__/store.test.ts",
     "__tests__/subject-key.test.ts",
     "__tests__/tasks.test.ts",
+    "__tests__/trigger.test.ts",
+    "__tests__/unreadable-card-notice.test.ts",
+    "__tests__/unreadable-card.test.ts",
     "__tests__/update-ui.test.tsx",
+    "__tests__/updates.test.ts",
     "__tests__/write-scope.test.ts"
   ],
   "unread_markdown": [
