@@ -155,6 +155,22 @@ for package in cmd/autarch newpackage; do
   git add "$package/plugin_test.go"
   git commit -qm fixture-reader-complete
 done
+# A helper can read plugin input even when no test calls the audited Go APIs.
+mkdir -p cmd/autarch
+printf 'package fixture\nimport ("os"; "testing")\nfunc checkPlugin(t *testing.T, p string) { if _, err := os.ReadFile(p); err != nil { t.Fatal(err) } }\n' > cmd/autarch/helper.go
+for style in literal segments; do
+  if [[ $style == literal ]]; then
+    printf 'package fixture\nimport "testing"\nfunc TestPlugin(t *testing.T) { checkPlugin(t, "../../integrations/bb-plugin-autarch/value.ts") }\n' > cmd/autarch/plugin_test.go
+  else
+    printf 'package fixture\nimport ("testing"; "path/filepath")\nfunc TestPlugin(t *testing.T) { checkPlugin(t, filepath.Join("..", "..", "integrations", "bb-plugin-" + "autarch", "value.ts")) }\n' > cmd/autarch/plugin_test.go
+  fi
+  git add cmd/autarch/helper.go cmd/autarch/plugin_test.go
+  git commit -qm helper-reader
+  check integrations/bb-plugin-autarch/value.ts 'Go reader missing plugin side'
+  printf 'package fixture\n' > cmd/autarch/plugin_test.go
+  git add cmd/autarch/plugin_test.go
+  git commit -qm fixture-helper-complete
+done
 # New readers fail closed pending an explicit manifest audit.
 mkdir -p integrations/bb-plugin-autarch/__tests__
 printf '/* readFileSync */\n' > integrations/bb-plugin-autarch/__tests__/new-reader.test.ts

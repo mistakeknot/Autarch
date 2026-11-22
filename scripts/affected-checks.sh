@@ -95,7 +95,7 @@ if (reason or go_files or ts_files):
             continue
         package = './' if path.parent == Path('.') else './' + path.parent.as_posix()
         text = path.read_text()
-        if re.search(r'bb-plugin-autarch|integrations/', text) and 'plugin' not in readers['go'].get(package, {}).get('sides', []):
+        if re.search(r"""bb-plugin-autarch|integrations/|["']integrations["']""", text) and 'plugin' not in readers['go'].get(package, {}).get('sides', []):
             reason = 'Go reader missing plugin side: ' + path.as_posix()
             break
         if audit_go.search(text) and package not in readers['go']:

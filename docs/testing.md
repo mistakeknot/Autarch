@@ -23,7 +23,8 @@ the pinned Vitest specification API; an unavailable API fails safely to full.
 [scripts/affected-readers.json](../scripts/affected-readers.json) is the explicit
 reader manifest. Vitest readers run for every non-documentation change.
 Each Go entry records its audited input sides, test evidence and rationale.
-A Go test mentioning `bb-plugin-autarch` or `integrations/` forces full checks
+A Go test mentioning `bb-plugin-autarch`, `integrations/`, or a quoted
+`integrations` path segment forces full checks
 unless its package explicitly lists the plugin side, even for existing Go-only
 entries. This also protects later TS-only changes after a test is added.
 Go changes retain all Go readers; plugin-only changes keep the entries with
