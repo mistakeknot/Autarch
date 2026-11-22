@@ -33,6 +33,7 @@ func TestNeedsMkVizierOwnership(t *testing.T) {
 		{"vizier needs owner", true, nil, true},
 		{"vizier routes owner", true, []string{"--owner-thread", "thr_owner"}, false},
 		{"ordinary routes owner", false, []string{"--owner-thread", "thr_owner"}, false},
+		{"ordinary self", false, []string{"--owner-thread", "thr_x"}, false},
 		{"both empty refused", true, []string{"--vizier-owned", "--owner-thread", ""}, true},
 		{"vizier own", true, []string{"--vizier-owned"}, false},
 		{"ordinary needs neither flag", false, nil, false},
@@ -52,6 +53,9 @@ func TestNeedsMkVizierOwnership(t *testing.T) {
 				}
 			} else if err != nil || s.creates != 1 {
 				t.Fatalf("err=%v creates=%d", err, s.creates)
+			}
+			if tc.name == "ordinary self" && (!s.commented || s.thread != "thr_x") {
+				t.Fatalf("self-owner routing: commented=%v thread=%q", s.commented, s.thread)
 			}
 		})
 	}

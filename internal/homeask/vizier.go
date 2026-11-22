@@ -28,6 +28,7 @@ func (f *CardFiler) CheckVizierOwnership(ctx context.Context, thread, owner stri
 		if owned || strings.HasPrefix(current.Thread.Title, "Masaq' | vizier") {
 			return refusal("cannot resolve the vizier")
 		}
+		// An unidentifiable caller stays allowed so lookup outages do not block ordinary threads.
 		return nil
 	}
 	hits := []string{}
