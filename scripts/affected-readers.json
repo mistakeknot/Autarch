@@ -121,13 +121,12 @@
     },
     "./internal/gurgeh/architecture": {
       "sides": [
-        "go",
-        "plugin"
+        "go"
       ],
       "evidence": [
         "strategist_test.go"
       ],
-      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+      "reason": "Only integration prose/comments matched the former word audit; no path-like plugin input remains after comment stripping."
     },
     "./internal/gurgeh/brief": {
       "sides": [
@@ -151,24 +150,22 @@
     },
     "./internal/gurgeh/dependency": {
       "sides": [
-        "go",
-        "plugin"
+        "go"
       ],
       "evidence": [
         "tracer.go",
         "tracer_test.go"
       ],
-      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+      "reason": "Only integration prose/comments matched the former word audit; no path-like plugin input remains after comment stripping."
     },
     "./internal/gurgeh/patterns": {
       "sides": [
-        "go",
-        "plugin"
+        "go"
       ],
       "evidence": [
         "recognizer.go"
       ],
-      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+      "reason": "Only integration prose/comments matched the former word audit; no path-like plugin input remains after comment stripping."
     },
     "./internal/gurgeh/research": {
       "sides": [
@@ -181,13 +178,12 @@
     },
     "./internal/gurgeh/spec": {
       "sides": [
-        "go",
-        "plugin"
+        "go"
       ],
       "evidence": [
         "specflow_analyzer.go"
       ],
-      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+      "reason": "Only integration prose/comments matched the former word audit; no path-like plugin input remains after comment stripping."
     },
     "./internal/gurgeh/specs": {
       "sides": [
@@ -218,14 +214,13 @@
     },
     "./internal/gurgeh/validation": {
       "sides": [
-        "go",
-        "plugin"
+        "go"
       ],
       "evidence": [
         "validation.go",
         "validation_test.go"
       ],
-      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+      "reason": "Only integration prose/comments matched the former word audit; no path-like plugin input remains after comment stripping."
     },
     "./internal/homeask": {
       "sides": [
@@ -320,13 +315,12 @@
     },
     "./internal/pollard/server": {
       "sides": [
-        "go",
-        "plugin"
+        "go"
       ],
       "evidence": [
         "server.go"
       ],
-      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+      "reason": "Only integration prose/comments matched the former word audit; no path-like plugin input remains after comment stripping."
     },
     "./internal/reviewagent": {
       "sides": [
@@ -409,13 +403,12 @@
     },
     "./pkg/plan": {
       "sides": [
-        "go",
-        "plugin"
+        "go"
       ],
       "evidence": [
         "plan_test.go"
       ],
-      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+      "reason": "Only integration prose/comments matched the former word audit; no path-like plugin input remains after comment stripping."
     },
     "./pkg/review": {
       "sides": [
