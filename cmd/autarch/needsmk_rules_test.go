@@ -33,9 +33,10 @@ func TestNeedsMkVizierOwnership(t *testing.T) {
 		{"vizier needs owner", true, nil, true},
 		{"vizier routes owner", true, []string{"--owner-thread", "thr_owner"}, false},
 		{"ordinary routes owner", false, []string{"--owner-thread", "thr_owner"}, false},
+		{"ordinary self", false, []string{"--owner-thread", "thr_x"}, false},
 		{"both empty refused", true, []string{"--vizier-owned", "--owner-thread", ""}, true},
 		{"vizier own", true, []string{"--vizier-owned"}, false},
-		{"ordinary needs owner", false, nil, true},
+		{"ordinary needs neither flag", false, nil, false},
 		{"ordinary cannot mark vizier", false, []string{"--vizier-owned"}, true},
 		{"both refused", true, []string{"--vizier-owned", "--owner-thread", "thr_other"}, true},
 	} {
@@ -52,6 +53,41 @@ func TestNeedsMkVizierOwnership(t *testing.T) {
 				}
 			} else if err != nil || s.creates != 1 {
 				t.Fatalf("err=%v creates=%d", err, s.creates)
+			}
+			if tc.name == "ordinary self" && (!s.commented || s.thread != "thr_x") {
+				t.Fatalf("self-owner routing: commented=%v thread=%q", s.commented, s.thread)
+			}
+		})
+	}
+}
+
+func TestNeedsMkVizierOwnershipCheckOnly(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_x")
+	for _, tc := range []struct {
+		name    string
+		vizier  bool
+		flags   []string
+		refused bool
+	}{
+		{"ordinary neither", false, nil, false},
+		{"ordinary self", false, []string{"--owner-thread", "thr_x"}, false},
+		{"ordinary another live thread", false, []string{"--owner-thread", "thr_owner"}, false},
+		{"vizier neither", true, nil, true},
+		{"both flags", false, []string{"--owner-thread", "thr_x", "--vizier-owned"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &stubBB{vizier: tc.vizier}
+			args := append([]string{"file", "--check", "--project", "P1", "--title", "Ship?", "--ask-file", writeAsk(t)}, tc.flags...)
+			out, err := runNeedsMk(t, s, args...)
+			if tc.refused {
+				if err == nil || exitCode(err) != 2 || !strings.Contains(err.Error(), "--vizier-owned") {
+					t.Fatalf("expected ownership refusal, got %v", err)
+				}
+			} else if err != nil || out != `{"checked":true}` {
+				t.Fatalf("out=%s err=%v", out, err)
+			}
+			if calls := writeCalls(s); len(calls) != 0 {
+				t.Fatalf("check wrote: %v", calls)
 			}
 		})
 	}

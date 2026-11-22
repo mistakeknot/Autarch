@@ -29,3 +29,17 @@ func TestVizierResolutionFailureScope(t *testing.T) {
 		})
 	}
 }
+
+func TestVizierBothLookupsFailWithoutOwnershipFlags(t *testing.T) {
+	var calls []string
+	f := &CardFiler{Run: func(_ context.Context, _ []string, args ...string) BBResult {
+		calls = append(calls, strings.Join(args, " "))
+		return *badRes(1, "offline")
+	}}
+	if err := f.CheckVizierOwnership(context.Background(), "thr_x", "", false); err != nil {
+		t.Fatalf("unidentifiable caller must remain allowed: %v", err)
+	}
+	if got := strings.Join(calls, ";"); got != "thread list --json;thread show thr_x --json" {
+		t.Fatalf("lookup attempts: %s", got)
+	}
+}

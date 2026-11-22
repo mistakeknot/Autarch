@@ -35,9 +35,8 @@ func (f *CardFiler) Preflight(ctx context.Context, r CardRequest) error {
 	if err != nil {
 		add(fmt.Errorf("%w; use the registered project and root pair", err))
 	}
-	if r.Owner == "" && !r.VizierOwned {
-		add(fmt.Errorf("%w: give --owner-thread or --vizier-owned", ErrInvalid))
-	}
+	// Missing ownership flags are valid for ordinary callers. The CLI checks
+	// the vizier-only requirement through CheckVizierOwnership.
 	if r.Owner != "" && r.VizierOwned {
 		add(fmt.Errorf("%w: give exactly one ownership flag", ErrInvalid))
 	}

@@ -35,12 +35,12 @@ func TestCLIReplayWithMissingTemporaryMedia(t *testing.T) {
 
 func TestNeedsMkAggregateOwnershipAndFormat(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thr_x")
-	// Deliberately bypass the fixture helper that supplies an owner.
+	// Exercise conflicting ownership flags alongside malformed card fields.
 	root := &cobra.Command{Use: "autarch"}
 	root.AddCommand(needsMkCmd())
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})
-	root.SetArgs([]string{"needs-mk", "file", "--project", "P1", "--title", "Choose", "--card-type", "design", "--ask-file", writeAskBody(t, `{"project":"sample","project_root":"/sample","question":"Which?","options":[{"id":"A","label":"A","kind":"ruling-only"},{"id":"b","label":"Wait","kind":"ruling-only"}]}`), "--check"})
+	root.SetArgs([]string{"needs-mk", "file", "--project", "P1", "--title", "Choose", "--card-type", "design", "--owner-thread", "thr_x", "--vizier-owned", "--ask-file", writeAskBody(t, `{"project":"sample","project_root":"/sample","question":"Which?","options":[{"id":"A","label":"A","kind":"ruling-only"},{"id":"b","label":"Wait","kind":"ruling-only"}]}`), "--check"})
 	// runNeedsMk installs the stubs; --check completes before any mutation.
 	s := &stubBB{}
 	_, _ = runNeedsMk(t, s, "file", "--project", "P1", "--title", "Choose", "--ask-file", writeAsk(t), "--check")
