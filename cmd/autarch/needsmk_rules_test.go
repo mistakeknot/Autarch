@@ -63,12 +63,12 @@ func TestNeedsMkVizierOwnership(t *testing.T) {
 					if strings.HasPrefix(strings.Join(call, " "), "tasks create ") {
 						created = true
 					}
-					if created && strings.Join(call, " ") == "thread show thr_x --json" {
+					if !created && strings.Join(call, " ") == "thread show thr_x --json" {
 						checkedOwner = true
 					}
 				}
 				if !checkedOwner {
-					t.Fatalf("self-owner must be checked after creation; calls=%v", s.calls)
+					t.Fatalf("self-owner must be checked before creation; calls=%v", s.calls)
 				}
 			}
 		})
