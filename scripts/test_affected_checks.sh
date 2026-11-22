@@ -31,6 +31,13 @@ for text, expected in [
     ('const command = "$(ls integrations)"', True),
     ('const command = "ls integrations*"', True),
     ('const command = "cd integrations&&ls"', True),
+    ('const command = "tar czf out.tgz integrations"', True),
+    ('const command = "cat >integrations"', True),
+    ('const command = "cp integrations backup"', True),
+    ('const command = "rg TODO integrations"', True),
+    ('const command = "reader <integrations"', True),
+    ('const command = "writer >integrations"', True),
+    ('const note = "run the test for integrations"', True),
     ('const path = "../../integrations"', True),
     ('const path = `integrations`', True),
     ('const path = "//bb-plugin-autarch"', True),
@@ -195,7 +202,8 @@ for style in line block prose rawprose escapedprose; do
 done
 # Shell/flag context must be in the same literal as the space-delimited path.
 for command_text in 'cd integrations && git ls-files' 'git ls-files integrations' '--dir=integrations' \
-  'cd integrations; ls' '$(ls integrations)' 'ls integrations*' 'cd integrations&&ls'; do
+  'cd integrations; ls' '$(ls integrations)' 'ls integrations*' 'cd integrations&&ls' \
+  'tar czf out.tgz integrations' 'cat >integrations' 'cp integrations backup' 'rg TODO integrations'; do
   printf 'package fixture\nimport "os/exec"\nvar command = exec.Command("sh", "-c", "%s")\n' "$command_text" > cmd/autarch/shell_test.go
   git add cmd/autarch/shell_test.go
   git -c user.name=Fixture -c user.email=fixture commit -qm shell-input
@@ -204,6 +212,14 @@ for command_text in 'cd integrations && git ls-files' 'git ls-files integrations
   git add cmd/autarch/shell_test.go
   git -c user.name=Fixture -c user.email=fixture commit -qm shell-input-complete
 done
+# Common command words can occur in prose; conservatively require full checks.
+printf 'package fixture\nconst note = "run the test for integrations"\n' > cmd/autarch/command_prose_test.go
+git add cmd/autarch/command_prose_test.go
+git -c user.name=Fixture -c user.email=fixture commit -qm command-prose
+check integrations/bb-plugin-autarch/value.ts 'Go reader missing plugin side: cmd/autarch/command_prose_test.go'
+printf 'package fixture\n' > cmd/autarch/command_prose_test.go
+git add cmd/autarch/command_prose_test.go
+git -c user.name=Fixture -c user.email=fixture commit -qm command-prose-complete
 # A plugin read added to either an existing Go-only reader or a new package
 # must remain visible to a later TS-only change.
 for package in cmd/autarch newpackage; do

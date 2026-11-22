@@ -32,8 +32,10 @@ comments; `integrations` counts with a slash or backslash on either side,
 or when quote/backtick-delimited. This keeps shell/regexp paths, prefix paths
 and raw segments while ignoring prose. Within one literal, integrations
 delimited by whitespace, equals, shell punctuation or the string edge also
-counts if that literal holds a shell/flag
-token: a word beginning with -, cd, ls, ls-files, git, find, &&, | or ;.
+counts if that literal holds a shell/flag token: a word beginning with -, a
+listed command word, or &&, |, ;, < or >. The command words are cd, ls,
+ls-files, git, find, tar, cat, cp, mv, rm, rg, grep, du, rsync, test, stat,
+wc, head, tail, sh and bash.
 Attached punctuation such as `integrations;`, `integrations&&ls` or
 `$(ls integrations)` also counts. Tokens in a different literal do not supply
 that context.
@@ -72,6 +74,10 @@ select full checks, as do other Markdown files without an exemption.
 Deliberately split strings such as "integra" + "tions" remain a known static
 analysis limit. Run full checks when reviewing such dependencies; the full
 merge-head suite remains required regardless of the affected plan.
+The bare-word rule depends on the shell-word list above: commands outside
+that list are another known limit covered by the required full merge-head
+suite. Common command words can also occur in prose: "run the test for
+integrations" conservatively selects full checks in a Go-only package.
 
 ## Merge checks and fixtures
 
