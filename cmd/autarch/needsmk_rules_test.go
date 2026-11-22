@@ -57,6 +57,20 @@ func TestNeedsMkVizierOwnership(t *testing.T) {
 			if tc.name == "ordinary self" && (!s.commented || s.thread != "thr_x") {
 				t.Fatalf("self-owner routing: commented=%v thread=%q", s.commented, s.thread)
 			}
+			if tc.name == "ordinary self" {
+				created, checkedOwner := false, false
+				for _, call := range s.calls {
+					if strings.HasPrefix(strings.Join(call, " "), "tasks create ") {
+						created = true
+					}
+					if created && strings.Join(call, " ") == "thread show thr_x --json" {
+						checkedOwner = true
+					}
+				}
+				if !checkedOwner {
+					t.Fatalf("self-owner must be checked after creation; calls=%v", s.calls)
+				}
+			}
 		})
 	}
 }
