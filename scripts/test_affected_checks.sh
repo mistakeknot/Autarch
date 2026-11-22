@@ -75,7 +75,7 @@ check leaf/leaf.go 'mode: affected'
 grep -q 'go list -buildvcs=false' "$AFFECTED_LOG"
 check integrations/bb-plugin-autarch/value.ts 'vitest run --maxWorkers=2'
 go_plan=$(printf '%s\n' "$plan" | sed -n '/^Go packages:/p')
-[[ $go_plan == 'Go packages: ./docs/wiki ./internal/homeask ./scripts/verify' ]]
+[[ $go_plan == 'Go packages: ./docs/wiki ./internal/gurgeh/architecture ./internal/gurgeh/dependency ./internal/gurgeh/patterns ./internal/gurgeh/spec ./internal/gurgeh/validation ./internal/homeask ./internal/pollard/server ./pkg/plan ./scripts/verify' ]]
 for reader in no-exec.test.ts seams.test.ts write-scope.test.ts rigexec.test.ts docs.test.ts build-identity.test.ts design-roles.test.tsx; do
   [[ $plan == *"$reader"* ]]
 done
@@ -158,11 +158,18 @@ done
 # A helper can read plugin input even when no test calls the audited Go APIs.
 mkdir -p cmd/autarch
 printf 'package fixture\nimport ("os"; "testing")\nfunc checkPlugin(t *testing.T, p string) { if _, err := os.ReadFile(p); err != nil { t.Fatal(err) } }\n' > cmd/autarch/helper.go
-for style in literal segments; do
+for style in literal segments prefix raw helper; do
   if [[ $style == literal ]]; then
     printf 'package fixture\nimport "testing"\nfunc TestPlugin(t *testing.T) { checkPlugin(t, "../../integrations/bb-plugin-autarch/value.ts") }\n' > cmd/autarch/plugin_test.go
+  elif [[ $style == segments || $style == raw ]]; then
+    segment='"integrations"'
+    if [[ $style == raw ]]; then segment='`integrations`'; fi
+    printf 'package fixture\nimport ("testing"; "path/filepath")\nfunc TestPlugin(t *testing.T) { checkPlugin(t, filepath.Join("..", "..", %s, "bb-plugin-" + "autarch", "value.ts")) }\n' "$segment" > cmd/autarch/plugin_test.go
+  elif [[ $style == prefix ]]; then
+    printf 'package fixture\nimport "testing"\nfunc TestPlugin(t *testing.T) { root := "../../integrations"; checkPlugin(t, root + "/" + "bb-plugin-" + "autarch/value.ts") }\n' > cmd/autarch/plugin_test.go
   else
-    printf 'package fixture\nimport ("testing"; "path/filepath")\nfunc TestPlugin(t *testing.T) { checkPlugin(t, filepath.Join("..", "..", "integrations", "bb-plugin-" + "autarch", "value.ts")) }\n' > cmd/autarch/plugin_test.go
+    printf 'package fixture\nimport ("os"; "testing")\nfunc checkPlugin(t *testing.T, _ string) { if _, err := os.ReadFile("../../integrations/bb-plugin-autarch/value.ts"); err != nil { t.Fatal(err) } }\n' > cmd/autarch/helper.go
+    printf 'package fixture\nimport "testing"\nfunc TestPlugin(t *testing.T) { checkPlugin(t, "") }\n' > cmd/autarch/plugin_test.go
   fi
   git add cmd/autarch/helper.go cmd/autarch/plugin_test.go
   git commit -qm helper-reader
@@ -170,6 +177,11 @@ for style in literal segments; do
   printf 'package fixture\n' > cmd/autarch/plugin_test.go
   git add cmd/autarch/plugin_test.go
   git commit -qm fixture-helper-complete
+  if [[ $style == helper ]]; then
+    printf 'package fixture\nimport ("os"; "testing")\nfunc checkPlugin(t *testing.T, p string) { if _, err := os.ReadFile(p); err != nil { t.Fatal(err) } }\n' > cmd/autarch/helper.go
+    git add cmd/autarch/helper.go
+    git commit -qm helper-neutral
+  fi
 done
 # New readers fail closed pending an explicit manifest audit.
 mkdir -p integrations/bb-plugin-autarch/__tests__

@@ -23,13 +23,16 @@ the pinned Vitest specification API; an unavailable API fails safely to full.
 [scripts/affected-readers.json](../scripts/affected-readers.json) is the explicit
 reader manifest. Vitest readers run for every non-documentation change.
 Each Go entry records its audited input sides, test evidence and rationale.
-A Go test mentioning `bb-plugin-autarch`, `integrations/`, or a quoted
-`integrations` path segment forces full checks
-unless its package explicitly lists the plugin side, even for existing Go-only
-entries. This also protects later TS-only changes after a test is added.
+Every tracked Go source (including non-test helpers) is checked for the word
+`integrations` or `bb-plugin-autarch`. A match forces full checks unless the
+package explicitly lists the plugin side. This covers prefix paths, quoted or
+raw segments and helpers holding a path that their tests never mention.
 Go changes retain all Go readers; plugin-only changes keep the entries with
 plugin inputs: docs/wiki (ghsync.ts), internal/homeask (plugin card fixtures),
-and scripts/verify (plugin UI/server/e2e sources). Other entries read Go
+and scripts/verify (plugin UI/server/e2e sources), plus packages conservatively
+listed because general integration terminology matches the word-level audit.
+These additional packages need not currently read plugin input; the manifest
+records the matching source evidence. Other entries read Go
 sources, generated fixtures or local test outputs and do not read plugin inputs.
 The list deliberately over-includes direct filesystem/process readers rather than assume a read is
 only a fixture. It includes:

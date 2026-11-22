@@ -119,6 +119,16 @@
       ],
       "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
     },
+    "./internal/gurgeh/architecture": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "strategist_test.go"
+      ],
+      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+    },
     "./internal/gurgeh/brief": {
       "sides": [
         "go"
@@ -139,6 +149,27 @@
       ],
       "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
     },
+    "./internal/gurgeh/dependency": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "tracer.go",
+        "tracer_test.go"
+      ],
+      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+    },
+    "./internal/gurgeh/patterns": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "recognizer.go"
+      ],
+      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+    },
     "./internal/gurgeh/research": {
       "sides": [
         "go"
@@ -147,6 +178,16 @@
         "research_test.go"
       ],
       "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/gurgeh/spec": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "specflow_analyzer.go"
+      ],
+      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
     },
     "./internal/gurgeh/specs": {
       "sides": [
@@ -174,6 +215,17 @@
         "suggestions_test.go"
       ],
       "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./internal/gurgeh/validation": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "validation.go",
+        "validation_test.go"
+      ],
+      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
     },
     "./internal/homeask": {
       "sides": [
@@ -266,6 +318,16 @@
       ],
       "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
     },
+    "./internal/pollard/server": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "server.go"
+      ],
+      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
+    },
     "./internal/reviewagent": {
       "sides": [
         "go"
@@ -344,6 +406,16 @@
         "server_test.go"
       ],
       "reason": "Filesystem reads are package/generated fixtures; no plugin source reads in audited tests."
+    },
+    "./pkg/plan": {
+      "sides": [
+        "go",
+        "plugin"
+      ],
+      "evidence": [
+        "plan_test.go"
+      ],
+      "reason": "Conservative word-level integrations match in planning/validation source or tests; listed for plugin changes to avoid suppressing future helper reads."
     },
     "./pkg/review": {
       "sides": [
