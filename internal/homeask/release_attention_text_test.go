@@ -48,3 +48,31 @@ func TestProjectAttentionStateReadFailureAdvice(t *testing.T) {
 		t.Fatalf("misleading advice: %v", attention)
 	}
 }
+
+func TestProjectAttentionMixedLocateErrorKeepsRetryAdvice(t *testing.T) {
+	f := newFake(t, registryOnCreate).filer()
+	f.StateDir = t.TempDir()
+	state, path, done, err := f.openState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := filingEntry{Attempted: true, Held: true}
+	state["sample"] = entry
+	err = saveFilingState(path, state)
+	done()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Match reconciliation's joined cause: request faults must not hide an outage.
+	cause := errors.Join(ErrProjectNotFound, errors.Join(ErrInvalid, ErrHomeDown))
+	attention, err := f.recordProjectOwnerAttention("sample", "thr_owner", cause, &projectAbsenceProof{snapshot: entry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(attention, ErrInvalid) || !errors.Is(attention, ErrHomeDown) {
+		t.Fatalf("lost joined cause: %v", attention)
+	}
+	if !strings.Contains(attention.remediation, "once bb is reachable") || strings.Contains(attention.remediation, "ask the vizier") {
+		t.Fatalf("outage must retain retry advice: %v", attention)
+	}
+}
