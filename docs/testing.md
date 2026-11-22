@@ -25,18 +25,20 @@ reader manifest. Vitest readers run for every non-documentation change.
 Each Go entry records its audited input sides, test evidence and rationale.
 Every tracked Go source (including non-test helpers) is checked outside line
 and block comments; compiler `//go:` directives are retained. Literal strings
-are preserved, including comment markers
-inside quoted or raw paths. `bb-plugin-autarch` matches anywhere outside
+are preserved, including comment markers inside quoted or raw paths.
+Interpreted-string escapes are decoded before classification, so a prose
+newline escape is not mistaken for a Windows path separator. `bb-plugin-autarch` matches anywhere outside
 comments; `integrations` counts with a slash or backslash on either side,
 or when quote/backtick-delimited. This keeps shell/regexp paths, prefix paths
-and raw segments while ignoring prose.
+and raw segments while ignoring prose. Within one literal, a space- or
+equals-delimited integrations also counts if that literal holds a shell/flag
+token: a word beginning with -, cd, ls, ls-files, git, find, &&, | or ;.
+Tokens in a different literal do not supply that context.
 A match forces full checks unless the package explicitly lists the plugin side.
 Go changes retain all Go readers; plugin-only changes keep the entries with
 plugin inputs: docs/wiki (ghsync.ts), internal/homeask (plugin card fixtures),
-and scripts/verify (plugin UI/server/e2e sources). The dependency package is
-also conservatively retained: a prompt string has a source backslash immediately
-after integrations (an escaped newline). Other prose-only mentions do not add
-a package to plugin-only plans.
+and scripts/verify (plugin UI/server/e2e sources). Prose-only integration
+mentions, including escaped newlines, do not add a package to plugin-only plans.
 The list deliberately over-includes direct filesystem/process readers rather than assume a read is
 only a fixture. It includes:
 
@@ -63,6 +65,10 @@ files, deleted/renamed files and unmappable Go packages select full checks.
 Markdown is exempt only when explicitly audited in the manifest. In particular,
 docs/wiki/src pages and the plugin README and overview are test inputs and
 select full checks, as do other Markdown files without an exemption.
+
+Deliberately split strings such as "integra" + "tions" remain a known static
+analysis limit. Run full checks when reviewing such dependencies; the full
+merge-head suite remains required regardless of the affected plan.
 
 ## Merge checks and fixtures
 

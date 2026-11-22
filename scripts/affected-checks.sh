@@ -21,8 +21,36 @@ def go_plugin_input(text):
         r"|`[^`]*`"
         r"|'(?:\\.|[^'\\])*'"
         r"|//[^\n]*|/\*[\s\S]*?\*/")
-    code = token.sub(lambda m: ' ' if m[0].startswith(('//', '/*')) and not m[0].startswith('//go:') else m[0], text)
-    return re.search(r"bb-plugin-autarch|[\"'/`]integrations[\"'/`]|[/\\]\bintegrations\b|\bintegrations\b[/\\]", code) is not None
+    literals = []
+    def without_comment(match):
+        value = match[0]
+        if value.startswith('//go:'):
+            return value
+        if value.startswith(('//', '/*')):
+            return ' '
+        if value[0] in ('"', '`'):
+            if value[0] == '`':
+                content = value[1:-1]
+            else:
+                # Go's interpreted-string escapes share these forms with Python.
+                # Decode them so an escaped newline is not mistaken for a path slash.
+                import ast
+                try:
+                    content = ast.literal_eval(value)
+                except (ValueError, SyntaxError):
+                    content = value[1:-1]  # uncertain syntax stays conservative
+            literals.append(content)
+            return value[0] + content + value[-1]
+        return value
+    code = token.sub(without_comment, text)
+    if re.search(r"bb-plugin-autarch|[\"'/`]integrations[\"'/`]|[/\\]\bintegrations\b|\bintegrations\b[/\\]", code):
+        return True
+    for value in literals:
+        path = re.search(r'(?:^|[\s=])integrations(?=$|[\s=])', value)
+        shell = re.search(r'(?:^|\s)(?:-\S+|cd|ls|ls-files|git|find)(?=\s|$)|&&|[|;]', value)
+        if path and shell:
+            return True
+    return False
 
 script_dir = Path(sys.argv[1])
 base, head = sys.argv[2:4]

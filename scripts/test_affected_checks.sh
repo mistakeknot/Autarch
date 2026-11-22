@@ -21,6 +21,12 @@ for text, expected in [
     ('// scanner for integrations', False),
     ('/* bb-plugin-autarch */', False),
     ('const note = "third-party integrations"', False),
+    (r'const note = "SaaS integrations\n"', False),
+    ('const a = "git"; const b = "third-party integrations"', False),
+    ('// cd integrations && git ls-files', False),
+    ('const command = "cd integrations && git ls-files"', True),
+    ('const command = "git ls-files integrations"', True),
+    ('const command = "--dir=integrations"', True),
     ('const path = "../../integrations"', True),
     ('const path = `integrations`', True),
     ('const path = "//bb-plugin-autarch"', True),
@@ -100,7 +106,7 @@ check leaf/leaf.go 'mode: affected'
 grep -q 'go list -buildvcs=false' "$AFFECTED_LOG"
 check integrations/bb-plugin-autarch/value.ts 'vitest run --maxWorkers=2'
 go_plan=$(printf '%s\n' "$plan" | sed -n '/^Go packages:/p')
-[[ $go_plan == 'Go packages: ./docs/wiki ./internal/gurgeh/dependency ./internal/homeask ./scripts/verify' ]]
+[[ $go_plan == 'Go packages: ./docs/wiki ./internal/homeask ./scripts/verify' ]]
 for reader in no-exec.test.ts seams.test.ts write-scope.test.ts rigexec.test.ts docs.test.ts build-identity.test.ts design-roles.test.tsx; do
   [[ $plan == *"$reader"* ]]
 done
@@ -168,12 +174,13 @@ check integrations/bb-plugin-autarch/read-by-static-scan.ts 'source readers:'
 [[ $plan == *'./docs/wiki'* && $plan != *'./internal/door'* && $plan == *'./__tests__/no-exec.test.ts'* ]]
 # Non-path prose in a Go-only package must not poison later plugin-only plans.
 mkdir -p cmd/autarch
-for style in line block prose rawprose; do
+for style in line block prose rawprose escapedprose; do
   case $style in
     line) printf 'package fixture\n// scanner for integrations\n' > cmd/autarch/prose_test.go ;;
     block) printf 'package fixture\n/* scanner for\n bb-plugin-autarch integrations\n*/\n' > cmd/autarch/prose_test.go ;;
     prose) printf 'package fixture\nconst note = "third-party integrations"\n' > cmd/autarch/prose_test.go ;;
     rawprose) printf 'package fixture\nconst note = `third-party integrations`\n' > cmd/autarch/prose_test.go ;;
+    escapedprose) printf '%s\n' 'package fixture' 'const note = "SaaS integrations\n"' > cmd/autarch/prose_test.go ;;
   esac
   git add cmd/autarch/prose_test.go
   git commit -qm prose
@@ -183,6 +190,16 @@ for style in line block prose rawprose; do
   printf 'package fixture\n' > cmd/autarch/prose_test.go
   git add cmd/autarch/prose_test.go
   git commit -qm prose-complete
+done
+# Shell/flag context must be in the same literal as the space-delimited path.
+for command_text in 'cd integrations && git ls-files' 'git ls-files integrations' '--dir=integrations'; do
+  printf 'package fixture\nimport "os/exec"\nvar command = exec.Command("sh", "-c", "%s")\n' "$command_text" > cmd/autarch/shell_test.go
+  git add cmd/autarch/shell_test.go
+  git commit -qm shell-input
+  check integrations/bb-plugin-autarch/value.ts 'Go reader missing plugin side: cmd/autarch/shell_test.go'
+  printf 'package fixture\n' > cmd/autarch/shell_test.go
+  git add cmd/autarch/shell_test.go
+  git commit -qm shell-input-complete
 done
 # A plugin read added to either an existing Go-only reader or a new package
 # must remain visible to a later TS-only change.
