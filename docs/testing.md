@@ -30,10 +30,13 @@ Interpreted-string escapes are decoded before classification, so a prose
 newline escape is not mistaken for a Windows path separator. `bb-plugin-autarch` matches anywhere outside
 comments; `integrations` counts with a slash or backslash on either side,
 or when quote/backtick-delimited. This keeps shell/regexp paths, prefix paths
-and raw segments while ignoring prose. Within one literal, a space- or
-equals-delimited integrations also counts if that literal holds a shell/flag
+and raw segments while ignoring prose. Within one literal, integrations
+delimited by whitespace, equals, shell punctuation or the string edge also
+counts if that literal holds a shell/flag
 token: a word beginning with -, cd, ls, ls-files, git, find, &&, | or ;.
-Tokens in a different literal do not supply that context.
+Attached punctuation such as `integrations;`, `integrations&&ls` or
+`$(ls integrations)` also counts. Tokens in a different literal do not supply
+that context.
 A match forces full checks unless the package explicitly lists the plugin side.
 Go changes retain all Go readers; plugin-only changes keep the entries with
 plugin inputs: docs/wiki (ghsync.ts), internal/homeask (plugin card fixtures),

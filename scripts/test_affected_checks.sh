@@ -27,6 +27,10 @@ for text, expected in [
     ('const command = "cd integrations && git ls-files"', True),
     ('const command = "git ls-files integrations"', True),
     ('const command = "--dir=integrations"', True),
+    ('const command = "cd integrations; ls"', True),
+    ('const command = "$(ls integrations)"', True),
+    ('const command = "ls integrations*"', True),
+    ('const command = "cd integrations&&ls"', True),
     ('const path = "../../integrations"', True),
     ('const path = `integrations`', True),
     ('const path = "//bb-plugin-autarch"', True),
@@ -40,8 +44,6 @@ for text, expected in [
 PYLEX
 cd "$scratch"
 git init -q
-git config user.name Fixture
-git config user.email fixture
 mkdir -p .checks/bin leaf consumer other testconsumer nested integrations/bb-plugin-autarch/node_modules/.bin
 printf '.checks/\nnode_modules/\n' > .gitignore
 printf 'module fixture\n\ngo 1.25\n' > go.mod
@@ -84,7 +86,7 @@ done
 chmod +x .checks/bin/{go,node}
 export PATH="$scratch/.checks/bin:$PATH"
 git add .
-git commit -qm initial
+git -c user.name=Fixture -c user.email=fixture commit -qm initial
 cases=0
 verify() {
   plan=$(bash "$script" HEAD~1 HEAD --print)
@@ -95,7 +97,7 @@ check() {
   mkdir -p "$(dirname "$1")"
   printf '\n' >> "$1"
   git add "$1"
-  git commit -qm change
+  git -c user.name=Fixture -c user.email=fixture commit -qm change
   verify "$2"
 }
 check leaf/leaf.go 'mode: affected'
@@ -161,11 +163,11 @@ check nested/main.go 'Go package mapping unavailable'
 # Physical deletion and rename add commits; no reference moves backwards.
 rm leaf/deleted.go
 git add leaf/deleted.go
-git commit -qm delete
+git -c user.name=Fixture -c user.email=fixture commit -qm delete
 verify 'missing input in checkout'
 mv leaf/old.go leaf/new.go
 git add leaf/old.go leaf/new.go
-git commit -qm rename
+git -c user.name=Fixture -c user.email=fixture commit -qm rename
 verify 'renamed input'
 AFFECTED_NO_RELATED=yes check integrations/bb-plugin-autarch/orphan.ts 'no related tests for'
 [[ $plan == *'vitest run --maxWorkers=2)'* ]]
@@ -183,23 +185,24 @@ for style in line block prose rawprose escapedprose; do
     escapedprose) printf '%s\n' 'package fixture' 'const note = "SaaS integrations\n"' > cmd/autarch/prose_test.go ;;
   esac
   git add cmd/autarch/prose_test.go
-  git commit -qm prose
+  git -c user.name=Fixture -c user.email=fixture commit -qm prose
   check integrations/bb-plugin-autarch/value.ts 'mode: affected'
   go_plan=$(printf '%s\n' "$plan" | sed -n '/^Go packages:/p')
   [[ $go_plan != *'./cmd/autarch'* ]]
   printf 'package fixture\n' > cmd/autarch/prose_test.go
   git add cmd/autarch/prose_test.go
-  git commit -qm prose-complete
+  git -c user.name=Fixture -c user.email=fixture commit -qm prose-complete
 done
 # Shell/flag context must be in the same literal as the space-delimited path.
-for command_text in 'cd integrations && git ls-files' 'git ls-files integrations' '--dir=integrations'; do
+for command_text in 'cd integrations && git ls-files' 'git ls-files integrations' '--dir=integrations' \
+  'cd integrations; ls' '$(ls integrations)' 'ls integrations*' 'cd integrations&&ls'; do
   printf 'package fixture\nimport "os/exec"\nvar command = exec.Command("sh", "-c", "%s")\n' "$command_text" > cmd/autarch/shell_test.go
   git add cmd/autarch/shell_test.go
-  git commit -qm shell-input
+  git -c user.name=Fixture -c user.email=fixture commit -qm shell-input
   check integrations/bb-plugin-autarch/value.ts 'Go reader missing plugin side: cmd/autarch/shell_test.go'
   printf 'package fixture\n' > cmd/autarch/shell_test.go
   git add cmd/autarch/shell_test.go
-  git commit -qm shell-input-complete
+  git -c user.name=Fixture -c user.email=fixture commit -qm shell-input-complete
 done
 # A plugin read added to either an existing Go-only reader or a new package
 # must remain visible to a later TS-only change.
@@ -209,11 +212,11 @@ for package in cmd/autarch newpackage; do
   if [[ $package == cmd/autarch ]]; then prefix=../..; fi
   printf 'package fixture\nimport ("os"; "testing")\nfunc TestPlugin(t *testing.T) { if _, err := os.ReadFile("%s/integrations/bb-plugin-autarch/value.ts"); err != nil { t.Fatal(err) } }\n' "$prefix" > "$package/plugin_test.go"
   git add "$package/plugin_test.go"
-  git commit -qm plugin-reader
+  git -c user.name=Fixture -c user.email=fixture commit -qm plugin-reader
   check integrations/bb-plugin-autarch/value.ts "Go reader missing plugin side: $package/plugin_test.go"
   printf 'package fixture\n' > "$package/plugin_test.go"
   git add "$package/plugin_test.go"
-  git commit -qm fixture-reader-complete
+  git -c user.name=Fixture -c user.email=fixture commit -qm fixture-reader-complete
 done
 # A helper can read plugin input even when no test calls the audited Go APIs.
 mkdir -p cmd/autarch
@@ -232,17 +235,17 @@ for style in literal segments prefix raw helper; do
     printf 'package fixture\nimport "testing"\nfunc TestPlugin(t *testing.T) { checkPlugin(t, "") }\n' > cmd/autarch/plugin_test.go
   fi
   git add cmd/autarch/helper.go cmd/autarch/plugin_test.go
-  git commit -qm helper-reader
+  git -c user.name=Fixture -c user.email=fixture commit -qm helper-reader
   reader_path=cmd/autarch/plugin_test.go
   if [[ $style == helper ]]; then reader_path=cmd/autarch/helper.go; fi
   check integrations/bb-plugin-autarch/value.ts "Go reader missing plugin side: $reader_path"
   printf 'package fixture\n' > cmd/autarch/plugin_test.go
   git add cmd/autarch/plugin_test.go
-  git commit -qm fixture-helper-complete
+  git -c user.name=Fixture -c user.email=fixture commit -qm fixture-helper-complete
   if [[ $style == helper ]]; then
     printf 'package fixture\nimport ("os"; "testing")\nfunc checkPlugin(t *testing.T, p string) { if _, err := os.ReadFile(p); err != nil { t.Fatal(err) } }\n' > cmd/autarch/helper.go
     git add cmd/autarch/helper.go
-    git commit -qm helper-neutral
+    git -c user.name=Fixture -c user.email=fixture commit -qm helper-neutral
   fi
 done
 # Paths in shell/regexp strings still couple a Go-only test to plugin inputs.
@@ -253,31 +256,31 @@ for shape in shell regexp; do
     printf 'package fixture\nimport "regexp"\nvar filter = regexp.MustCompile("^integrations/")\n' > cmd/autarch/path_test.go
   fi
   git add cmd/autarch/path_test.go
-  git commit -qm path-context
+  git -c user.name=Fixture -c user.email=fixture commit -qm path-context
   check integrations/bb-plugin-autarch/value.ts 'Go reader missing plugin side: cmd/autarch/path_test.go'
   printf 'package fixture\n' > cmd/autarch/path_test.go
   git add cmd/autarch/path_test.go
-  git commit -qm path-context-complete
+  git -c user.name=Fixture -c user.email=fixture commit -qm path-context-complete
 done
 # Go directives are build inputs, rather than discardable comments.
 printf '{}\n' > integrations/bb-plugin-autarch/package.json
 printf 'package fixture\nimport _ "embed"\n//go:embed integrations/bb-plugin-autarch/package.json\nvar embedded []byte\n' > embed.go
 git add embed.go integrations/bb-plugin-autarch/package.json
-git commit -qm embed-input
+git -c user.name=Fixture -c user.email=fixture commit -qm embed-input
 check integrations/bb-plugin-autarch/value.ts 'Go reader missing plugin side: embed.go'
 printf 'package fixture\n' > embed.go
 git add embed.go
-git commit -qm embed-complete
+git -c user.name=Fixture -c user.email=fixture commit -qm embed-complete
 # New readers fail closed pending an explicit manifest audit.
 mkdir -p integrations/bb-plugin-autarch/__tests__
 printf '/* readFileSync */\n' > integrations/bb-plugin-autarch/__tests__/new-reader.test.ts
 git add .
-git commit -qm reader
+git -c user.name=Fixture -c user.email=fixture commit -qm reader
 verify 'unlisted source reader'
 for snippet in 'new Worker(' 'execFile(' 'execFileSync(' 'spawn(' 'node:fs/promises' 'readFile(' 'createReadStream(' 'exec(' 'execSync(' 'fork(' 'existsSync(' 'statSync(' './v2build.js' './v6build.js' './hash-golden-helper.js' './deploy-tool/rig.js' './static-scan.js' "'./rig.js'"; do
   printf '// %s\n' "$snippet" > integrations/bb-plugin-autarch/__tests__/new-reader.test.ts
   git add integrations/bb-plugin-autarch/__tests__/new-reader.test.ts
-  git commit -qm mediated
+  git -c user.name=Fixture -c user.email=fixture commit -qm mediated
   verify 'unlisted source reader'
 done
 if AFFECTED_FAIL=yes bash "$script" HEAD~1 HEAD --run > /dev/null 2>&1; then exit 1; fi
@@ -285,12 +288,12 @@ printf 'dirty\n' >> README.md
 if bash "$script" HEAD~1 HEAD --print > .checks/refusal 2>&1; then exit 1; fi
 grep -q 'refused:' .checks/refusal
 git add README.md
-git commit -qm tracked
+git -c user.name=Fixture -c user.email=fixture commit -qm tracked
 printf 'untracked\n' > untracked.txt
 if bash "$script" HEAD~1 HEAD --print > .checks/refusal 2>&1; then exit 1; fi
 grep -q 'refused:' .checks/refusal
 git add untracked.txt
-git commit -qm untracked
+git -c user.name=Fixture -c user.email=fixture commit -qm untracked
 if bash "$script" HEAD~2 HEAD~1 --print > .checks/refusal 2>&1; then exit 1; fi
 grep -q 'refused:' .checks/refusal
 printf 'PASS: %s mapping cases, reader coverage, orphan fallback, execution, parser and three checkout refusals\n' "$cases"

@@ -45,9 +45,10 @@ def go_plugin_input(text):
     code = token.sub(without_comment, text)
     if re.search(r"bb-plugin-autarch|[\"'/`]integrations[\"'/`]|[/\\]\bintegrations\b|\bintegrations\b[/\\]", code):
         return True
+    boundary = r"""[\s=;|&()*$<>'"`]"""
     for value in literals:
-        path = re.search(r'(?:^|[\s=])integrations(?=$|[\s=])', value)
-        shell = re.search(r'(?:^|\s)(?:-\S+|cd|ls|ls-files|git|find)(?=\s|$)|&&|[|;]', value)
+        path = re.search(rf'(?:^|{boundary})integrations(?=$|{boundary})', value)
+        shell = re.search(rf'(?:^|{boundary})(?:-\S+|cd|ls|ls-files|git|find)(?=$|{boundary})|&&|[|;]', value)
         if path and shell:
             return True
     return False
