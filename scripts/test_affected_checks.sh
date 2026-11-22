@@ -25,6 +25,10 @@ for text, expected in [
     ('const path = `integrations`', True),
     ('const path = "//bb-plugin-autarch"', True),
     ('const path = `/*name*/integrations`', True),
+    (r'const path = "integrations\\value"', True),
+    (r'const path = "..\\integrations"', True),
+    ('//go:embed integrations/plugin/file.json', True),
+    ('/* //go:embed integrations/plugin/file.json */', False),
 ]:
     assert scan(text) == expected, text
 PYLEX
@@ -96,7 +100,7 @@ check leaf/leaf.go 'mode: affected'
 grep -q 'go list -buildvcs=false' "$AFFECTED_LOG"
 check integrations/bb-plugin-autarch/value.ts 'vitest run --maxWorkers=2'
 go_plan=$(printf '%s\n' "$plan" | sed -n '/^Go packages:/p')
-[[ $go_plan == 'Go packages: ./docs/wiki ./internal/homeask ./scripts/verify' ]]
+[[ $go_plan == 'Go packages: ./docs/wiki ./internal/gurgeh/dependency ./internal/homeask ./scripts/verify' ]]
 for reader in no-exec.test.ts seams.test.ts write-scope.test.ts rigexec.test.ts docs.test.ts build-identity.test.ts design-roles.test.tsx; do
   [[ $plan == *"$reader"* ]]
 done
@@ -224,6 +228,29 @@ for style in literal segments prefix raw helper; do
     git commit -qm helper-neutral
   fi
 done
+# Paths in shell/regexp strings still couple a Go-only test to plugin inputs.
+for shape in shell regexp; do
+  if [[ $shape == shell ]]; then
+    printf 'package fixture\nimport "os/exec"\nvar command = exec.Command("sh", "-c", "git ls-files integrations/")\n' > cmd/autarch/path_test.go
+  else
+    printf 'package fixture\nimport "regexp"\nvar filter = regexp.MustCompile("^integrations/")\n' > cmd/autarch/path_test.go
+  fi
+  git add cmd/autarch/path_test.go
+  git commit -qm path-context
+  check integrations/bb-plugin-autarch/value.ts 'Go reader missing plugin side: cmd/autarch/path_test.go'
+  printf 'package fixture\n' > cmd/autarch/path_test.go
+  git add cmd/autarch/path_test.go
+  git commit -qm path-context-complete
+done
+# Go directives are build inputs, rather than discardable comments.
+printf '{}\n' > integrations/bb-plugin-autarch/package.json
+printf 'package fixture\nimport _ "embed"\n//go:embed integrations/bb-plugin-autarch/package.json\nvar embedded []byte\n' > embed.go
+git add embed.go integrations/bb-plugin-autarch/package.json
+git commit -qm embed-input
+check integrations/bb-plugin-autarch/value.ts 'Go reader missing plugin side: embed.go'
+printf 'package fixture\n' > embed.go
+git add embed.go
+git commit -qm embed-complete
 # New readers fail closed pending an explicit manifest audit.
 mkdir -p integrations/bb-plugin-autarch/__tests__
 printf '/* readFileSync */\n' > integrations/bb-plugin-autarch/__tests__/new-reader.test.ts

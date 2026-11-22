@@ -24,15 +24,19 @@ the pinned Vitest specification API; an unavailable API fails safely to full.
 reader manifest. Vitest readers run for every non-documentation change.
 Each Go entry records its audited input sides, test evidence and rationale.
 Every tracked Go source (including non-test helpers) is checked outside line
-and block comments. Literal strings are preserved, including comment markers
+and block comments; compiler `//go:` directives are retained. Literal strings
+are preserved, including comment markers
 inside quoted or raw paths. `bb-plugin-autarch` matches anywhere outside
-comments; `integrations` must have quotes, slashes or backticks immediately
-on both sides. This keeps prefix paths and raw segments while ignoring prose.
+comments; `integrations` counts with a slash or backslash on either side,
+or when quote/backtick-delimited. This keeps shell/regexp paths, prefix paths
+and raw segments while ignoring prose.
 A match forces full checks unless the package explicitly lists the plugin side.
 Go changes retain all Go readers; plugin-only changes keep the entries with
 plugin inputs: docs/wiki (ghsync.ts), internal/homeask (plugin card fixtures),
-and scripts/verify (plugin UI/server/e2e sources). Prose-only integration
-mentions do not add a package to plugin-only plans.
+and scripts/verify (plugin UI/server/e2e sources). The dependency package is
+also conservatively retained: a prompt string has a source backslash immediately
+after integrations (an escaped newline). Other prose-only mentions do not add
+a package to plugin-only plans.
 The list deliberately over-includes direct filesystem/process readers rather than assume a read is
 only a fixture. It includes:
 

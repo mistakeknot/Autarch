@@ -150,13 +150,14 @@
     },
     "./internal/gurgeh/dependency": {
       "sides": [
-        "go"
+        "go",
+        "plugin"
       ],
       "evidence": [
         "tracer.go",
         "tracer_test.go"
       ],
-      "reason": "Only integration prose/comments matched the former word audit; no path-like plugin input remains after comment stripping."
+      "reason": "Conservative backslash-context match: tracer.go prompt text contains integrations followed by an escaped newline. Retained for plugin plans under the separator rule; it is not a current plugin read."
     },
     "./internal/gurgeh/patterns": {
       "sides": [

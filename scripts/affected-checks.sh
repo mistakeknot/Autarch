@@ -21,8 +21,8 @@ def go_plugin_input(text):
         r"|`[^`]*`"
         r"|'(?:\\.|[^'\\])*'"
         r"|//[^\n]*|/\*[\s\S]*?\*/")
-    code = token.sub(lambda m: ' ' if m[0].startswith(('//', '/*')) else m[0], text)
-    return re.search(r"bb-plugin-autarch|[\"'/`]integrations[\"'/`]", code) is not None
+    code = token.sub(lambda m: ' ' if m[0].startswith(('//', '/*')) and not m[0].startswith('//go:') else m[0], text)
+    return re.search(r"bb-plugin-autarch|[\"'/`]integrations[\"'/`]|[/\\]\bintegrations\b|\bintegrations\b[/\\]", code) is not None
 
 script_dir = Path(sys.argv[1])
 base, head = sys.argv[2:4]
