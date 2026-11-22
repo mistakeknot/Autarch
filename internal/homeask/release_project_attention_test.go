@@ -68,7 +68,7 @@ func TestMissingProjectAttentionForUnownedPull(t *testing.T) {
 	}
 }
 
-func TestMissingProjectRetainsPossibleCreation(t *testing.T) {
+func TestMissingProjectOutageRetainsPossibleCreation(t *testing.T) {
 	for _, kind := range []string{"creation", "update", "card", "delivered", "pending"} {
 		t.Run(kind, func(t *testing.T) { testMissingProjectReservation(t, kind) })
 	}

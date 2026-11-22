@@ -14,7 +14,8 @@ import (
 )
 
 func (f *CardFiler) recordOwnerAttention(key, attention string) error {
-	return f.updateOwnerAttention(key, func(*filingEntry) string { return attention })
+	_, err := f.updateOwnerAttention(key, func(*filingEntry) string { return attention })
+	return err
 }
 
 type projectAbsenceProof struct {
@@ -74,8 +75,8 @@ func (f *CardFiler) reconcileMissingProject(ctx context.Context, key, owner stri
 
 // Build the remediation and clear the reservation from the same locked entry.
 func (f *CardFiler) recordProjectOwnerAttention(key, owner string, cause error, proofs ...*projectAbsenceProof) (*releaseOwnerError, error) {
-	attention := &releaseOwnerError{owner: owner, cause: cause, remediation: "request no longer exists in held state; inspect release results before filing another ask"}
-	err := f.updateOwnerAttention(key, func(v *filingEntry) string {
+	attention := &releaseOwnerError{owner: owner, cause: cause, remediation: "could not read held state; inspect the state error before retrying release"}
+	exists, err := f.updateOwnerAttention(key, func(v *filingEntry) string {
 		var proof *projectAbsenceProof
 		if len(proofs) > 0 {
 			proof = proofs[0]
@@ -101,7 +102,7 @@ func (f *CardFiler) recordProjectOwnerAttention(key, owner string, cause error, 
 			if v.Update {
 				attention.remediation = "run needs-mk cancel-held " + key + ", then inspect the existing card before submitting a corrected update; do not create a duplicate card"
 			}
-		case v.Attempted && proof != nil:
+		case v.Attempted && proof != nil && !(errors.Is(cause, ErrInvalid) && !errors.Is(cause, ErrHomeDown)):
 			attention.remediation = "run needs-mk release once bb is reachable to retry the project-wide card check; do not cancel or refile before it completes"
 		case v.Update:
 			attention.remediation = "ask the vizier to check the existing card and pending update before cancelling or submitting another update"
@@ -110,27 +111,31 @@ func (f *CardFiler) recordProjectOwnerAttention(key, owner string, cause error, 
 		}
 		return attention.Error()
 	})
+	if !exists && err == nil {
+		attention.remediation = "request no longer exists in held state; inspect release results before filing another ask"
+	}
 	return attention, err
 }
 
-func (f *CardFiler) updateOwnerAttention(key string, build func(*filingEntry) string) error {
+// updateOwnerAttention reports whether the entry exists once the state is read.
+func (f *CardFiler) updateOwnerAttention(key string, build func(*filingEntry) string) (bool, error) {
 	s, p, done, err := f.openState()
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer done()
 	v, ok := s[key]
 	if !ok {
-		return nil
+		return false, nil
 	}
 	before := v
 	attention := build(&v)
 	if v.OwnerAttention == attention && reflect.DeepEqual(v, before) {
-		return nil
+		return true, nil
 	}
 	v.OwnerAttention = attention
 	s[key] = v
-	return saveFilingState(p, s)
+	return true, saveFilingState(p, s)
 }
 
 // PrintReleaseOwnerAttention reads the release's persisted notices without taking a lock or writing state.
