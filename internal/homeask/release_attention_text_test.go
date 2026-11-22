@@ -44,7 +44,7 @@ func TestProjectAttentionStateReadFailureAdvice(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected state read error")
 	}
-	if !strings.Contains(attention.Error(), "could not read held state") || strings.Contains(attention.Error(), "no longer exists") {
+	if !strings.Contains(attention.Error(), "could not read held state") || strings.Contains(attention.remediation, "no longer exists") {
 		t.Fatalf("misleading advice: %v", attention)
 	}
 }

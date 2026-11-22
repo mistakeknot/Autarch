@@ -161,7 +161,7 @@ func TestMissingProjectVanishedAdvice(t *testing.T) {
 	f := newFake(t, registryAbsent).filer()
 	f.StateDir = t.TempDir()
 	attention, err := f.recordProjectOwnerAttention("gone", "thr_owner", ErrProjectNotFound)
-	if err != nil || attention.remediation == "" {
+	if err != nil || !strings.Contains(attention.remediation, "request no longer exists in held state") {
 		t.Fatalf("empty vanished advice: %v %v", attention, err)
 	}
 }
