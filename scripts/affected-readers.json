@@ -150,14 +150,13 @@
     },
     "./internal/gurgeh/dependency": {
       "sides": [
-        "go",
-        "plugin"
+        "go"
       ],
       "evidence": [
         "tracer.go",
         "tracer_test.go"
       ],
-      "reason": "Conservative backslash-context match: tracer.go prompt text contains integrations followed by an escaped newline. Retained for plugin plans under the separator rule; it is not a current plugin read."
+      "reason": "Integration prose ends with an escaped newline, not a path separator; after interpreted-string decoding there is no plugin-input match."
     },
     "./internal/gurgeh/patterns": {
       "sides": [
