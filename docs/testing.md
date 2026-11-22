@@ -77,7 +77,12 @@ merge-head suite remains required regardless of the affected plan.
 The bare-word rule depends on the shell-word list above: commands outside
 that list are another known limit covered by the required full merge-head
 suite. Common command words can also occur in prose: "run the test for
-integrations" conservatively selects full checks in a Go-only package.
+integrations" conservatively selects full checks in a Go-only package, as
+does a literal containing a delimited `integrations` and `|`, `;`, `<` or `>`
+anywhere in the same literal, such as `<b>integrations</b>` or
+`a > b for integrations` (the word still needs a string edge, whitespace,
+equals or shell punctuation on both sides; a trailing period or comma does
+not count).
 
 ## Merge checks and fixtures
 
