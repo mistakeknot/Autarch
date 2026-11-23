@@ -8,7 +8,6 @@ vi.mock("@get-bb/plugin-sdk/app", () => {
  const sdk = { threads: { interactions: { list: mocks.list, respond: mocks.respond } }, tasks: { comment: mocks.comment } };
  return { ThreadChat: () => null, useSdk: () => sdk, useRpc: () => ({ call: (method: string, ...args: unknown[]) => { mocks.rpc(method,...args); return mocks.methods.get(method)?.(...args); } }) };
 });
-import { SecretMetadataContext } from "../ui/secret.js";
 import { AskCard, type OwedAsk } from "../ui/asks.js";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const meta = { thread: "thr_23456789ab", names: ["FAKE_TEST_TOKEN"], path: "/fake-test/credentials.env", project: "fake-test-project" };
@@ -73,22 +72,10 @@ it("shows submitted from a resolved interaction without inputs", async () => {
  await mount(); expect(host.textContent).toContain("Submitted"); expect(host.querySelector("input")).toBeNull();
 });
 
-it("withholds the ordinary text box until card metadata is known", async () => {
- let finish!: (value: typeof meta) => void;
- const load=vi.fn(()=>new Promise<typeof meta>(resolve=>{finish=resolve}));
- const ask={id:"fake-decision",task_id:"fake-task",thread:meta.thread,subject:"Provide credential",project:meta.project,asker:"thread",filed_at:"2026-01-01",revision:"fake-revision",ask:{question:"Provide credential",options:[]}} as OwedAsk;
- await act(async()=>root.render(<SecretMetadataContext.Provider value={load}><AskCard ask={ask} onPick={pick} onNote={note} onOpen={()=>{}} /></SecretMetadataContext.Provider>));
- expect(host.querySelector("[data-other-text]")).toBeNull();
- await act(async()=>finish(meta));
- expect(host.querySelector('input[type="password"]')).not.toBeNull();
- expect(host.querySelector("[data-other-text]")).toBeNull();
-});
-
-it("withholds the ordinary text box if card metadata cannot be read", async () => {
- const ask={id:"fake-decision",task_id:"fake-task",thread:meta.thread,subject:"Provide credential",project:meta.project,asker:"thread",filed_at:"2026-01-01",revision:"fake-revision",ask:{question:"Provide credential",options:[]}} as OwedAsk;
- const load=vi.fn(async()=>{throw Error("fake-test-read-failure")});
- await act(async()=>root.render(<SecretMetadataContext.Provider value={load}><AskCard ask={ask} onPick={pick} onNote={note} onOpen={()=>{}} /></SecretMetadataContext.Provider>));
- expect(host.querySelector("[data-other-text]")).toBeNull();expect(host.querySelector("input")).toBeNull();
+it("known non-secret cards show text entry without a metadata RPC",async()=>{
+ const ask={id:"fake-decision",task_id:"fake-task",secret:null,thread:meta.thread,subject:"Choose",project:meta.project,asker:"thread",filed_at:"2026-01-01",revision:"fake-revision",ask:{question:"Choose",options:[]}} as OwedAsk;
+ await act(async()=>root.render(<AskCard ask={ask} onPick={pick} onNote={note} onOpen={()=>{}} />));
+ expect(host.querySelector("[data-other-text]")).not.toBeNull();expect(mocks.rpc).not.toHaveBeenCalled();expect(mocks.list).not.toHaveBeenCalled();
 });
 
 it("an expired request has no masked form and keeps its normal card options", async () => {
@@ -98,4 +85,34 @@ it("an expired request has no masked form and keeps its normal card options", as
  expect(host.textContent).toContain("expired");expect(host.querySelector("form")).toBeNull();expect(host.querySelector("input")).toBeNull();
  const retry=host.querySelector<HTMLButtonElement>('[data-option="retry"]')!;expect(retry).not.toBeNull();expect(retry.disabled).toBe(false);expect(host.querySelector('[data-option="later"]')).not.toBeNull();
  await act(async()=>retry.click());expect(pick).toHaveBeenCalledWith("fake-decision","retry","fake-revision");expect(mocks.respond).not.toHaveBeenCalled();
+});
+
+it("prefers a live pending match over resolved and expired history", async () => {
+ const old={...interaction(),status:"resolved",resolution:{kind:"plugin_submitted"}};
+ const expired=interaction();expired.expiresAt=Date.now()-1;expired.payload.data.expiresAtMs=Date.now()-1;
+ const pending={...interaction(),id:"pint_abcdefghij"};mocks.list.mockResolvedValue([old,expired,pending]);
+ await mount();const input=host.querySelector<HTMLInputElement>('input[name="FAKE_TEST_TOKEN"]');expect(input).not.toBeNull();
+ input!.value="fake-test-value-not-a-secret";
+ await act(async()=>host.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true})));
+ expect(mocks.sent).toMatchObject([{interactionId:pending.id}]);
+});
+it("confirms submission even when respond returns no payload", async()=>{
+ mocks.respond.mockResolvedValue(undefined);await mount();host.querySelector<HTMLInputElement>("input")!.value="fake-test-value-not-a-secret";
+ await act(async()=>host.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true})));
+ expect(host.textContent).toContain("Submitted");expect(host.querySelector("input")).toBeNull();
+});
+it("does not match a destination with an extra trailing slash",async()=>{
+ const i=interaction();i.payload.data.destination.path+="/";mocks.list.mockResolvedValue([i]);await mount();expect(host.querySelector("input")).toBeNull();
+});
+it("explains rejected line breaks and uses card button and mobile input styling",async()=>{
+ await mount();const input=host.querySelector<HTMLInputElement>("input")!;
+ expect(input.className).toContain("text-base");expect(host.querySelector('[aria-label="Show FAKE_TEST_TOKEN"]')!.className).toContain("border-input");
+ Object.defineProperty(input,"value",{get:()=>"fake-test\nvalue",configurable:true});
+ await act(async()=>host.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true})));
+ expect(host.textContent).toContain("Values cannot contain line breaks");expect(mocks.respond).not.toHaveBeenCalled();
+});
+it("explains unavailable read-model metadata instead of silently removing text entry",async()=>{
+ const ask={id:"fake-decision",task_id:"fake-task",secret_unavailable:true,thread:meta.thread,subject:"Choose",project:meta.project,asker:"thread",filed_at:"2026-01-01",revision:"fake-revision",ask:{question:"Choose",options:[]}} as OwedAsk;
+ await act(async()=>root.render(<AskCard ask={ask} onPick={pick} onNote={note} onOpen={()=>{}} />));
+ expect(host.textContent).toContain("Text entry unavailable: could not check this card for a secret request");expect(host.querySelector("[data-other-text]")).toBeNull();
 });

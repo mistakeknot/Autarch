@@ -1008,3 +1008,15 @@ describe("setBinding (Q5: mk confirms once)", () => {
     expect(r.db.prepare("SELECT * FROM project_bindings WHERE tasks_project_id = 'tp-x'").get()).toMatchObject({ home_project: "Autarch", state: "confirmed" });
   });
 });
+
+it("queue read models carry generation-pinned secret metadata from the existing poll",async()=>{
+ const r=rig();const secret=r.card({thread:"thr_23456789ab"});const ordinary=r.card();
+ const metadata={thread:"thr_23456789ab",names:["FAKE_TEST_TOKEN"],path:"/fake-test/credentials.env",project:"fake-test-project"};
+ secret.description+='\n```home-secret\n'+JSON.stringify(metadata)+'\n```\n';await r.poll();
+ const rows=buildQueue(r.svc,new Asks(r.svc)).rows;
+ expect(rows.find(row=>row.task_id===secret.id)).toMatchObject({secret:metadata});
+ expect(rows.find(row=>row.task_id===ordinary.id)).toMatchObject({secret:null});
+ const d=r.gens(secret.id)[0];expect(r.svc.secretReadModel(secret.id,d.card_fp)).toEqual({secret:metadata});
+ expect(r.svc.secretReadModel(secret.id,"fake-other-fingerprint")).toEqual({secret_unavailable:true});
+ expect(r.svc.secretReadModel("fake-unknown-task","fake-fingerprint")).toEqual({secret_unavailable:true});
+});

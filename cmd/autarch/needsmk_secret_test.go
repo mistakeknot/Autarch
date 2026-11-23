@@ -118,3 +118,27 @@ func TestNeedsMkSecretDelivery(t *testing.T) {
 		})
 	}
 }
+
+func TestNeedsMkSecretThreadBinding(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_23456789ab")
+	for _, owner := range []string{"", "thr_98765432ab"} {
+		t.Run(owner, func(t *testing.T) {
+			metadata := filepath.Join(t.TempDir(), "metadata.json")
+			if err := os.WriteFile(metadata, []byte(`{"thread":"thr_abcdefghij","names":["FAKE_TEST_TOKEN"],"path":"/fake-test/credentials.env","project":"fake-test-project"}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			s := &stubBB{}
+			args := []string{"file", "--project", "P1", "--title", "Choose", "--ask-file", writeAsk(t), "--secret", metadata}
+			if owner != "" {
+				args = append(args, "--owner-thread", owner)
+			}
+			_, err := runNeedsMk(t, s, args...)
+			if exitCode(err) != 2 || !strings.Contains(err.Error(), "BB_THREAD_ID or --owner-thread") {
+				t.Fatalf("expected thread binding refusal, got %v", err)
+			}
+			if len(s.calls) != 0 {
+				t.Fatal("thread binding refusal contacted a service")
+			}
+		})
+	}
+}

@@ -1,3 +1,4 @@
+import type { SecretMetadata } from "./secret.js";
 import { formatCardLabel } from "./cardlabel.js";
 import { recordPilotPick } from "./pilotmetrics.js";
 import type { WakeAttribution } from "./wake-attribution.js";
@@ -258,6 +259,15 @@ function shownParseError(err: string): string {
 }
 
 export class Service {
+  private readonly secretSnapshots = new Map<string, { fingerprint: string; metadata: SecretMetadata | null }>();
+  /** Metadata from the existing poll, pinned to the displayed generation. No per-card RPC or schema change. */
+  secretReadModel(taskId: unknown, fingerprint: unknown): { secret?: SecretMetadata | null; secret_unavailable?: boolean } {
+    if (taskId === null || taskId === undefined) return { secret: null };
+    if (typeof taskId !== "string" || typeof fingerprint !== "string") return {secret_unavailable:true};
+    const found = this.secretSnapshots.get(taskId);
+    return found && found.fingerprint === fingerprint ? {secret: found.metadata} : {secret_unavailable: true};
+  }
+
   /** Durable kind/op provenance also covers rows created before attribution existed.
    * Digests use unknown because their sources can differ. Never inspect payloads.
    */
@@ -2006,6 +2016,13 @@ export class Service {
     if (!this.cardRow(task.id)) this.observeCards([task]);
     const before = this.sig(task.id);
     const unavailable = await this.ingestInner(task, ctx);
+    this.secretSnapshots.delete(task.id);
+    try {
+      const card = parseCard(task.description);
+      const generation = this.currentGeneration(task.id);
+      if (generation) this.secretSnapshots.set(task.id, {fingerprint: cardFingerprint({title:task.title,card,thread:generation.thread,tasksProject:task.projectId}),metadata:card.secret ?? null});
+    } catch { /* Unreadable metadata stays unavailable; never expose ordinary text entry. */ }
+
     const released = await this.releaseHoldOnSha(task.id, ctx.comments);
     const changed = released || before !== this.sig(task.id);
     return unavailable ? { changed, unavailable } : { changed };
@@ -2723,6 +2740,7 @@ export class Service {
 
   /** T6/T7/T11: the card was closed, unlabelled or deleted in tasks. */
   cardGone(taskId: string, why: "closed" | "unlabelled" | "deleted", status?: string): { changed: boolean } {
+    this.secretSnapshots.delete(taskId);
     const before = this.sig(taskId);
     this.store.atomically(() => {
       const row = this.cardRow(taskId);

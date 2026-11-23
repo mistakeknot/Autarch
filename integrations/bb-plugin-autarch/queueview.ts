@@ -66,6 +66,8 @@ export function removeBinding(
 }
 
 export interface QueueRow {
+  secret?: import("./secret.js").SecretMetadata | null;
+  secret_unavailable?: boolean;
   pick_targets?: ReturnType<Service["pickTargetPresentation"]>;
   /** The open decision id, or `card:<task id>` for a display-only card. */
   id: string;
@@ -164,6 +166,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
       pinned: pinnedBy(refs, c?.asking_thread ?? (d.thread || null)),
       ask: ask ? { question: ask.question, ...(ask.recommendation ? { recommendation: ask.recommendation } : {}), options: ask.options as never } : UNREADABLE_ASK,
       pick_targets: svc.pickTargetPresentation(d.id),
+      ...svc.secretReadModel(d.task_id, d.card_fp),
       ...(ask ? {} : { unreadable: true }),
       revision: d.revision,
       mentions: svc.store.mentions(d.id).length,

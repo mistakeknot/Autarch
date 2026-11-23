@@ -1,5 +1,3 @@
-import { SecretMetadataContext } from "./ui/secret.js";
-import { parseSecret } from "./secret.js";
 // bb-plugin-autarch — a BB plugin frontend entry.
 //
 // Compiled by `bb plugin build` into dist/app.js + dist/app.css. React and
@@ -154,11 +152,10 @@ function BlocksThreadPanel({ threadId }: { threadId: string }) {
   const picks = useMemo(() => new PickController(() => crypto.randomUUID()), []);
   const rootRun = useRootRuns(rpc);
   const conversation = useConversationApi(rpc);
-  const secretMetadata = useCallback(async (taskId: string) => { const r = await rpc.call("secretMetadata", { task_id: taskId }); if (!r.ok) throw new Error("Card metadata unavailable"); return r.metadata ? parseSecret(JSON.stringify(r.metadata)) : null; }, [rpc]);
   const docs = useDocReaderApi(rpc);
   if (queue === null) return <EmptyState>{error ?? "Loading…"}</EmptyState>;
   return (
-    <SecretMetadataContext.Provider value={secretMetadata}><ConversationProvider value={conversation}><DocReaderHost api={docs}>
+    <ConversationProvider value={conversation}><DocReaderHost api={docs}>
     <ActionError message={actionError} />
     <BlocksPanel
       rootRun={rootRun}
@@ -170,7 +167,7 @@ function BlocksThreadPanel({ threadId }: { threadId: string }) {
       onOpen={(t) => nav.toThread(t)}
       onPick={(decision_id, option_id, revision, reason, images, answers) => pickOutcome(picks.send((req) => rpc.call("pick", req) as never, { decision_id, option_id, revision, ...(reason !== undefined ? { reason } : {}), ...(images && images.length > 0 ? { images } : {}), ...(answers ? { answers } : {}) }, refetch)).finally(refetch)}
     />
-    </DocReaderHost></ConversationProvider></SecretMetadataContext.Provider>
+    </DocReaderHost></ConversationProvider>
   );
 }
 
@@ -261,7 +258,6 @@ function HomePage({ subPath }: { subPath?: string }) {
   const note = useNote(rpc, refetch);
   const { error: actionError, act } = useActionError();
   const conversation = useConversationApi(rpc);
-  const secretMetadata = useCallback(async (taskId: string) => { const r = await rpc.call("secretMetadata", { task_id: taskId }); if (!r.ok) throw new Error("Card metadata unavailable"); return r.metadata ? parseSecret(JSON.stringify(r.metadata)) : null; }, [rpc]);
   const docs = useDocReaderApi(rpc);
   const [stack, setStack] = useState<StackState>({ panels: [ROOT_PANEL], width: "third" });
   useEffect(() => forgetClassicTabs(() => localStorage), []);
@@ -583,7 +579,7 @@ function HomePage({ subPath }: { subPath?: string }) {
   const actionLine = <ActionError message={actionError ?? updateReadError} />;
   if (linked !== null && asks !== null) {
     return (
-      <SecretMetadataContext.Provider value={secretMetadata}><ConversationProvider value={conversation}><DocReaderHost api={docs}>
+      <ConversationProvider value={conversation}><DocReaderHost api={docs}>
         <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto" data-home-source={HOME_SOURCE} data-card-link={linkKey}>
           <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={showAll} data-card-link-back>‹ All cards</button>
           {actionLine}
@@ -599,13 +595,13 @@ function HomePage({ subPath }: { subPath?: string }) {
             }}
           />
         </div>
-      </DocReaderHost></ConversationProvider></SecretMetadataContext.Provider>
+      </DocReaderHost></ConversationProvider>
     );
   }
   const keyNotice = linkKey !== null && lookup !== null && lookup.key === linkKey ? <CardKeyNotice cardKey={linkKey} lookup={lookup.result} /> : null;
 
   return (
-    <SecretMetadataContext.Provider value={secretMetadata}><ConversationProvider value={conversation}><DocReaderHost api={docs}>
+    <ConversationProvider value={conversation}><DocReaderHost api={docs}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
       {keyNotice}
       {actionLine}
@@ -621,7 +617,7 @@ function HomePage({ subPath }: { subPath?: string }) {
         <StackView placed={layoutStack(stack).filter((p) => !phone || !p.collapsed)} render={render} onExpand={push} />
       </QueueSurface>
     </div>
-    </DocReaderHost></ConversationProvider></SecretMetadataContext.Provider>
+    </DocReaderHost></ConversationProvider>
   );
 }
 

@@ -1,4 +1,3 @@
-import { parseCard } from "./cards.js";
 // bb-plugin-autarch — a BB plugin backend entry.
 //
 // The default export is a factory that receives the plugin API. BB supplies
@@ -570,6 +569,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         revision: d.revision,
         task_id: d.task_id ?? null,
         ...owedAsk(d.body_json, d.source),
+        ...p.svc.secretReadModel(d.task_id, d.card_fp),
         pick_targets: p.svc.pickTargetPresentation(d.id),
         mentions: p.store.mentions(d.id).length,
       }));
@@ -609,16 +609,6 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       // A Blocked row names its owner thread by title, as an Asks card does (bead mk-4mhv2).
       const titles = q.rows.some((r) => r.thread) ? await threadTitles() : new Map<string, string>();
       return { ...q, rows: q.rows.map((r) => ({ ...r, thread_title: r.thread ? titles.get(r.thread) ?? null : null })), serve_projects: serveProjects, status: queueRef?.status() ?? null };
-    },
-    async secretMetadata(i: { task_id: string }) {
-      const p = need();
-      const known = p.store.db.prepare("SELECT 1 AS x FROM cards WHERE task_id = ? AND deleted_at IS NULL").get(i.task_id);
-      if (!known || !tasksRef) return { ok: false as const };
-      try {
-        const st = await tasksRef.taskState(i.task_id);
-        if (st.state === "deleted") return { ok: false as const };
-        return { ok: true as const, metadata: parseCard(st.task.description).secret ?? null };
-      } catch { return { ok: false as const }; }
     },
     async rootRun(i: { task_id: string }) {
       const p = need();

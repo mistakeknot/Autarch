@@ -1,26 +1,8 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSdk } from "@get-bb/plugin-sdk/app";
+import { ActionButton } from "./buttons.js";
 import type { SecretMetadata } from "../secret.js";
 
-// This context reads metadata only. Responses containing values go solely to the session SDK.
-export const SecretMetadataContext = createContext<((taskId: string) => Promise<SecretMetadata | null>) | null>(null);
-export function useCardSecret(taskId?: string | null, supplied?: SecretMetadata, revision?: string): { metadata: SecretMetadata | null; allowFreeText: boolean } {
-  const load = useContext(SecretMetadataContext);
-  const [found, setFound] = useState<{ task: string; revision?: string; metadata: SecretMetadata | null; failed: boolean } | null>(null);
-  useEffect(() => {
-    if (!taskId || !load) return;
-    let alive = true;
-    void load(taskId).then(
-      metadata => { if (alive) setFound({ task: taskId, revision, metadata, failed: false }); },
-      () => { if (alive) setFound({ task: taskId, revision, metadata: null, failed: true }); },
-    );
-    return () => { alive = false; };
-  }, [taskId, load, revision]);
-  if (supplied) return { metadata: supplied, allowFreeText: false };
-  if (!taskId || !load) return { metadata: null, allowFreeText: true };
-  if (!found || found.task !== taskId || found.revision !== revision || found.failed) return { metadata: null, allowFreeText: false };
-  return { metadata: found.metadata, allowFreeText: found.metadata === null };
-}
 type Sdk = ReturnType<typeof useSdk>;
 type Interaction = Awaited<ReturnType<Sdk["threads"]["interactions"]["list"]>>[number];
 export type SecretState = { kind: "expired" } | { kind: "submitted" } | { kind: "waiting"; id: string; consumer: string; expires: number };
@@ -37,12 +19,14 @@ export function secretState(metadata: SecretMetadata, interactions: readonly Int
     if (names.length !== metadata.names.length || new Set(names).size !== names.length || metadata.names.some(n => !names.includes(n))) return [];
     return [{ i, consumer: destination.consumer, expires: d.expiresAtMs }];
   });
-  // Never choose arbitrarily between two matching waiters.
-  if (matches.length !== 1) return { kind: "expired" };
-  const { i, consumer, expires } = matches[0]!;
-  if (i.status === "resolved" && i.resolution && "kind" in i.resolution && i.resolution.kind === "plugin_submitted") return { kind: "submitted" };
-  if (i.status !== "pending" || typeof expires !== "number" || !Number.isSafeInteger(expires) || expires <= now || expires > i.createdAt + SECRET_REQUEST_MAX_TTL_MS || typeof i.expiresAt !== "number" || i.expiresAt <= now) return { kind: "expired" };
-  return { kind: "waiting", id: i.id, consumer, expires: Math.min(expires, i.expiresAt, i.createdAt + SECRET_REQUEST_MAX_TTL_MS) };
+  const pending = matches.filter(({i,expires}) => i.status === "pending" && typeof expires === "number" && Number.isSafeInteger(expires) && expires > now && expires <= i.createdAt + SECRET_REQUEST_MAX_TTL_MS && typeof i.expiresAt === "number" && i.expiresAt > now);
+  if (pending.length > 1) return { kind: "expired" };
+  if (pending.length === 1) {
+    const {i,consumer,expires} = pending[0]!;
+    return {kind:"waiting",id:i.id,consumer,expires:Math.min(expires as number,i.expiresAt!,i.createdAt+SECRET_REQUEST_MAX_TTL_MS)};
+  }
+  if (matches.some(({i}) => i.status === "resolved" && i.resolution && "kind" in i.resolution && i.resolution.kind === "plugin_submitted")) return {kind:"submitted"};
+  return {kind:"expired"};
 }
 
 export function SecretSection({ metadata }: { metadata: SecretMetadata }) {
@@ -50,7 +34,7 @@ export function SecretSection({ metadata }: { metadata: SecretMetadata }) {
   const identity = JSON.stringify(metadata);
   const [view, setView] = useState<{ identity: string; state: SecretState } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const form = useRef<HTMLFormElement>(null);
   const state = view?.identity === identity ? view.state : null;
@@ -59,7 +43,7 @@ export function SecretSection({ metadata }: { metadata: SecretMetadata }) {
     const refresh = async () => {
       try {
         const rows = await sdk.threads.interactions.list({ threadId: metadata.thread });
-        if (alive) setView(current => current?.identity === identity && current.state.kind === "submitted" ? current : { identity, state: secretState(metadata, rows, Date.now()) });
+        if (alive) setView(current => current?.identity === identity && current.state.kind === "submitted" && rows.length === 0 ? current : { identity, state: secretState(metadata, rows, Date.now()) });
       } catch { if (alive) setView({ identity, state: { kind: "expired" } }); }
     };
     void refresh();
@@ -82,18 +66,19 @@ export function SecretSection({ metadata }: { metadata: SecretMetadata }) {
       const element = event.currentTarget;
       const values: Record<string, string> = Object.create(null);
       for (const name of metadata.names) values[name] = (element.elements.namedItem(name) as HTMLInputElement).value;
-      element.reset(); setRevealed({}); setError(false);
-      if (Object.values(values).some(v => !v || v.length > 16384 || /[\r\n\x00]/.test(v))) { for (const name of metadata.names) delete values[name]; setError(true); return; }
+      element.reset(); setRevealed({}); setError(null);
+      if (Object.values(values).some(v => /[\r\n]/.test(v))) { for (const name of metadata.names) delete values[name]; setError("Values cannot contain line breaks"); return; }
+      if (Object.values(values).some(v => !v || v.length > 16384 || /[\r\n\x00]/.test(v))) { for (const name of metadata.names) delete values[name]; setError("Submission did not complete. Check the request and enter the values again."); return; }
       setBusy(true);
       try {
-        const result = await sdk.threads.interactions.respond({ threadId: metadata.thread, interactionId: state.id, value: { values } });
+        await sdk.threads.interactions.respond({ threadId: metadata.thread, interactionId: state.id, value: { values } });
         // Keep only the state, never a response payload or error object.
-        setView({ identity, state: secretState(metadata, [result], Date.now()) });
-      } catch { setError(true); }
+        setView({ identity, state: { kind: "submitted" } });
+      } catch { setError("Submission did not complete. Check the request and enter the values again."); }
       finally { for (const name of metadata.names) delete values[name]; setBusy(false); }
     }}>
-      {metadata.names.map(name => <div key={name} className="mt-3"><label htmlFor={`secret-${state.id}-${name}`}>{name}</label><div className="flex gap-2"><input id={`secret-${state.id}-${name}`} name={name} type={revealed[name] === true ? "text" : "password"} autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} required disabled={busy} className="min-w-0 grow rounded border border-border bg-background p-2" /><button type="button" disabled={busy} aria-label={`${revealed[name] === true ? "Hide" : "Show"} ${name}`} aria-pressed={revealed[name] === true} onClick={() => setRevealed(r => ({ ...r, [name]: r[name] !== true }))}>{revealed[name] === true ? "Hide" : "Show"}</button></div></div>)}
-      {error ? <p role="alert">Submission did not complete. Check the request and enter the values again.</p> : null}
+      {metadata.names.map(name => <div key={name} className="mt-3"><label htmlFor={`secret-${state.id}-${name}`}>{name}</label><div className="flex gap-2"><input id={`secret-${state.id}-${name}`} name={name} type={revealed[name] === true ? "text" : "password"} autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} required disabled={busy} className="min-w-0 grow rounded border border-border bg-background p-2 text-base" /><ActionButton type="button" disabled={busy} aria-label={`${revealed[name] === true ? "Hide" : "Show"} ${name}`} aria-pressed={revealed[name] === true} onClick={() => setRevealed(r => ({ ...r, [name]: r[name] !== true }))}>{revealed[name] === true ? "Hide" : "Show"}</ActionButton></div></div>)}
+      {error ? <p role="alert">{error}</p> : null}
       <button type="submit" disabled={busy} className="mt-3 rounded border border-border px-3 py-2">{busy ? "Submitting…" : "Submit securely"}</button>
     </form>
   </section>;

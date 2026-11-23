@@ -343,6 +343,9 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				if e != nil {
 					return &usageError{"--secret: invalid home-secret metadata"}
 				}
+				if m.Thread != thread && (ownerThread == "" || m.Thread != ownerThread) {
+					return &usageError{"--secret thread must match BB_THREAD_ID or --owner-thread"}
+				}
 				safe, _ := json.Marshal(m)
 				json.Unmarshal(safe, &secret)
 			}
@@ -389,7 +392,7 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				if rootRun != "" {
 					deliveryRoot = &homeask.RootRunSpec{}
 				}
-				if err := filer.CheckSecretDelivery(homeask.CardRequest{Secret: secret, NonBlocking: nonBlocking, Urgent: urgent, KeepList: keepList, Type: deliveryType, RootRun: deliveryRoot}); err != nil {
+				if err := filer.CheckSecretDelivery(homeask.CardRequest{Secret: secret, Thread: thread, Owner: ownerThread, NonBlocking: nonBlocking, Urgent: urgent, KeepList: keepList, Type: deliveryType, RootRun: deliveryRoot}); err != nil {
 					return &usageError{err.Error()}
 				}
 			}

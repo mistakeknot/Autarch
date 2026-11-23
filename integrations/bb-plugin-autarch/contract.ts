@@ -29,7 +29,6 @@ export const homeMethods = {
   queue: { input: z.object({ thread: z.string().min(1).max(128).optional() }), output: readModel },
   // A card's root-run display (plan 1.5, Task 2.8): the paste command and read-only status. Reads the card
   // from tasks and the script file from disk; writes nothing and runs nothing.
-  secretMetadata: { input: z.object({ task_id: z.string().min(1).max(64) }).strict(), output: result },
   rootRun: { input: z.object({ task_id: z.string().min(1).max(64) }), output: result },
   // mk's one-time confirmation of a tasks-project to Home-project binding (plan 1.3.6, Q5). RPC only: no CLI verb.
   setBinding: {
@@ -126,7 +125,6 @@ export const homeCliMap = {
   stats: { verb: "stats", summary: "Picks, delegation and filing counts over a window" },
   listRecent: { verb: "feed", summary: "The recent-rulings feed a thread sees" },
   queue: { rpcOnly: "the panel's read model" },
-  secretMetadata: { rpcOnly: "read secret-request metadata only" },
   rootRun: { rpcOnly: "a card's paste command display" },
   setBinding: { rpcOnly: "mk's confirmation of a binding; the CLI can only read (`binding`) or, as the vizier, bind" },
   pick: { rpcOnly: "mk's ruling, advisory attribution from the browser" },

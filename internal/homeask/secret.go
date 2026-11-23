@@ -8,6 +8,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // SecretMetadata locates an existing secure interaction; it never carries values.
@@ -96,10 +97,19 @@ func (f *CardFiler) CheckSecretDelivery(r CardRequest) error {
 	if r.Secret == nil {
 		return nil
 	}
+	return checkSecretDeliveryAt(r, f.clock())
+}
+func checkSecretDeliveryAt(r CardRequest, at time.Time) error {
+	if r.Secret == nil {
+		return nil
+	}
+	if r.Secret["thread"] != r.Thread && (r.Owner == "" || r.Secret["thread"] != r.Owner) {
+		return fmt.Errorf("%w: --secret thread must match BB_THREAD_ID or --owner-thread", ErrInvalid)
+	}
 	if r.NonBlocking {
 		return fmt.Errorf("%w: --secret cannot be combined with --non-blocking: the secret request expires before the batch releases", ErrInvalid)
 	}
-	if weeklyHold(f.clock(), r) {
+	if weeklyHold(at, r) {
 		return fmt.Errorf("%w: --secret cannot use the weekly hold: the secret request expires before the batch releases; use --urgent for immediate delivery", ErrInvalid)
 	}
 	return nil

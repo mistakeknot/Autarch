@@ -1,6 +1,6 @@
 // The Asks view: what is stalled, what mk must decide, the runbook, and what is merely waiting.
 
-import { SecretSection, useCardSecret } from "./secret.js";
+import { SecretSection } from "./secret.js";
 import type { SecretMetadata } from "../secret.js";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { ActionButton, RecommendedMark } from "./buttons.js";
@@ -96,7 +96,8 @@ export function PickTargetPresentation({ option, evidence }: { option: Option; e
 }
 export type ApprovalRecord = { approval_id: string; decision_id: string; kind: string; target: string; identity: string; minted_at: string; expires_at: string };
 export type OwedAsk = {
-  secret?: SecretMetadata;
+  secret?: SecretMetadata | null;
+  secret_unavailable?: boolean;
   id: string;
   project: string;
   thread: string;
@@ -311,7 +312,8 @@ export function AskCard(props: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: 
 }
 
 function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound = false }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean }) {
-  const { metadata: secret, allowFreeText } = useCardSecret(ask.task_id, ask.secret, ask.revision);
+  const secret = ask.secret;
+  const allowFreeText = !ask.secret_unavailable && !secret;
   const [failure, setFailure] = useState<string | null>(null);
   const [laterError, setLaterError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -344,6 +346,7 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
       </p>
       {glanceOf ? <GlanceBlock g={glanceOf} /> : null}
       <QuestionText text={ask.ask.question} />
+      {ask.secret_unavailable ? <p role="status">Text entry unavailable: could not check this card for a secret request</p> : null}
       {secret ? <SecretSection key={JSON.stringify(secret)} metadata={secret} /> : null}
       <EvidenceBlock items={ask.ask.evidence} />
       {ask.ask.questions && ask.ask.questions.length > 0 ? (
