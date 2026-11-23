@@ -242,6 +242,8 @@ the current Pacific start and end. Legacy ISO records appear in reports for both
 overlapping weeks when their filing time is unknown.
 AUTARCH_CARD_STATE_DIR overrides the local XDG state directory.
 --non-blocking queues a card until needs-mk release.
+--secret refuses --non-blocking and any weekly hold because its request expires
+before batch release. Use --urgent for immediate delivery during the weekly hold.
 Ordinary cards filed Monday 00:00 through Thursday before 12:00 Pacific are also
 held for the Thursday batch. Urgent, keep-list, merge and root-run cards bypass
 this weekday hold. Release inside that window leaves ordinary cards queued;
@@ -311,6 +313,9 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if secretFile != "" && nonBlocking {
+				return &usageError{"--secret cannot be combined with --non-blocking: the secret request expires before the batch releases"}
+			}
 			thread := os.Getenv("BB_THREAD_ID")
 			if thread == "" {
 				return &usageError{"BB_THREAD_ID is required: run inside the asking bb thread"}
@@ -374,6 +379,20 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 					return &usageError{"--ask-file is not a JSON object: got null"}
 				}
 			}
+			filer := newCardFiler()
+			if secret != nil {
+				deliveryType := cardType
+				if prFlag != "" || homeask.IsMergeAsk(ask) {
+					deliveryType = "merge"
+				}
+				var deliveryRoot *homeask.RootRunSpec
+				if rootRun != "" {
+					deliveryRoot = &homeask.RootRunSpec{}
+				}
+				if err := filer.CheckSecretDelivery(homeask.CardRequest{Secret: secret, NonBlocking: nonBlocking, Urgent: urgent, KeepList: keepList, Type: deliveryType, RootRun: deliveryRoot}); err != nil {
+					return &usageError{err.Error()}
+				}
+			}
 			if err := homeask.PrepareEvidence(ask); err != nil {
 				return &usageError{err.Error()}
 			}
@@ -404,7 +423,6 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			if ctx == nil {
 				ctx = context.Background()
 			}
-			filer := newCardFiler()
 			filer.Warn = func(w string) { fmt.Fprintln(cmd.ErrOrStderr(), "warning:", w) }
 			if _, ok := ask["project"]; !ok {
 				// The board's binding names the project; the folder name is wrong in a bb worktree.

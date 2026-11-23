@@ -90,3 +90,12 @@ it("withholds the ordinary text box if card metadata cannot be read", async () =
  await act(async()=>root.render(<SecretMetadataContext.Provider value={load}><AskCard ask={ask} onPick={pick} onNote={note} onOpen={()=>{}} /></SecretMetadataContext.Provider>));
  expect(host.querySelector("[data-other-text]")).toBeNull();expect(host.querySelector("input")).toBeNull();
 });
+
+it("an expired request has no masked form and keeps its normal card options", async () => {
+ const i=interaction();i.expiresAt=Date.now()-1;i.payload.data.expiresAtMs=Date.now()-1;mocks.list.mockResolvedValue([i]);
+ const ask={id:"fake-decision",thread:meta.thread,subject:"Provide credential",project:meta.project,asker:"thread",filed_at:"2026-01-01",revision:"fake-revision",secret:meta,ask:{question:"Provide credential",options:[{id:"retry",label:"Request again",kind:"ruling-only"},{id:"later",label:"Later",kind:"ruling-only"}]}} as OwedAsk;
+ await act(async()=>root.render(<AskCard ask={ask} onPick={pick} onNote={note} onOpen={()=>{}} />));
+ expect(host.textContent).toContain("expired");expect(host.querySelector("form")).toBeNull();expect(host.querySelector("input")).toBeNull();
+ const retry=host.querySelector<HTMLButtonElement>('[data-option="retry"]')!;expect(retry).not.toBeNull();expect(retry.disabled).toBe(false);expect(host.querySelector('[data-option="later"]')).not.toBeNull();
+ await act(async()=>retry.click());expect(pick).toHaveBeenCalledWith("fake-decision","retry","fake-revision");expect(mocks.respond).not.toHaveBeenCalled();
+});

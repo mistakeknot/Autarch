@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"regexp"
 	"strings"
@@ -88,4 +89,18 @@ func secretEqual(a *SecretMetadata, b map[string]any) bool {
 	x, _ := json.Marshal(a)
 	y, _ := json.Marshal(m)
 	return bytes.Equal(x, y)
+}
+
+// CheckSecretDelivery preserves ordinary batching but refuses to queue expiring interactions.
+func (f *CardFiler) CheckSecretDelivery(r CardRequest) error {
+	if r.Secret == nil {
+		return nil
+	}
+	if r.NonBlocking {
+		return fmt.Errorf("%w: --secret cannot be combined with --non-blocking: the secret request expires before the batch releases", ErrInvalid)
+	}
+	if weeklyHold(f.clock(), r) {
+		return fmt.Errorf("%w: --secret cannot use the weekly hold: the secret request expires before the batch releases; use --urgent for immediate delivery", ErrInvalid)
+	}
+	return nil
 }

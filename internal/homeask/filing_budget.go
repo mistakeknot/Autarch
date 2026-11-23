@@ -188,6 +188,9 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 }
 
 func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes string, update, queueChecks bool) (CardResult, error) {
+	if err := f.CheckSecretDelivery(r); err != nil {
+		return CardResult{}, err
+	}
 	if err := checkKeepList(r.KeepList); err != nil {
 		return CardResult{}, err
 	}
