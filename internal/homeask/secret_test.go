@@ -110,3 +110,28 @@ func TestSecretFileCardDelivery(t *testing.T) {
 		})
 	}
 }
+
+func TestSecretFileCardRejectsForeignThread(t *testing.T) {
+	bb := newFake(t, registryOnCreate)
+	f := bb.filer()
+	r := testReq()
+	r.Secret = fakeSecretMetadata()
+	r.Thread = "thr_abcdefghij"
+	r.Owner = "thr_98765432ab"
+	bb.threads = map[string]string{r.Owner: "live"}
+	dir := filepath.Join(t.TempDir(), "not-created")
+	f.StateDir = dir
+	res, err := f.FileCard(context.Background(), r)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for foreign thread, got result=%+v err=%v", res, err)
+	}
+	if !strings.Contains(err.Error(), "BB_THREAD_ID or --owner-thread") {
+		t.Fatalf("missing binding error: %v", err)
+	}
+	if len(bb.tasks) != 0 {
+		t.Fatal("foreign thread wrote a card")
+	}
+	if _, e := os.Stat(dir); !os.IsNotExist(e) {
+		t.Fatalf("foreign thread wrote state: %v", e)
+	}
+}

@@ -32,7 +32,7 @@ export function secretState(metadata: SecretMetadata, interactions: readonly Int
 export function SecretSection({ metadata }: { metadata: SecretMetadata }) {
   const sdk = useSdk();
   const identity = JSON.stringify(metadata);
-  const [view, setView] = useState<{ identity: string; state: SecretState } | null>(null);
+  const [view, setView] = useState<{ identity: string; state: SecretState; submittedId?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
@@ -43,8 +43,13 @@ export function SecretSection({ metadata }: { metadata: SecretMetadata }) {
     const refresh = async () => {
       try {
         const rows = await sdk.threads.interactions.list({ threadId: metadata.thread });
-        if (alive) setView(current => current?.identity === identity && current.state.kind === "submitted" && rows.length === 0 ? current : { identity, state: secretState(metadata, rows, Date.now()) });
-      } catch { if (alive) setView({ identity, state: { kind: "expired" } }); }
+        if (alive) setView(current => {
+          const next = secretState(metadata, rows, Date.now());
+          // A stale list must not reopen an answered request. Only a new pending id does.
+          if (current?.identity === identity && current.state.kind === "submitted" && !(next.kind === "waiting" && next.id !== current.submittedId)) return current;
+          return { identity, state: next };
+        });
+      } catch { if (alive) setView(current => current?.identity === identity && current.state.kind === "submitted" ? current : { identity, state: { kind: "expired" } }); }
     };
     void refresh();
     const timer = setInterval(() => void refresh(), 5000);
@@ -52,9 +57,9 @@ export function SecretSection({ metadata }: { metadata: SecretMetadata }) {
   }, [sdk, identity]);
   useEffect(() => {
     if (state?.kind !== "waiting") return;
-    const timer = setTimeout(() => { form.current?.reset(); setRevealed({}); setView({ identity, state: { kind: "expired" } }); }, Math.max(0, state.expires - Date.now()));
+    const timer = setTimeout(() => { form.current?.reset(); setRevealed({}); setView(current => current?.identity === identity && current.state.kind === "waiting" && current.state.id === state.id ? { identity, state: { kind: "expired" } } : current); }, Math.max(0, state.expires - Date.now()));
     return () => clearTimeout(timer);
-  }, [state?.kind === "waiting" ? state.expires : null, identity]);
+  }, [state?.kind === "waiting" ? state.id : null, state?.kind === "waiting" ? state.expires : null, identity]);
   if (!state) return <p role="status">Checking secret request…</p>;
   if (state.kind === "submitted") return <p role="status" data-secret-state="submitted">Submitted to the secure writer.</p>;
   if (state.kind === "expired") return <p role="status" data-secret-state="expired">No pending secret request, or it expired. Ask the thread to re-request.</p>;
@@ -72,8 +77,8 @@ export function SecretSection({ metadata }: { metadata: SecretMetadata }) {
       setBusy(true);
       try {
         await sdk.threads.interactions.respond({ threadId: metadata.thread, interactionId: state.id, value: { values } });
-        // Keep only the state, never a response payload or error object.
-        setView({ identity, state: { kind: "submitted" } });
+        // Keep only the status and interaction id, never a response payload or error object.
+        setView({ identity, state: { kind: "submitted" }, submittedId: state.id });
       } catch { setError("Submission did not complete. Check the request and enter the values again."); }
       finally { for (const name of metadata.names) delete values[name]; setBusy(false); }
     }}>

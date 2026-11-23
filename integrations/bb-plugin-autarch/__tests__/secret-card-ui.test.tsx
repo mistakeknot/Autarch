@@ -115,4 +115,27 @@ it("explains unavailable read-model metadata instead of silently removing text e
  const ask={id:"fake-decision",task_id:"fake-task",secret_unavailable:true,thread:meta.thread,subject:"Choose",project:meta.project,asker:"thread",filed_at:"2026-01-01",revision:"fake-revision",ask:{question:"Choose",options:[]}} as OwedAsk;
  await act(async()=>root.render(<AskCard ask={ask} onPick={pick} onNote={note} onOpen={()=>{}} />));
  expect(host.textContent).toContain("Text entry unavailable: could not check this card for a secret request");expect(host.querySelector("[data-other-text]")).toBeNull();
+ expect([...host.querySelectorAll('[role="status"]')].some(p=>p.textContent?.includes("Text entry unavailable"))).toBe(false);
 });
+
+for (const mode of ["missing", "unrelated", "same-pending", "new-pending", "list-error"] as const) {
+ it(`polling after submit: ${mode}`,async()=>{
+  vi.useFakeTimers();
+  try {
+   await mount();host.querySelector<HTMLInputElement>("input")!.value="fake-test-value-not-a-secret";
+   await act(async()=>host.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true})));
+   expect(host.textContent).toContain("Submitted");
+   if(mode==="list-error")mocks.list.mockRejectedValue(new Error("fake-test-error"));
+   else if(mode==="missing")mocks.list.mockResolvedValue([]);
+   else if(mode==="unrelated"){const unrelated=interaction();unrelated.payload.data.project="unrelated-fake-project";mocks.list.mockResolvedValue([unrelated]);}
+   else mocks.list.mockResolvedValue([{...interaction(),id:mode==="new-pending"?"pint_abcdefghij":"pint_23456789ab"}]);
+   await act(async()=>vi.advanceTimersByTimeAsync(5000));
+   if(mode==="new-pending"){
+    expect(host.querySelector('input[type="password"]')).not.toBeNull();
+    host.querySelector<HTMLInputElement>("input")!.value="fake-test-value-not-a-secret";
+    await act(async()=>host.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true})));
+    expect(mocks.sent).toMatchObject([{interactionId:"pint_23456789ab"},{interactionId:"pint_abcdefghij"}]);
+   }else{expect(host.textContent).toContain("Submitted");expect(host.querySelector("form")).toBeNull();}
+  } finally {vi.useRealTimers();}
+ });
+}

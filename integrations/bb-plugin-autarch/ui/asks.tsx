@@ -346,7 +346,7 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
       </p>
       {glanceOf ? <GlanceBlock g={glanceOf} /> : null}
       <QuestionText text={ask.ask.question} />
-      {ask.secret_unavailable ? <p role="status">Text entry unavailable: could not check this card for a secret request</p> : null}
+      {ask.secret_unavailable ? <p>Text entry unavailable: could not check this card for a secret request</p> : null}
       {secret ? <SecretSection key={JSON.stringify(secret)} metadata={secret} /> : null}
       <EvidenceBlock items={ask.ask.evidence} />
       {ask.ask.questions && ask.ask.questions.length > 0 ? (
