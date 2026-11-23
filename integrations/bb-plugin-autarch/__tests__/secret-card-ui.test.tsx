@@ -11,7 +11,7 @@ vi.mock("@get-bb/plugin-sdk/app", () => {
 import { AskCard, type OwedAsk } from "../ui/asks.js";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const meta = { thread: "thr_23456789ab", names: ["FAKE_TEST_TOKEN"], path: "/fake-test/credentials.env", project: "fake-test-project" };
-const interaction = () => ({ id: "pint_23456789ab", threadId: meta.thread, createdAt: Date.now(), expiresAt: Date.now()+60000, origin: { kind: "plugin", pluginId: "secrets", rendererId: "secret-request" }, status: "pending", resolution: null, payload: { kind: "plugin", title: "Add secrets", data: { threadId: meta.thread, project: meta.project, destination: { kind: "dotenv", path: meta.path, consumer: "fake-test-consumer" }, expiresAtMs: Date.now()+60000, fields: [{ name: "FAKE_TEST_TOKEN", description: null, existing: false }] } } });
+const interaction = () => ({ id: "pint_23456789ab", threadId: meta.thread, createdAt: Date.now(), expiresAt: Date.now()+60000, origin: { kind: "plugin", pluginId: "secrets", rendererId: "secret-request" }, status: "pending", resolution: null, payload: { kind: "plugin", title: "Add secrets", data: { threadId: meta.thread, project: meta.project, destination: { kind: "dotenv", path: meta.path, consumer: "fake-test-consumer" }, expiresAtMs: Date.now()+60000, fields: [{ name: "FAKE_TEST_TOKEN", description: null as string | null, existing: false }] } } });
 let host: HTMLDivElement; let root: Root;
 const pick = vi.fn(); const note = vi.fn();
 beforeEach(() => { vi.clearAllMocks(); mocks.methods.clear(); for (const method of Object.keys(homeMethods)) mocks.methods.set(method,vi.fn()); mocks.sent.length=0; host=document.createElement("div"); document.body.append(host); root=createRoot(host); mocks.list.mockResolvedValue([interaction()]); mocks.respond.mockImplementation(async (args: unknown) => { mocks.sent.push(structuredClone(args)); return { ...interaction(), status: "resolved", resolution: { kind: "plugin_submitted" } }; }); });
@@ -63,7 +63,7 @@ it("clears the value and shows a constant error when the SDK rejects", async () 
  mocks.respond.mockRejectedValue(new Error(value));
  await mount();const input=host.querySelector("input")!;
  await act(async()=> {input.value=value;host.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));});
- expect(input.value).toBe("");expect(host.innerHTML).not.toContain(value);expect(host.querySelector('[role="alert"]')).not.toBeNull();
+ expect(input.value).toBe("");expect(host.innerHTML).not.toContain(value);expect(host.querySelector('[data-secret-error]')).not.toBeNull();
  expect(pick).not.toHaveBeenCalled();expect(note).not.toHaveBeenCalled();expect(mocks.rpc).not.toHaveBeenCalled();
 });
 
@@ -106,7 +106,7 @@ it("does not match a destination with an extra trailing slash",async()=>{
 });
 it("explains rejected line breaks and uses card button and mobile input styling",async()=>{
  await mount();const input=host.querySelector<HTMLInputElement>("input")!;
- expect(input.className).toContain("text-base");expect(host.querySelector('[aria-label="Show FAKE_TEST_TOKEN"]')!.className).toContain("border-input");
+ expect(input.className).toContain("text-base");expect(host.querySelector('[aria-label="Show FAKE_TEST_TOKEN"]')!.className).toContain("border-0");
  Object.defineProperty(input,"value",{get:()=>"fake-test\nvalue",configurable:true});
  await act(async()=>host.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true})));
  expect(host.textContent).toContain("Values cannot contain line breaks");expect(mocks.respond).not.toHaveBeenCalled();
@@ -139,3 +139,26 @@ for (const mode of ["missing", "unrelated", "same-pending", "new-pending", "list
   } finally {vi.useRealTimers();}
  });
 }
+
+it("matches the secure request structure and accessible reveal controls",async()=>{
+ const i=interaction();Object.assign(i.payload.data,{purpose:"Use the fake test service",requestId:"fake-test-request"});i.payload.data.fields[0]!.existing=true;i.payload.data.fields[0]!.description="A placeholder field description";
+ mocks.list.mockResolvedValue([i]);await mount();
+ expect(host.querySelector("form p")?.textContent).toBe("Use the fake test service");expect(Array.from(host.querySelectorAll("dl dt")).map(e=>e.textContent)).toEqual(["Project","Used by","Asked by thread","Request","Expires"]);expect(host.textContent).toContain("Secrets will be written directly to");expect(host.querySelector("dl")?.textContent).toContain("Asked by thread");expect(host.textContent).toContain("Replaces existing value");expect(host.textContent).toContain("A placeholder field description");expect(host.textContent).toContain("Agents on this host can read this file after it is written.");
+ const input=host.querySelector<HTMLInputElement>("input")!;input.value="fake-test-value-not-a-secret";
+ let toggle=host.querySelector<HTMLButtonElement>('[aria-label="Show FAKE_TEST_TOKEN"]')!;expect(toggle.getAttribute("aria-pressed")).toBe("false");expect(toggle.querySelector("svg")).not.toBeNull();expect(toggle.textContent).toBe("");
+ await act(async()=>toggle.click());expect(input.type).toBe("text");expect(input.value).toBe("fake-test-value-not-a-secret");toggle=host.querySelector('[aria-label="Hide FAKE_TEST_TOKEN"]')!;expect(toggle.getAttribute("aria-pressed")).toBe("true");
+ await act(async()=>toggle.click());expect(input.type).toBe("password");expect(host.querySelector('button[type="submit"]')?.textContent).toContain("Add secrets");
+});
+it("announces validation politely in the destructive error region",async()=>{
+ await mount();host.querySelector<HTMLInputElement>("input")!.value="fake-test-".repeat(2000);
+ await act(async()=>host.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true})));
+ const error=host.querySelector('[data-secret-error]');expect(error).not.toBeNull();expect(error!.getAttribute("aria-live")).toBe("polite");expect(error!.className).toContain("bg-surface-destructive");expect(error!.textContent).toContain("16 KiB");expect(mocks.respond).not.toHaveBeenCalled();
+});
+
+it("keeps Add secrets named while showing the sending spinner",async()=>{
+ let finish!:()=>void;mocks.respond.mockImplementation(()=>new Promise<void>(resolve=>{finish=resolve}));
+ await mount();host.querySelector<HTMLInputElement>("input")!.value="fake-test-value-not-a-secret";
+ await act(async()=>host.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true})));
+ const button=host.querySelector<HTMLButtonElement>('button[type="submit"]')!;expect(button.textContent).toContain("Add secrets");expect(button.disabled).toBe(true);expect(button.querySelector('svg[aria-hidden="true"]')).not.toBeNull();expect(host.querySelector<HTMLInputElement>("input")!.value).toBe("");
+ await act(async()=>finish());expect(host.textContent).toContain("Submitted");
+});
