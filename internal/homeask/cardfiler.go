@@ -135,6 +135,7 @@ type RootRunSpec = RootRun
 
 // CardRequest is one filing.
 type CardRequest struct {
+	Secret       map[string]any         // metadata only, validated before any task write
 	replayEntry  *filingEntry           // internal verified replay target
 	replacesHeld string                 // internal escalation source, never part of the wire or saved JSON
 	beforeCreate func(string) error     // record an update falling back to create
@@ -241,6 +242,12 @@ func RequestIdentity(r CardRequest) (string, error) {
 	}
 	if r.Move != nil { // only when present, so every identity filed before moves existed is unchanged
 		node["move"] = r.Move
+	}
+	if r.Secret != nil {
+		if _, err := r.secretBlockChecked(); err != nil {
+			return "", err
+		}
+		node["secret"] = r.Secret
 	}
 	raw, err := json.Marshal(node)
 	if err != nil {
@@ -364,6 +371,13 @@ func (r CardRequest) Description() (desc, ident string, err error) {
 		}
 		b.WriteString("\n" + blk)
 	}
+	if r.Secret != nil {
+		blk, e := r.secretBlockChecked()
+		if e != nil {
+			return "", "", e
+		}
+		b.WriteString("\n" + blk)
+	}
 	desc = b.String()
 
 	c, perr := ParseCard(desc)
@@ -384,7 +398,7 @@ func (r CardRequest) Description() (desc, ident string, err error) {
 		pull = "mycroft"
 	}
 	ok := c.Request == RequestLine{Key: r.Key, Identity: ident} && strings.Join(got, " ") == strings.Join(want, " ") &&
-		c.Pull == pull && wa == ga && c.Question == strings.TrimSpace(question) && rootRunEqual(c.RootRun, r.RootRun) && moveEqual(c.Move, r.Move)
+		c.Pull == pull && wa == ga && c.Question == strings.TrimSpace(question) && rootRunEqual(c.RootRun, r.RootRun) && moveEqual(c.Move, r.Move) && secretEqual(c.Secret, r.Secret)
 	if !ok {
 		return "", "", fmt.Errorf("%w: the ask does not read back as the same card (a question line may start with Blocks: or Request:)", ErrInvalid)
 	}

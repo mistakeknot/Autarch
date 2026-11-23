@@ -10,6 +10,8 @@ import { RootRunSection, type RootRunPanelView } from "./rootrun.js";
 import { UnreadableCard } from "./unreadable.js";
 
 export type QueueRowView = {
+  secret?: OwedAsk["secret"];
+  secret_unavailable?: boolean;
   pick_targets?: OwedAsk["pick_targets"];
   id: string;
   decision_id: string | null;
@@ -198,7 +200,7 @@ export function BlocksRow({ row, nowMs, onPick, onOpen, rootRun, onBind, onNote 
           <div className="mt-2">
             {details}
             <AskCard
-              ask={{ id: row.decision_id, project: row.project ?? "", thread: row.thread ?? "", thread_title: row.thread_title ?? null, subject: row.title, key: row.card_key, asker: "card", filed_at: row.created_at, revision: row.revision, mentions: row.mentions, task_id: row.task_id, ask: row.ask, pick_targets: row.pick_targets }}
+              ask={{ id: row.decision_id, project: row.project ?? "", thread: row.thread ?? "", thread_title: row.thread_title ?? null, subject: row.title, key: row.card_key, asker: "card", filed_at: row.created_at, revision: row.revision, mentions: row.mentions, task_id: row.task_id, ask: row.ask, pick_targets: row.pick_targets, secret: row.secret, secret_unavailable: row.secret_unavailable }}
               onPick={onPick}
               onOpen={onOpen}
               unbound={isUnbound(row)}

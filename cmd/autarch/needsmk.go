@@ -225,7 +225,7 @@ func commandWarning(question string) string {
 }
 
 func needsMkFileCmd() *cobra.Command {
-	var project, title, askFile, rootRun, request, moveFile, ownerThread, urgency, stopped, prFlag, supersedes string
+	var project, title, askFile, rootRun, request, moveFile, secretFile, ownerThread, urgency, stopped, prFlag, supersedes string
 	var blocks []string
 	var vizierOwned, checkOnly bool
 	var cardType string
@@ -242,6 +242,8 @@ the current Pacific start and end. Legacy ISO records appear in reports for both
 overlapping weeks when their filing time is unknown.
 AUTARCH_CARD_STATE_DIR overrides the local XDG state directory.
 --non-blocking queues a card until needs-mk release.
+--secret refuses --non-blocking and any weekly hold because its request expires
+before batch release. Use --urgent for immediate delivery during the weekly hold.
 Ordinary cards filed Monday 00:00 through Thursday before 12:00 Pacific are also
 held for the Thursday batch. Urgent, keep-list, merge and root-run cards bypass
 this weekday hold. Release inside that window leaves ordinary cards queued;
@@ -311,6 +313,9 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if secretFile != "" && nonBlocking {
+				return &usageError{"--secret cannot be combined with --non-blocking: the secret request expires before the batch releases"}
+			}
 			thread := os.Getenv("BB_THREAD_ID")
 			if thread == "" {
 				return &usageError{"BB_THREAD_ID is required: run inside the asking bb thread"}
@@ -322,6 +327,27 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				if err := homeask.CheckRequestKey(request); err != nil {
 					return &usageError{"--request: " + err.Error()}
 				}
+			}
+			var secret map[string]any
+			if secretFile != "" {
+				f, e := os.Open(secretFile)
+				if e != nil {
+					return &usageError{"--secret: cannot read metadata"}
+				}
+				raw, e := io.ReadAll(io.LimitReader(f, maxCardFileBytes+1))
+				f.Close()
+				if e != nil || len(raw) > maxCardFileBytes {
+					return &usageError{"--secret: cannot read metadata"}
+				}
+				m, e := homeask.ParseSecret(string(raw))
+				if e != nil {
+					return &usageError{"--secret: invalid home-secret metadata"}
+				}
+				if m.Thread != thread && (ownerThread == "" || m.Thread != ownerThread) {
+					return &usageError{"--secret thread must match BB_THREAD_ID or --owner-thread"}
+				}
+				safe, _ := json.Marshal(m)
+				json.Unmarshal(safe, &secret)
 			}
 			var move map[string]any
 			if moveFile != "" {
@@ -356,6 +382,20 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 					return &usageError{"--ask-file is not a JSON object: got null"}
 				}
 			}
+			filer := newCardFiler()
+			if secret != nil {
+				deliveryType := cardType
+				if prFlag != "" || homeask.IsMergeAsk(ask) {
+					deliveryType = "merge"
+				}
+				var deliveryRoot *homeask.RootRunSpec
+				if rootRun != "" {
+					deliveryRoot = &homeask.RootRunSpec{}
+				}
+				if err := filer.CheckSecretDelivery(homeask.CardRequest{Secret: secret, Thread: thread, Owner: ownerThread, NonBlocking: nonBlocking, Urgent: urgent, KeepList: keepList, Type: deliveryType, RootRun: deliveryRoot}); err != nil {
+					return &usageError{err.Error()}
+				}
+			}
 			if err := homeask.PrepareEvidence(ask); err != nil {
 				return &usageError{err.Error()}
 			}
@@ -386,7 +426,6 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			if ctx == nil {
 				ctx = context.Background()
 			}
-			filer := newCardFiler()
 			filer.Warn = func(w string) { fmt.Fprintln(cmd.ErrOrStderr(), "warning:", w) }
 			if _, ok := ask["project"]; !ok {
 				// The board's binding names the project; the folder name is wrong in a bb worktree.
@@ -421,7 +460,7 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			if vizierOwned && cmd.Flags().Changed("owner-thread") {
 				failures = append(failures, &usageError{"give exactly one of --owner-thread or --vizier-owned"})
 			}
-			req := homeask.CardRequest{Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread, VizierOwned: vizierOwned, Type: cardType, UI: ui, Attachments: attachments, Urgent: urgent, NonBlocking: nonBlocking, KeepList: keepList}
+			req := homeask.CardRequest{Secret: secret, Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread, VizierOwned: vizierOwned, Type: cardType, UI: ui, Attachments: attachments, Urgent: urgent, NonBlocking: nonBlocking, KeepList: keepList}
 			var err error
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
@@ -486,6 +525,7 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 	cmd.Flags().StringArrayVar(&blocks, "blocks", nil, "Blocks ref (bead:ID, thread:thr_ID, project:ID); repeatable")
 	cmd.Flags().StringVar(&askFile, "ask-file", "", "JSON file with the ask")
 	cmd.Flags().StringVar(&moveFile, "move", "", "home-move/v1 JSON file: what mk owes (script, pr, read or context); adds the mk-move label")
+	cmd.Flags().StringVar(&secretFile, "secret", "", "home-secret metadata JSON file; never include values")
 	cmd.Flags().StringVar(&rootRun, "root-run", "", "script=<abs path>,timeout=<seconds>,set=<name>")
 	cmd.Flags().StringVar(&request, "request", "", "Request key (default: derived from thread and ask); when given it must be non-empty and match the Request line key pattern")
 	cmd.Flags().StringVar(&stopped, "stopped", "", "Work stopped until the answer (required with blocker urgency, single line, at most 200 characters)")

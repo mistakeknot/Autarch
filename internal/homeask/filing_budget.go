@@ -188,6 +188,9 @@ func (f *CardFiler) submit(ctx context.Context, r CardRequest, supersedes string
 }
 
 func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes string, update, queueChecks bool) (CardResult, error) {
+	if err := f.CheckSecretDelivery(r); err != nil {
+		return CardResult{}, err
+	}
 	if err := checkKeepList(r.KeepList); err != nil {
 		return CardResult{}, err
 	}
@@ -357,6 +360,9 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		return CardResult{}, err
 	}
 	admittedAt := f.clock()
+	if err := checkSecretDeliveryAt(r, admittedAt); err != nil {
+		return CardResult{}, err
+	}
 	coalesce = ordinary(r) && (weeklyHold(admittedAt, r) || r.NonBlocking)
 	if state.heldTarget(r, coalesce) != deliveryKey || !slices.Equal(state.retiringHeld(r, coalesce), retiring) {
 		return CardResult{}, errHeldTargetChanged

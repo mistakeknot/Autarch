@@ -569,6 +569,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
         revision: d.revision,
         task_id: d.task_id ?? null,
         ...owedAsk(d.body_json, d.source),
+        ...p.svc.secretReadModel(d.task_id, d.card_fp),
         pick_targets: p.svc.pickTargetPresentation(d.id),
         mentions: p.store.mentions(d.id).length,
       }));
