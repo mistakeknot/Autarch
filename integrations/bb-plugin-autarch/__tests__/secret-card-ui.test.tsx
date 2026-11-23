@@ -115,7 +115,7 @@ it("explains unavailable read-model metadata instead of silently removing text e
  const ask={id:"fake-decision",task_id:"fake-task",secret_unavailable:true,thread:meta.thread,subject:"Choose",project:meta.project,asker:"thread",filed_at:"2026-01-01",revision:"fake-revision",ask:{question:"Choose",options:[]}} as OwedAsk;
  await act(async()=>root.render(<AskCard ask={ask} onPick={pick} onNote={note} onOpen={()=>{}} />));
  expect(host.textContent).toContain("Text entry unavailable: could not check this card for a secret request");expect(host.querySelector("[data-other-text]")).toBeNull();
- expect([...host.querySelectorAll('[role="status"]')].some(p=>p.textContent?.includes("Text entry unavailable"))).toBe(false);
+ expect(Array.from(host.querySelectorAll('[role="status"]')).some(p=>p.textContent?.includes("Text entry unavailable"))).toBe(false);
 });
 
 for (const mode of ["missing", "unrelated", "same-pending", "new-pending", "list-error"] as const) {
