@@ -97,7 +97,7 @@ func TestCujgelSchemaParity(t *testing.T) {
 		}
 		return true
 	})
-	pattern := func(m map[string]any) string { return strings.TrimSuffix(m["pattern"].(string), `(?![\\s\\S])`) + `\z` }
+	pattern := func(m map[string]any) string { return strings.TrimSuffix(m["pattern"].(string), `(?![\s\S])`) + `\z` }
 	for name, want := range map[string]any{
 		"cujgelIDPattern": pattern(obj(defs, "id")), "cujgelHashPattern": pattern(obj(defs, "hash")),
 		"cujgelOptionPattern": pattern(obj(obj(item, "properties"), "option_id")),
@@ -139,6 +139,25 @@ func TestCujgelCardValidation(t *testing.T) {
 	if card["cujgel"] == nil {
 		t.Fatal("cujgel/v1 block was not parsed as typed metadata")
 	}
+	if _, err := parseCujgelFixture(t, good+strings.Repeat(" ", CujgelMaxBytes-len(good))); err != nil {
+		t.Fatalf("exact size limit refused: %v", err)
+	}
+	r := requestWithCujgel(t)
+	desc, id, err := r.Description()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseCard(desc + "\n```cujgel/v1\n" + good + "\n```\n"); err == nil {
+		t.Fatal("duplicate link block accepted")
+	}
+	plain := r
+	plain.Cujgel = nil
+	base, _ := RequestIdentity(plain)
+	r.Cujgel.ComparisonRev.SHA256 = strings.Repeat("b", 64)
+	changed, _ := RequestIdentity(r)
+	if id == base || id == changed {
+		t.Fatal("link is missing from request identity")
+	}
 	for _, tc := range []struct{ name, raw, field string }{
 		{"unknown", strings.TrimSuffix(strings.TrimSpace(good), "}") + `,"url":"fixture"}`, "url"},
 		{"path", strings.TrimSuffix(strings.TrimSpace(good), "}") + `,"path":"fixture"}`, "path"},
@@ -166,7 +185,6 @@ func TestCujgelCardValidation(t *testing.T) {
 		{"citadel option", strings.Replace(good, `option-b`, `option.b`, 1), "option_id"},
 		{"option too long", strings.Replace(good, `option-b`, strings.Repeat("a", 33), 1), "option_id"},
 		{"option newline", strings.Replace(good, `option-b`, `option-b\n`, 1), "option_id"},
-		{"variants null", strings.Replace(good, `"variants": [`, `"variants": null,"ignored":[`, 1), "variants"},
 		{"trailing JSON", good + `{}`, "cujgel"},
 		{"utf8", strings.Replace(good, `proj_fixture`, string([]byte{0xff}), 1), "UTF-8"},
 		{"over limit", good + strings.Repeat(" ", 16*1024), "16 KiB"},
@@ -204,6 +222,58 @@ func TestCujgelCardValidation(t *testing.T) {
 		}
 		if _, err := parseCujgelFixture(t, raw); err != nil {
 			t.Errorf("uppercase %s refused: %v", field, err)
+		}
+	}
+}
+
+func TestCujgelRequiredFieldsAndTypes(t *testing.T) {
+	good := cujgelExample(t)
+	for _, path := range [][]string{
+		{"project"}, {"comparison_id"}, {"question_id"}, {"comparison_rev"}, {"variants"},
+		{"comparison_rev", "revision"}, {"comparison_rev", "sha256"},
+		{"variants", "variant_id"}, {"variants", "option_id"},
+	} {
+		for _, mode := range []string{"missing", "null", "wrong type"} {
+			t.Run(strings.Join(path, ".")+"/"+mode, func(t *testing.T) {
+				var m map[string]any
+				json.Unmarshal([]byte(good), &m)
+				obj := m
+				if path[0] == "comparison_rev" && len(path) == 2 {
+					obj = m["comparison_rev"].(map[string]any)
+				}
+				if path[0] == "variants" && len(path) == 2 {
+					obj = m["variants"].([]any)[0].(map[string]any)
+				}
+				key := path[len(path)-1]
+				switch mode {
+				case "missing":
+					delete(obj, key)
+				case "null":
+					obj[key] = nil
+				case "wrong type":
+					obj[key] = true
+				}
+				b, _ := json.Marshal(m)
+				_, err := parseCujgelFixture(t, string(b))
+				if err == nil || !strings.Contains(err.Error(), key) {
+					t.Fatalf("%s was not refused: %v", key, err)
+				}
+			})
+		}
+	}
+}
+
+func TestCujgelIntegralRevision(t *testing.T) {
+	for _, n := range []string{"1.0", "1e1", "9007199254740993"} {
+		raw := strings.Replace(cujgelExample(t), `"revision": 1`, `"revision":`+n, 1)
+		link, err := ParseCujgel(raw)
+		if err != nil || string(link.ComparisonRev.Revision) != n {
+			t.Fatalf("integer %s was rounded or refused: %v", n, err)
+		}
+	}
+	for _, n := range []string{`"1"`, "0.99999999999999999999", "1e-1000000000"} {
+		if _, err := ParseCujgel(strings.Replace(cujgelExample(t), `"revision": 1`, `"revision":`+n, 1)); err == nil {
+			t.Fatalf("accepted non-integer revision %s", n)
 		}
 	}
 }
@@ -247,5 +317,55 @@ func TestCujgelFileCardProjectBinding(t *testing.T) {
 				t.Fatalf("binding refusal wrote state: %v", e)
 			}
 		})
+	}
+}
+
+func TestCujgelFileCardResolvesTargetBoard(t *testing.T) {
+	t.Setenv("BB_PROJECT_ID", "proj_other")
+	for _, board := range []string{"P1", "one", "Alpha", "missing", ""} {
+		t.Run("board_"+board, func(t *testing.T) {
+			bb := newFake(t, registryOnCreate)
+			f := bb.filer()
+			r := requestWithCujgel(t)
+			r.Project = board
+			f.StateDir = filepath.Join(t.TempDir(), "not-created")
+			bb.fail = func(args []string) *BBResult {
+				if strings.Join(args[:min(3, len(args))], " ") == "tasks project list" {
+					x := okRes(map[string]any{"projects": []any{map[string]any{"id": "P1", "name": "Alpha", "prefix": "ONE", "linkedBbProjectId": "proj_fixture"}}})
+					return &x
+				}
+				return nil
+			}
+			_, err := f.FileCard(context.Background(), r)
+			if board == "missing" || board == "" {
+				if !errors.Is(err, ErrInvalid) {
+					t.Fatalf("unknown target accepted: %v", err)
+				}
+				if _, e := os.Stat(f.StateDir); !os.IsNotExist(e) {
+					t.Fatalf("refusal wrote state: %v", e)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("explicit board link lost to ambient project: %v", err)
+			}
+		})
+	}
+}
+
+func TestCujgelFileCardRejectsSecret(t *testing.T) {
+	bb := newFake(t, registryOnCreate)
+	f := bb.filer()
+	r := requestWithCujgel(t)
+	r.Secret = fakeSecretMetadata()
+	f.StateDir = filepath.Join(t.TempDir(), "not-created")
+	if _, err := f.FileCard(context.Background(), r); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "cannot be combined with --secret") {
+		t.Fatalf("combination accepted: %v", err)
+	}
+	if _, err := os.Stat(f.StateDir); !os.IsNotExist(err) {
+		t.Fatalf("combination refusal wrote state: %v", err)
+	}
+	if len(bb.tasks) != 0 {
+		t.Fatal("combination wrote a card")
 	}
 }

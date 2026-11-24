@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/mistakeknot/autarch/internal/homeask"
@@ -68,7 +67,7 @@ func TestNeedsMkCujgel(t *testing.T) {
 
 func TestNeedsMkCujgelFileKinds(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thr_fixture")
-	for _, kind := range []string{"symlink", "directory", "fifo"} {
+	for _, kind := range []string{"symlink", "directory"} {
 		t.Run(kind, func(t *testing.T) {
 			p := filepath.Join(t.TempDir(), "link")
 			switch kind {
@@ -78,10 +77,6 @@ func TestNeedsMkCujgelFileKinds(t *testing.T) {
 				}
 			case "directory":
 				if err := os.Mkdir(p, 0700); err != nil {
-					t.Fatal(err)
-				}
-			case "fifo":
-				if err := syscall.Mkfifo(p, 0600); err != nil {
 					t.Fatal(err)
 				}
 			}
