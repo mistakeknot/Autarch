@@ -39,8 +39,14 @@ it("migrates a copied v7 database with a verified backup, no backfill or reader 
   const t=tmpDir();
   try {
     const oldFile=join(t.dir,"previous.db"),file=join(t.dir,"copy.db");
-    const old=new Database(oldFile);migrate(old,{codeVersion:7});
-    old.prepare("INSERT INTO cards(task_id,state) VALUES ('fixture','open')").run();old.close();
+    const old=new Database(oldFile);
+    const seed=new Store(old,{migrate:{codeVersion:7},now:()=>"2030-01-01T00:00:00.000Z"});
+    old.prepare("INSERT INTO cards(task_id,state) VALUES ('fixture','open')").run();
+    const d=decision({id:"fixture-decision",request_id:"fixture-request"});
+    seed.insertDecision(d);
+    seed.recordPick(pickOf(d.id,{revision:d.revision}),[{id:"fixture-obligation",kind:"wake",op:"fixture-operation",recipient:"thr_fixture",payload:"fixture"}]);
+    seed.recordEvent("fixture",d.id,{evidence:"preserved"});
+    seed.close();
     const before=readFileSync(oldFile);copyFileSync(oldFile,file);
     const db=new Database(file);
     try {
@@ -48,7 +54,7 @@ it("migrates a copied v7 database with a verified backup, no backfill or reader 
         expect((db.prepare(`SELECT count(*) n FROM ${name}`).get() as {n:number}).n,`v7 fixture must populate ${name}`).toBeGreaterThan(0);
       const names=(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as {name:string}[]).map(r=>r.name);
       const digests=oldTableDigests(db,names),preimage=contentDigest(db);
-      expect(migrate(db)).toEqual({schemaVersion:8,minReaderVersion:3});
+      expect(migrate(db,{codeVersion:8})).toEqual({schemaVersion:8,minReaderVersion:3});
       expect(oldTableDigests(db,names)).toEqual(digests);
       expect(db.prepare("SELECT task_id,state FROM cards").all()).toEqual([{task_id:"fixture",state:"open"}]);
       expect(db.prepare("SELECT * FROM decision_cujgel").all()).toEqual([]);

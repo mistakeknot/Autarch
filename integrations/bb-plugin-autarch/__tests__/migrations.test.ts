@@ -849,12 +849,12 @@ describe("v7 pick handler persistence", () => {
 
   it("fresh schema is additive, inert and keeps reader version 3", () => {
     const db = new Database(file);
-    expect(migrate(db)).toEqual({ schemaVersion: 8, minReaderVersion: 3 });
+    expect(migrate(db)).toEqual({ schemaVersion: CODE_VERSION, minReaderVersion: 3 });
     for (const table of ["pick_actions", "pick_note_fences"]) {
       expect(db.prepare(`SELECT count(*) n FROM ${table}`).get()).toEqual({ n: 0 });
     }
     expect(db.prepare("SELECT mode, epoch FROM pick_handler_control").get()).toEqual({ mode: "off", epoch: 0 });
-    expect(migrate(db)).toEqual({ schemaVersion: 8, minReaderVersion: 3 });
+    expect(migrate(db)).toEqual({ schemaVersion: CODE_VERSION, minReaderVersion: 3 });
     expect(db.prepare("SELECT count(*) n FROM migration_log WHERE version=7").get()).toEqual({ n: 1 });
     db.close();
   });
@@ -1105,11 +1105,11 @@ describe("v4 migration (moves)", () => {
 
     const logs: string[] = [];
     const db = new Database(file);
-    expect(migrate(db, { log: { info: (m) => logs.push(m) } })).toEqual({ schemaVersion: 8, minReaderVersion: 3 });
-    expect(logs.some((l) => l.startsWith("autarch: schema 3 → 8; backup ") && l.includes("verified"))).toBe(true);
+    expect(migrate(db, { log: { info: (m) => logs.push(m) } })).toEqual({ schemaVersion: CODE_VERSION, minReaderVersion: 3 });
+    expect(logs.some((l) => l.startsWith(`autarch: schema 3 → ${CODE_VERSION}; backup `) && l.includes("verified"))).toBe(true);
     expect(db.prepare("SELECT COUNT(*) c FROM cards").get()).toEqual({ c: 1 });
     expect(db.prepare("SELECT COUNT(*) c FROM moves").get()).toEqual({ c: 0 });
-    expect(db.prepare("SELECT version FROM migration_log ORDER BY version").all()).toEqual([{ version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }]);
+    expect(db.prepare("SELECT version FROM migration_log ORDER BY version").all()).toEqual(MIGRATIONS.filter(m=>m.version>=3 && m.version<=CODE_VERSION).map(m=>({version:m.version})));
     db.close();
   });
 

@@ -9,6 +9,21 @@ import (
 	"time"
 )
 
+// Keep byte-identical to migration 8; the plugin parity test checks this literal.
+const cujgelV8DDL = `
+CREATE TABLE decision_cujgel (
+  decision_id TEXT PRIMARY KEY REFERENCES decisions(id),
+  body_json TEXT NOT NULL CHECK(json_valid(body_json))
+) WITHOUT ROWID;
+CREATE TRIGGER decision_cujgel_no_update BEFORE UPDATE ON decision_cujgel
+BEGIN SELECT RAISE(ABORT, 'Cujgel snapshot is immutable'); END;
+CREATE TRIGGER decision_cujgel_no_delete BEFORE DELETE ON decision_cujgel
+BEGIN SELECT RAISE(ABORT, 'Cujgel snapshot is permanent'); END;
+CREATE TRIGGER decision_cujgel_no_replace BEFORE INSERT ON decision_cujgel
+WHEN EXISTS(SELECT 1 FROM decision_cujgel WHERE decision_id=NEW.decision_id)
+BEGIN SELECT RAISE(ABORT, 'Cujgel snapshot already exists'); END;
+`
+
 func TestPickExportCujgelSnapshot(t *testing.T) {
 	raw, err := os.ReadFile("../homeask/testdata/cujgel/citadel-link.json")
 	if err != nil {
@@ -17,7 +32,7 @@ func TestPickExportCujgelSnapshot(t *testing.T) {
 	link := strings.ReplaceAll(string(raw), "'", "''")
 	newer := strings.Replace(link, strings.Repeat("a", 64), strings.Repeat("b", 64), 1)
 	path := fixture(t, `CREATE TABLE decisions(id TEXT PRIMARY KEY,task_id TEXT,source TEXT,body_json TEXT,kind TEXT,ask_key TEXT);
-CREATE TABLE decision_cujgel(decision_id TEXT PRIMARY KEY,body_json TEXT);
+`+cujgelV8DDL+`
 INSERT INTO cards VALUES ('fixture','fixture-card','Compare','closed',NULL);
 INSERT INTO decisions VALUES ('g1','fixture','card','{}','decide','cujgel:proj_fixture:comparison_fixture'),('g2','fixture','card','{}','decide','cujgel:proj_fixture:comparison_newer');
 INSERT INTO decision_cujgel VALUES ('g1','`+link+`'),('g2','`+newer+`');
@@ -65,7 +80,7 @@ func TestPickExportUnlinkedBytesUnchanged(t *testing.T) {
 		t.Run(map[bool]string{false: "previous schema", true: "expanded schema"}[snapshotTable], func(t *testing.T) {
 			extra := ""
 			if snapshotTable {
-				extra = `CREATE TABLE decision_cujgel(decision_id TEXT PRIMARY KEY,body_json TEXT);`
+				extra = cujgelV8DDL
 			}
 			path := fixture(t, `CREATE TABLE decisions(id TEXT,task_id TEXT,source TEXT,body_json TEXT,kind TEXT,ask_key TEXT);`+extra+`
 INSERT INTO cards VALUES ('fixture','fixture-card','Compare','ruled',NULL);

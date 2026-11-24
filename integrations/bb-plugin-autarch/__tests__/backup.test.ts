@@ -6,7 +6,7 @@ import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync, openSy
 import { join, isAbsolute } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BackupNotVerifiedError, contentDigest, QuiesceRequiredError } from "../backup.js";
-import { MIGRATIONS, migrate, readSchemaState } from "../migrations.js";
+import { CODE_VERSION, MIGRATIONS, migrate, readSchemaState } from "../migrations.js";
 import { Store } from "../store.js";
 import { decision, pickOf, tmpDir } from "./helpers.js";
 import { loadV2 } from "./v2build.js";
@@ -81,11 +81,11 @@ describe("backup before migrate", () => {
     expect(row.backup_path).toBe(path);
     expect(row.digest).toBe(before.digest);
     expect(JSON.parse(row.table_counts_json!)).toMatchObject({ decisions: 2, notes: 1 });
-    const line = logs.find((l) => l.startsWith("autarch: schema 2 → 7;"));
+    const line = logs.find((l) => l.startsWith(`autarch: schema 2 → ${CODE_VERSION};`));
     expect(line).toContain(`backup ${path} verified`);
     expect(line).toContain(`digest ${before.digest.slice(0, 12)}`);
     expect(line).toMatch(/integrity ok.*\d+ tables, \d+ rows/);
-    expect(readSchemaState(s.db)).toEqual({ schemaVersion: 7, minReaderVersion: 3 });
+    expect(readSchemaState(s.db)).toEqual({ schemaVersion: CODE_VERSION, minReaderVersion: 3 });
     // the hold is released: another connection can read and write
     const other = new Database(file, { timeout: 50 });
     other.prepare("UPDATE notes SET text = 'x' WHERE id = 'n1'").run();
@@ -318,9 +318,10 @@ describe("backup before migrate", () => {
     });
   });
 
-  it("a crash (SIGKILL) during the hold leaves v2 with no DDL, or v3 with its migration_log row; the next open succeeds", () => {
+  it("a crash (SIGKILL) during the hold leaves v2 with no DDL, or the current schema with its migration_log rows; the next open succeeds", () => {
     const CHILD = join(import.meta.dirname, "backup-crash-child.ts");
     const outcomes: Record<string, number> = {};
+    const logged=MIGRATIONS.filter(m=>m.version>=3 && m.version<=CODE_VERSION).map(m=>({version:m.version}));
     for (const step of ["backup-written", "verified", "ddl-applied", "committed"]) {
       t.cleanup();
       t = tmpDir();
@@ -337,17 +338,17 @@ describe("backup before migrate", () => {
       if (v === 2) {
         expect(probe.prepare("SELECT 1 FROM sqlite_master WHERE name IN ('cards','migration_log')").all()).toEqual([]);
       } else {
-        expect(v).toBe(7);
-        expect(probe.prepare("SELECT version FROM migration_log ORDER BY version").all()).toEqual([{ version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }]);
+        expect(v).toBe(CODE_VERSION);
+        expect(probe.prepare("SELECT version FROM migration_log ORDER BY version").all()).toEqual(logged);
       }
       outcomes[step] = v;
       probe.close();
       const s = new Store(new Database(file), { ...quick, migrate: { now: () => new Date(Date.now() + 120_000) } });
-      expect(readSchemaState(s.db).schemaVersion).toBe(7);
-      expect(s.db.prepare("SELECT COUNT(*) c FROM migration_log").get()).toEqual({ c: 5 });
+      expect(readSchemaState(s.db).schemaVersion).toBe(CODE_VERSION);
+      expect(s.db.prepare("SELECT COUNT(*) c FROM migration_log").get()).toEqual({ c: logged.length });
       s.close();
     }
-    expect(outcomes).toEqual({ "backup-written": 2, verified: 2, "ddl-applied": 2, committed: 7 });
+    expect(outcomes).toEqual({ "backup-written": 2, verified: 2, "ddl-applied": 2, committed: CODE_VERSION });
   }, 60_000); // four child processes, each loading tsx: the 5s default is flaky under load
 
   it("a fresh database migrates with no backup, but still refuses while another connection is open", () => {
@@ -358,7 +359,7 @@ describe("backup before migrate", () => {
       backup_path: null,
       digest: null,
     });
-    expect(logs.some((l) => l.startsWith("autarch: schema 0 → 7; no backup"))).toBe(true);
+    expect(logs.some((l) => l.startsWith(`autarch: schema 0 → ${CODE_VERSION}; no backup`))).toBe(true);
     s.close();
 
     const file2 = join(t.dir, "fresh2.db");

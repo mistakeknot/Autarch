@@ -5,5 +5,6 @@ digests and compare the handwritten Go validator's patterns, bounds and required
 fields with the schema. Update the fixtures and validator together when adopting
 a new schema revision.
 
-`negative-cases.json` is a shared rejection corpus read by both the Go and plugin
-card tests. Its inputs use placeholder IDs and repeated hashes.
+`negative-cases.json` and `positive-cases.json` are shared rejection and acceptance
+corpora read by both the Go and plugin card tests. Their inputs use placeholder
+IDs and repeated hashes.

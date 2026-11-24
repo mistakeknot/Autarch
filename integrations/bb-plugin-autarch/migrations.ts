@@ -77,7 +77,7 @@ CREATE TABLE decisions (
 CREATE INDEX decisions_thread ON decisions(thread);
 CREATE INDEX decisions_semantic ON decisions(semantic_key);
 CREATE TABLE picks (
-  decision_id TEXT PRIMARY KEY NOT NULL REFERENCES decisions(id),
+  decision_id TEXT PRIMARY KEY REFERENCES decisions(id),
   pick_id TEXT NOT NULL UNIQUE,
   option_id TEXT NOT NULL,
   revision TEXT NOT NULL,
