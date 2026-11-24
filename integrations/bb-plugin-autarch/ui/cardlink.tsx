@@ -18,6 +18,45 @@ export function cardHref(key: string): string {
   return `/plugins/autarch/home/${key}`;
 }
 
+const OPTION = /^[a-z0-9-]{1,32}(?![\s\S])/;
+export type CardPreselect = { key: string; option: string };
+export type CardOpenTarget = { key: string; option?: string };
+
+/** A Cujgel return link opens the card; it never answers it. */
+export function cardOptionHref(key: string, optionId: string): string {
+  const canonical = cardKeyFrom(key);
+  if (canonical === null || !OPTION.test(optionId)) throw new Error("Invalid card key or option id");
+  return `${cardHref(canonical)}/option/${encodeURIComponent(optionId)}`;
+}
+
+/** Keep the legacy key parser unchanged. Even an invalid option opens its card. */
+export function cardOpenTargetFrom(subPath: string | undefined): CardOpenTarget | null {
+  const key = cardKeyFrom(subPath);
+  if (key !== null) return { key };
+  if (!subPath) return null;
+  const match = /^([^/]+)\/option(?:\/([\s\S]*))?$/.exec(subPath.replace(/^\/+|\/+$/g, ""));
+  if (!match) return null;
+  const card = cardKeyFrom(match[1]);
+  if (card === null) return null;
+  let option = match[2] ?? "";
+  try { option = decodeURIComponent(option); } catch { /* invalid ids still open their card */ }
+  return { key: card, option };
+}
+
+/** Membership and exclusions are checked again against the displayed generation. */
+export function cardOptionSelection(option: string | undefined, card: OwedAsk | null): { option: string | null; notice: string | null } {
+  if (option === undefined) return { option: null, notice: null };
+  if (!card || card.held || card.unreadable) return { option: null, notice: "No option was preselected: this card is not open for an answer." };
+  const choice = OPTION.test(option) ? card.ask.options.find(o => o.id === option) : undefined;
+  if (!choice) return { option: null, notice: "That option is not available. Choose an answer here." };
+  if (Object.hasOwn(choice, "approval") || Object.hasOwn(choice, "on_pick")) return { option: null, notice: "That option must be chosen here; it was not preselected." };
+  return { option, notice: null };
+}
+
+export function CardOptionNotice({ notice }: { notice: string | null }) {
+  return notice ? <p role="status" data-card-option-notice className="m-2 rounded border border-border bg-muted p-3 text-sm sm:m-4">{notice}</p> : null;
+}
+
 /** null while the lookup runs. */
 export type CardLookup = CardState | "error" | null;
 

@@ -30,11 +30,12 @@ export function clickStarted(): void {
   clickAt = now();
 }
 
-/** Called from an effect after the selected card has rendered; reports once the browser has painted it. */
-export function paintDone(): void {
+/** Reports after paint; false discards a pending sample for a passive option-target open. */
+export function paintDone(reportPaint = true): void {
   if (clickAt === null) return;
   const start = clickAt;
   clickAt = null;
+  if (!reportPaint) return;
   if (typeof requestAnimationFrame !== "function") return report("paint", now() - start);
   requestAnimationFrame(() => requestAnimationFrame(() => report("paint", now() - start)));
 }

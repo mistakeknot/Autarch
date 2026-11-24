@@ -36,7 +36,7 @@ import type { CatchupEntry } from "./ui/catchup.js";
 import { BlocksPanel, QueueRefresher, type RootRunHooks } from "./ui/blocks.js";
 import type { QueueView } from "./ui/blocks.js";
 import { blocksCount, withoutOwed } from "./ui/blocks.js";
-import { CardKeyNotice, cardKeyFrom, focusedAsks, startCardLookup, type CardLookup } from "./ui/cardlink.js";
+import { CardKeyNotice, CardOptionNotice, cardOpenTargetFrom, cardOptionSelection, focusedAsks, startCardLookup, type CardLookup } from "./ui/cardlink.js";
 import { BindingsPanel, SettingsPanel } from "./ui/settings.js";
 import { GovernorPanel } from "./ui/governor.js";
 import { UpdateMenu, updateLabel, updatePollMs, type UpdateInfoView } from "./ui/update.js";
@@ -250,6 +250,8 @@ function useNote(rpc: ReturnType<typeof useRpc<typeof rpcContract>>, onChanged: 
 }
 
 function HomePage({ subPath }: { subPath?: string }) {
+  const linkTarget = cardOpenTargetFrom(subPath);
+  const preselect = linkTarget?.option !== undefined ? {key:linkTarget.key,option:linkTarget.option} : undefined;
   const { rpc, asks, catchup, catchupError, waiting, error, refetch, dropOwed, setLater } = useHomeData();
   const nav = useBbNavigate();
   const blocks = useQueue();
@@ -471,6 +473,7 @@ function HomePage({ subPath }: { subPath?: string }) {
         ) : (
           <>
           <AsksPanel
+            preselect={preselect}
             data={filterAsks(asks, excluded)}
             hideHeld
             {...(panel.part ? { part: panel.part } : {})}
@@ -566,8 +569,9 @@ function HomePage({ subPath }: { subPath?: string }) {
 
   // A card-key link (bead mk-a51hu): /plugins/autarch/home/<KEY>. An open card shows alone, with a way back to the list;
   // any other key gets a notice with the card's state, and the list stays under it.
-  const linkKey = cardKeyFrom(subPath);
+  const linkKey = linkTarget?.key ?? null;
   const linked = linkKey !== null && asks !== null ? asks.owed.find((o) => o.key === linkKey) ?? null : null;
+  const optionNotice = preselect && asks !== null ? cardOptionSelection(preselect.option, linked).notice : null;
   const [lookup, setLookup] = useState<{ key: string; result: CardLookup } | null>(null);
   const needLookup = linkKey !== null && asks !== null && linked === null;
   useEffect(() => {
@@ -583,7 +587,9 @@ function HomePage({ subPath }: { subPath?: string }) {
         <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto" data-home-source={HOME_SOURCE} data-card-link={linkKey}>
           <button type="button" className="min-h-11 border-b border-border px-4 text-left text-sm underline" onClick={showAll} data-card-link-back>‹ All cards</button>
           {actionLine}
+          <CardOptionNotice notice={optionNotice} />
           <AsksPanel
+            preselect={preselect}
             data={focusedAsks(asks, linked)}
             onNote={(decision_id, text, images) => note({ decision_id }, text, images)}
             onLater={sendLater}
@@ -604,6 +610,7 @@ function HomePage({ subPath }: { subPath?: string }) {
     <ConversationProvider value={conversation}><DocReaderHost api={docs}>
     <div className="flex h-full min-h-0 flex-1 flex-col" data-home-source={HOME_SOURCE}>
       {keyNotice}
+      <CardOptionNotice notice={optionNotice} />
       {actionLine}
       <HomeTabs queue={queueNavigation()} extra={updateLabel(update) ? <UpdateMenu info={update} onRequest={requestUpdate} error={updateError} /> : undefined} />
       <PickHoldBar hold={phonePickHold} />

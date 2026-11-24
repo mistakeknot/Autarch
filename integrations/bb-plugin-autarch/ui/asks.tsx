@@ -3,7 +3,10 @@
 import { SecretSection } from "./secret.js";
 import type { SecretMetadata } from "../secret.js";
 import { Fragment, useEffect, useRef, useState } from "react";
-import { ActionButton, RecommendedMark } from "./buttons.js";
+import { ActionButton, RecommendedMark, buttonClass } from "./buttons.js";
+import { openTarget } from "./cujgelopen.js";
+import { cardOptionSelection, type CardPreselect } from "./cardlink.js";
+import type { CujgelLink } from "../cujgel.js";
 import { CONFIRM_LABEL, ConfirmTap } from "./confirmtap.js";
 import { CardConversation } from "./conversation.js";
 import { clickStarted, paintDone } from "./clicktiming.js";
@@ -96,6 +99,7 @@ export function PickTargetPresentation({ option, evidence }: { option: Option; e
 }
 export type ApprovalRecord = { approval_id: string; decision_id: string; kind: string; target: string; identity: string; minted_at: string; expires_at: string };
 export type OwedAsk = {
+  cujgel?: CujgelLink;
   secret?: SecretMetadata | null;
   secret_unavailable?: boolean;
   id: string;
@@ -307,11 +311,21 @@ export type OnLater = (taskId: string, on: boolean) => void | Promise<unknown>;
 /** What a card calls its asking thread: the title when there is one, else the id. */
 export const threadName = (a: { thread: string; thread_title?: string | null }): string => a.thread_title?.trim() || a.thread;
 
-export function AskCard(props: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean }) {
+export function CujgelOpen({ link, pluginId }: { link: CujgelLink; pluginId?: string | null }) {
+  const target = openTarget(link, pluginId);
+  return <span className="mt-2 flex flex-wrap items-center gap-2" data-cujgel-open={target.status}>
+    {target.status === "available"
+      ? <a className={buttonClass("quiet")} href={target.href}>Open comparison in Cujgel</a>
+      : <><ActionButton tone="quiet" disabled>Open comparison in Cujgel</ActionButton><span className="text-xs text-muted-foreground">Cujgel is not available yet; answer here.</span></>}
+  </span>;
+}
+
+export function AskCard(props: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean; preselectedOption?: string }) {
   return props.ask.unreadable ? <UnreadableCard id={props.ask.id} cardKey={props.ask.key} /> : <ReadableAskCard {...props} />;
 }
 
-function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound = false }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean }) {
+function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound = false, preselectedOption }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean; preselectedOption?: string }) {
+  const preselected = cardOptionSelection(unbound ? undefined : preselectedOption, ask).option;
   const secret = ask.secret;
   const allowFreeText = !ask.secret_unavailable && !secret;
   const [failure, setFailure] = useState<string | null>(null);
@@ -343,6 +357,7 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
         {nowMs !== undefined ? `waiting ${ageText(ask.filed_at, nowMs)} · ` : ""}
         <button type="button" className="inline-flex min-h-11 items-center underline sm:min-h-0" onClick={() => onOpen(ask.thread)}>{threadName(ask)}</button>
         {n > 0 ? ` - ${`also mentioned in ${n} ${n === 1 ? "thread" : "threads"}`}` : ""}
+        {ask.cujgel ? <CujgelOpen link={ask.cujgel} /> : null}
       </p>
       {glanceOf ? <GlanceBlock g={glanceOf} /> : null}
       <QuestionText text={ask.ask.question} />
@@ -373,9 +388,9 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
                 {unbound ? (
                   <span className="font-medium [overflow-wrap:anywhere]" data-option-label>{o.label}</span>
                 ) : (
-                  <ConfirmTap needsConfirm={isDestructiveOption(o)} onConfirmed={() => void pick(o.id)} resetKey={`${ask.id}|${ask.revision}`}>
+                  <ConfirmTap needsConfirm={isDestructiveOption(o)} onConfirmed={() => void pick(o.id)} resetKey={`${ask.id}|${ask.revision}|${preselectedOption ?? ""}`}>
                     {({ armed, onClick, onBlur }) => (
-                      <ActionButton tone={isDestructiveOption(o) ? "destructive" : recommended ? "recommended" : "default"} selected={pending === o.id} disabled={pending !== null} onClick={onClick} onBlur={onBlur} data-option={o.id} {...(armed ? { "data-confirming": "true", "aria-label": `${CONFIRM_LABEL}: ${o.label}` } : {})}>{armed ? CONFIRM_LABEL : o.label}</ActionButton>
+                      <ActionButton tone={isDestructiveOption(o) ? "destructive" : recommended ? "recommended" : "default"} selected={pending !== null ? pending === o.id : preselected === o.id} disabled={pending !== null} onClick={onClick} onBlur={onBlur} data-option={o.id} {...(armed ? { "data-confirming": "true", "aria-label": `${CONFIRM_LABEL}: ${o.label}` } : {})}>{armed ? CONFIRM_LABEL : o.label}</ActionButton>
                     )}
                   </ConfirmTap>
                 )}
@@ -448,7 +463,7 @@ export function optionEffect(o: { kind: string; instruction?: string; reversible
 }
 
 /** The Decide queue: a short row per ask on the left, the selected ask in full on the right (below when narrow). */
-export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onView }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void }) {
+export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onView, preselect }: { owed: OwedAsk[]; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; preselect?: CardPreselect }) {
   owed = orderedGroups(owed);
   const [selected, setSelected] = useState<string | null>(null);
   // When the card on screen leaves the list (answered, set aside), show the one that was below it, else the one above
@@ -474,8 +489,9 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
   // Tell the plugin which ask is on screen, so `bb home viewing` can answer "which card is mk looking at".
   const lastShown = useRef<string | null>(null);
   useEffect(() => {
-    onView?.(viewingId);
-    paintDone();
+    // An option-target open is passive, including the usual viewing marker.
+    if (!preselect) onView?.(viewingId);
+    paintDone(!preselect);
     const before = lastShown.current;
     lastShown.current = viewingId;
     // The card on screen left and another took its place: bring the new row (and a stacked card) into view at once, with
@@ -484,7 +500,7 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
       listRef.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
       reveal();
     }
-  }, [viewingId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [viewingId, preselect === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
   if (current === undefined) return null;
   // The project line says nothing when every ask is from the same project.
   const showProject = new Set(owed.map((o) => o.project ?? "")).size > 1;
@@ -524,7 +540,7 @@ export function DecideQueue({ owed, onPick, onOpen, nowMs, onNote, onLater, onVi
         })}
       </ol>
       <div ref={cardRef} className="min-w-0 grow-[3] basis-[28rem] scroll-mt-2 sm:sticky sm:top-0">
-        <AskCard key={current.id} ask={current} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} />
+        <AskCard key={current.id} ask={current} onPick={onPick} onOpen={onOpen} nowMs={nowMs} preselectedOption={preselect?.key === current.key ? preselect?.option : undefined} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} />
       </div>
     </div>
   );
@@ -561,7 +577,7 @@ export function ApprovalsList({ approvals, onRevoke, nowMs = Date.now(), bare = 
 }
 
 /** One card in the Later section. It owns the error from a Move back that did not go through. */
-function LaterEntry({ o, onPick, onOpen, nowMs, onNote, onLater }: { o: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onLater?: OnLater }) {
+function LaterEntry({ o, onPick, onOpen, nowMs, onNote, onLater, preselect }: { o: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs: number; onNote?: OnNote; onLater?: OnLater; preselect?: CardPreselect }) {
   const [error, setError] = useState<string | null>(null);
   return (
     <li className="flex min-w-0 flex-wrap items-center gap-x-2 rounded border border-border px-2 py-0.5 text-sm" data-later={o.id}>
@@ -570,10 +586,10 @@ function LaterEntry({ o, onPick, onOpen, nowMs, onNote, onLater }: { o: OwedAsk;
         <span className="min-w-0 [overflow-wrap:anywhere]">{o.subject}</span>
       </span>
       {onLater && o.task_id ? <ActionButton className="sm:!min-h-11" onClick={() => void runLater(onLater, o.task_id!, false, setError)} data-later-clear={o.id}>Move back</ActionButton> : null}
-      <details className="shrink-0 open:basis-full">
+      <details className="shrink-0 open:basis-full" open={preselect?.key === o.key ? true : undefined}>
         <summary className="flex min-h-11 cursor-pointer items-center text-xs text-muted-foreground">Open card</summary>
         <div className="mt-1">
-          <AskCard ask={o} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} />
+          <AskCard ask={o} onPick={onPick} onOpen={onOpen} nowMs={nowMs} preselectedOption={preselect?.key === o.key ? preselect?.option : undefined} {...(onNote ? { onNote } : {})} />
         </div>
       </details>
       <LaterFailure error={error} />
@@ -586,7 +602,7 @@ export function owedTasks(data: AsksData): Set<string> {
   return new Set(data.owed.map((o) => o.task_id).filter((t): t is string => typeof t === "string"));
 }
 
-export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, hideHeld, emptyText, nowMs = Date.now() }: { /** Which part of the panel shows: the decide list alone, or Later alone. Unset shows both, as a card-key link does. */ part?: "decide" | "later"; hideHeld?: boolean; /** What an empty list says, in place of its own words: the project filter uses it when it emptied the list. */ emptyText?: string; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; nowMs?: number }) {
+export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onNote, onLater, onView, preselect, hideHeld, emptyText, nowMs = Date.now() }: { /** Which part of the panel shows: the decide list alone, or Later alone. Unset shows both, as a card-key link does. */ part?: "decide" | "later"; hideHeld?: boolean; /** What an empty list says, in place of its own words: the project filter uses it when it emptied the list. */ emptyText?: string; data: AsksData; onPick: OnPick; onOpen: (thread: string) => void; onRevoke?: (approvalId: string) => void; onDismiss?: (decisionId: string, obligationId: string) => void; onNote?: OnNote; onLater?: OnLater; onView?: (decisionId: string | null) => void; preselect?: CardPreselect; nowMs?: number }) {
   // In the Queue the held cards show under "Blocked on others"; shown here only on a card-key link.
   const held = hideHeld ? [] : data.owed.filter((o) => o.held);
   // Later cards leave the Decide list for their own group below it; a held card stays held even if it was also set aside.
@@ -607,7 +623,7 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
         <section key={s.key} data-section={s.key}>
           {!part || s.key !== "decide" ? <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{`${s.title} (${s.items.length})`}</h2> : null}
           {s.key === "decide" ? (
-            <DecideQueue owed={live.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} {...(onView ? { onView } : {})} />
+            <DecideQueue preselect={preselect} owed={live.owed} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} {...(onView ? { onView } : {})} />
           ) : (
             <div className="space-y-3">
               {s.items.map((i) => (
@@ -633,7 +649,7 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
           </p>
           <ul className="m-0 list-none space-y-1 p-0">
             {later.map((o) => (
-              <LaterEntry key={o.id} o={o} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} />
+              <LaterEntry key={o.id} o={o} preselect={preselect} onPick={onPick} onOpen={onOpen} nowMs={nowMs} {...(onNote ? { onNote } : {})} {...(onLater ? { onLater } : {})} />
             ))}
           </ul>
         </section>
@@ -650,6 +666,7 @@ export function AsksPanel({ part, data, onPick, onOpen, onRevoke, onDismiss, onN
                 </span>
                 <span className="block text-xs [overflow-wrap:anywhere]" data-hold-reason>{`On hold: ${o.held!.reason}`}</span>
                 <HoldEndLine held={o.held!} />
+                {o.cujgel ? <CujgelOpen link={o.cujgel} /> : null}
               </li>
             ))}
           </ul>
