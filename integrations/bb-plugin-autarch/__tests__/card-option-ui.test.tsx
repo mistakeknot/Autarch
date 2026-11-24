@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 vi.mock("@get-bb/plugin-sdk/app",()=>({ThreadChat:()=>null}));
 import { AsksPanel, type AsksData, type OwedAsk } from "../ui/asks.js";
 import * as links from "../ui/cardlink.js";
@@ -47,6 +48,13 @@ it("does not arm destructive confirmation from a preselection",async()=>{
   expect(pick).not.toHaveBeenCalled();expect(host.querySelector('[data-option="delete"][data-confirming="true"]')).not.toBeNull();
   await act(async()=>host.querySelector<HTMLButtonElement>('[data-option="delete"]')!.click());expect(pick).toHaveBeenCalledTimes(1);
 });
+it("clears an earlier confirmation when a different option target opens",async()=>{
+  await mount("delete");
+  await act(async()=>host.querySelector<HTMLButtonElement>('[data-option="delete"]')!.click());
+  expect(host.querySelector("[data-confirming]")).not.toBeNull();
+  await mount("first");expect(host.querySelector("[data-confirming]")).toBeNull();
+  await mount("delete");expect(host.querySelector("[data-confirming]")).toBeNull();expect(pick).not.toHaveBeenCalled();
+});
 it.each(["unknown","First","first\n",""])("shows a notice for %j and keeps all normal controls",async option=>{
   await mount(option);expect(host.querySelector('[role="status"]')?.textContent).toBeTruthy();
   expect(host.querySelector('[data-option][aria-pressed="true"]')).toBeNull();expect(host.querySelectorAll("[data-option]")).toHaveLength(3);
@@ -66,7 +74,7 @@ it("rerenders a new option target without answering or carrying the old highligh
   expect(host.querySelector('[data-option="first"]')?.getAttribute("aria-pressed")).not.toBe("true");expect(rpc).not.toHaveBeenCalled();
 });
 it("wires the option target through both the focused and fallback app panels",()=>{
-  const src=readFileSync(new URL("../app.tsx",import.meta.url),"utf8");
+  const src=readFileSync(join(import.meta.dirname,"..","app.tsx"),"utf8");
   expect(src).toContain("cardOpenTargetFrom(subPath)");
   const panels=src.split("<AsksPanel").slice(1);expect(panels.length).toBeGreaterThanOrEqual(2);
   for(const p of panels)expect(p.slice(0,p.indexOf("/>"))).toContain("preselect={preselect}");
