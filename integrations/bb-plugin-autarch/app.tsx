@@ -473,7 +473,6 @@ function HomePage({ subPath }: { subPath?: string }) {
         ) : (
           <>
           <AsksPanel
-            preselect={preselect}
             data={filterAsks(asks, excluded)}
             hideHeld
             {...(panel.part ? { part: panel.part } : {})}

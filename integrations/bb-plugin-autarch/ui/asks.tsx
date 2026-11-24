@@ -2,7 +2,7 @@
 
 import { SecretSection } from "./secret.js";
 import type { SecretMetadata } from "../secret.js";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { ActionButton, RecommendedMark, buttonClass } from "./buttons.js";
 import { openTarget } from "./cujgelopen.js";
 import { cardOptionSelection, type CardPreselect } from "./cardlink.js";
@@ -326,12 +326,17 @@ export function AskCard(props: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: 
 
 function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound = false, preselectedOption }: { ask: OwedAsk; onPick: OnPick; onOpen: (thread: string) => void; nowMs?: number; onNote?: OnNote; onLater?: OnLater; unbound?: boolean; preselectedOption?: string }) {
   const preselected = cardOptionSelection(unbound ? undefined : preselectedOption, ask).option;
+  const suggestionId = useId();
+  const suggestionIdentity = JSON.stringify([ask.id, ask.revision, preselected]);
+  const [dismissedSuggestion, setDismissedSuggestion] = useState<string | null>(null);
+  const suggested = dismissedSuggestion === suggestionIdentity ? null : preselected;
   const secret = ask.secret;
   const allowFreeText = !ask.secret_unavailable && !secret;
   const [failure, setFailure] = useState<string | null>(null);
   const [laterError, setLaterError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const pick = async (optionId: string) => {
+    setDismissedSuggestion(suggestionIdentity);
     setFailure(null);
     setPending(optionId);
     try {
@@ -369,11 +374,13 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
           questions={ask.ask.questions}
           disabled={unbound}
           onAnswer={async (answers, note) => {
+            setDismissedSuggestion(suggestionIdentity);
             const r = await onPick(ask.id, "answers", ask.revision, note, undefined, answers);
             return r && r.ok === false ? { ok: false, error: r.error ?? "pick failed" } : { ok: true };
           }}
         />
       ) : null}
+      {suggested !== null ? <p id={suggestionId} role="status" data-cujgel-suggestion className="mt-3 text-sm text-muted-foreground">Suggested from Cujgel: tap it to answer.</p> : null}
       <ul className="mb-0 mt-3 list-none space-y-2 p-0">
         {ask.ask.options.map((o) => {
           const recommended = ask.ask.recommendation === o.id;
@@ -390,7 +397,7 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
                 ) : (
                   <ConfirmTap needsConfirm={isDestructiveOption(o)} onConfirmed={() => void pick(o.id)} resetKey={preselectedOption === undefined ? `${ask.id}|${ask.revision}` : JSON.stringify([ask.id, ask.revision, preselectedOption])}>
                     {({ armed, onClick, onBlur }) => (
-                      <ActionButton tone={isDestructiveOption(o) ? "destructive" : recommended ? "recommended" : "default"} selected={pending !== null ? pending === o.id : preselected === o.id} disabled={pending !== null} onClick={onClick} onBlur={onBlur} data-option={o.id} {...(armed ? { "data-confirming": "true", "aria-label": `${CONFIRM_LABEL}: ${o.label}` } : {})}>{armed ? CONFIRM_LABEL : o.label}</ActionButton>
+                      <ActionButton tone={isDestructiveOption(o) ? "destructive" : recommended ? "recommended" : "default"} selected={pending === o.id} className={suggested === o.id ? "border-dashed outline outline-1 outline-offset-2 outline-primary" : undefined} data-suggested={suggested === o.id ? "true" : undefined} aria-describedby={suggested === o.id ? suggestionId : undefined} disabled={pending !== null} onClick={onClick} onBlur={onBlur} data-option={o.id} {...(armed ? { "data-confirming": "true", "aria-label": `${CONFIRM_LABEL}: ${o.label}` } : {})}>{armed ? CONFIRM_LABEL : o.label}</ActionButton>
                     )}
                   </ConfirmTap>
                 )}
@@ -417,6 +424,7 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
         <OtherBox
           onNote={(t, im) => onNote(ask.id, t, im)}
           onAnswer={unbound ? undefined : async (t, im) => {
+            setDismissedSuggestion(suggestionIdentity);
             // An ask with its own option named "other" keeps it as a normal option; mk's words are recorded under their own id.
             const r = await onPick(ask.id, hasRealOther ? freeOwnWordsId(ask.ask.options) : "other", ask.revision, t, im);
             if (r && r.ok === false) return { ok: false, error: r.error ?? "pick failed" };
