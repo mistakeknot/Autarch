@@ -32,6 +32,12 @@ describe("card option targets",()=>{
     }
     expect(parse("../option/first")).toBeNull();
   });
+  it("does not normalize an encoded slash into a valid option id",()=>{
+    const parse=(links as any).cardOpenTargetFrom,choose=(links as any).cardOptionSelection;
+    expect(typeof parse).toBe("function");expect(typeof choose).toBe("function");
+    const target=parse("FAKE-1/option/first%2F");expect(target?.key).toBe("FAKE-1");
+    expect(choose(target.option,fakeAsk).option).toBeNull();
+  });
   it("preselects only an ordinary option of an open card",()=>{
     const choose=(links as any).cardOptionSelection;
     expect(typeof choose).toBe("function");
