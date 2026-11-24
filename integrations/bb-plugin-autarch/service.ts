@@ -1,4 +1,5 @@
 import type { SecretMetadata } from "./secret.js";
+import type { CujgelLink } from "./cujgel.js";
 import { formatCardLabel } from "./cardlabel.js";
 import { recordPilotPick } from "./pilotmetrics.js";
 import type { WakeAttribution } from "./wake-attribution.js";
@@ -259,6 +260,11 @@ function shownParseError(err: string): string {
 }
 
 export class Service {
+  /** Read the immutable metadata of this generation, independent of the task poll. */
+  cujgelReadModel(decisionId: string): {cujgel?: CujgelLink} {
+    const row=this.db.prepare("SELECT body_json FROM decision_cujgel WHERE decision_id=?").get(decisionId) as {body_json:string}|undefined;
+    return row ? {cujgel:JSON.parse(row.body_json) as CujgelLink} : {};
+  }
   private readonly secretSnapshots = new Map<string, { fingerprint: string; metadata: SecretMetadata | null }>();
   /** Metadata from the existing poll, pinned to the displayed generation. No per-card RPC or schema change. */
   secretReadModel(taskId: unknown, fingerprint: unknown): { secret?: SecretMetadata | null; secret_unavailable?: boolean } {
@@ -2158,6 +2164,7 @@ export class Service {
   }
 
   private snapshotBlocks(decisionId: string, card: Card): void {
+    if(card.cujgel_json) this.db.prepare("INSERT INTO decision_cujgel(decision_id,body_json) VALUES (?,?)").run(decisionId,card.cujgel_json);
     const ins = this.db.prepare("INSERT OR IGNORE INTO decision_blocks(decision_id, ref) VALUES (?, ?)");
     for (const b of card.blocks) ins.run(decisionId, b.ref);
     const evidence = this.pickEvidence.get(card);

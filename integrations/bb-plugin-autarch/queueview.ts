@@ -66,6 +66,7 @@ export function removeBinding(
 }
 
 export interface QueueRow {
+  cujgel?: import("./cujgel.js").CujgelLink;
   secret?: import("./secret.js").SecretMetadata | null;
   secret_unavailable?: boolean;
   pick_targets?: ReturnType<Service["pickTargetPresentation"]>;
@@ -167,6 +168,7 @@ export function buildQueue(svc: Service, asks: Asks, opts: { thread?: string } =
       ask: ask ? { question: ask.question, ...(ask.recommendation ? { recommendation: ask.recommendation } : {}), options: ask.options as never } : UNREADABLE_ASK,
       pick_targets: svc.pickTargetPresentation(d.id),
       ...svc.secretReadModel(d.task_id, d.card_fp),
+      ...svc.cujgelReadModel(d.id),
       ...(ask ? {} : { unreadable: true }),
       revision: d.revision,
       mentions: svc.store.mentions(d.id).length,

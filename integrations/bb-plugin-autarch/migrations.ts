@@ -20,7 +20,7 @@ import {
 export { BackupNotVerifiedError, QuiesceRequiredError } from "./backup.js";
 
 /** The schema version this code writes and the highest it can read. */
-export const CODE_VERSION = 7;
+export const CODE_VERSION = 8;
 
 export interface Migration {
   version: number;
@@ -77,7 +77,7 @@ CREATE TABLE decisions (
 CREATE INDEX decisions_thread ON decisions(thread);
 CREATE INDEX decisions_semantic ON decisions(semantic_key);
 CREATE TABLE picks (
-  decision_id TEXT PRIMARY KEY REFERENCES decisions(id),
+  decision_id TEXT PRIMARY KEY NOT NULL REFERENCES decisions(id),
   pick_id TEXT NOT NULL UNIQUE,
   option_id TEXT NOT NULL,
   revision TEXT NOT NULL,
@@ -590,6 +590,21 @@ WHEN (NEW.kind IN ('pick-relay','pick-receipt') AND NEW.next_try_at != '9999-12-
 BEGIN SELECT RAISE(ABORT, 'protected obligation kind, sentinel and policy are fixed'); END;
 `;
 
+// Optional immutable metadata. Older readers can ignore the table safely.
+const V8 = `
+CREATE TABLE decision_cujgel (
+  decision_id TEXT PRIMARY KEY REFERENCES decisions(id),
+  body_json TEXT NOT NULL CHECK(json_valid(body_json))
+) WITHOUT ROWID;
+CREATE TRIGGER decision_cujgel_no_update BEFORE UPDATE ON decision_cujgel
+BEGIN SELECT RAISE(ABORT, 'Cujgel snapshot is immutable'); END;
+CREATE TRIGGER decision_cujgel_no_delete BEFORE DELETE ON decision_cujgel
+BEGIN SELECT RAISE(ABORT, 'Cujgel snapshot is permanent'); END;
+CREATE TRIGGER decision_cujgel_no_replace BEFORE INSERT ON decision_cujgel
+WHEN EXISTS(SELECT 1 FROM decision_cujgel WHERE decision_id=NEW.decision_id)
+BEGIN SELECT RAISE(ABORT, 'Cujgel snapshot already exists'); END;
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, sql: V1 },
   { version: 2, sql: V2 },
@@ -598,6 +613,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 5, sql: V5 },
   { version: 6, sql: V6 },
   { version: 7, sql: V7 },
+  { version: 8, sql: V8 },
 ];
 
 const META = `CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)`;

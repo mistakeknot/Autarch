@@ -1,4 +1,5 @@
 import { parseSecret, type SecretMetadata } from "./secret.js";
+import { parseCujgel, type CujgelLink } from "./cujgel.js";
 import { validateOnPickJSON } from "./onpick.js";
 import { parseSubjectKey, parseSignals, type SubjectKey, type Signals } from "./card-metadata.js";
 // The card convention (v1): how a tasks card's description text carries a Home ask.
@@ -37,6 +38,9 @@ export interface RootRun {
 }
 
 export interface Card {
+  cujgel?: CujgelLink;
+  /** Exact canonical JSON, including revisions beyond JS integer precision. */
+  cujgel_json?: string;
   subject_key?: SubjectKey;
   signals?: Signals;
   question: string;
@@ -85,12 +89,13 @@ export function parseCard(description: string): Card {
   const rootBodies: string[] = [];
   const moveBodies: string[] = [];
   const secretBodies: string[] = [];
+  const cujgelBodies: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     if (line.startsWith("```")) {
       const info = line.slice(3).trim();
-      const special = info === "home-ask" || info === "root-run" || info === "home-move" || info === "home-secret";
+      const special = info === "home-ask" || info === "root-run" || info === "home-move" || info === "home-secret" || info === "cujgel/v1";
       const body: string[] = [];
       let closed = false;
       for (i++; i < lines.length; i++) {
@@ -102,7 +107,7 @@ export function parseCard(description: string): Card {
       }
       if (special) {
         if (!closed) fail(`unterminated ${info} block`);
-        (info === "home-secret" ? secretBodies : info === "home-ask" ? askBodies : info === "home-move" ? moveBodies : rootBodies).push(body.join("\n"));
+        (info === "cujgel/v1" ? cujgelBodies : info === "home-secret" ? secretBodies : info === "home-ask" ? askBodies : info === "home-move" ? moveBodies : rootBodies).push(body.join("\n"));
         continue;
       }
       // An ordinary code fence is prose, and nothing inside it is a field.
@@ -136,7 +141,10 @@ export function parseCard(description: string): Card {
 
   if (secretBodies.length > 1) fail("more than one home-secret block");
   const secret = secretBodies.length ? parseSecret(secretBodies[0]!) : null;
-  const card: Card = { ...(secret ? { secret } : {}), question, blocks, request, pull, root_run, move, ask, ...(subject_key ? { subject_key } : {}), ...(signals ? { signals } : {}) };
+  if(cujgelBodies.length>1) fail("more than one cujgel/v1 block");
+  if(cujgelBodies.length && secret) fail("cujgel/v1 cannot be combined with home-secret");
+  const cujgel=cujgelBodies.length ? parseCujgel(cujgelBodies[0]!,ask.options) : null;
+  const card: Card = { ...(cujgel ? {cujgel:cujgel.link,cujgel_json:cujgel.json} : {}), ...(secret ? { secret } : {}), question, blocks, request, pull, root_run, move, ask, ...(subject_key ? { subject_key } : {}), ...(signals ? { signals } : {}) };
   if (subject_key?.type === "script") {
     if (!root_run || root_run.sha256 !== subject_key.script_sha) fail("subject_key script_sha must equal root-run digest");
     if (typeof ask.ask_key !== "string" || !ask.ask_key) fail("script subject_key requires ask_key");
@@ -348,6 +356,7 @@ export function cardFingerprint(i: { title: string; card: Card; thread: string; 
     // Only when present, so every fingerprint of a card without a move is unchanged.
     ...(i.card.move ? { move: i.card.move } : {}),
     ...(i.card.secret ? { secret: i.card.secret } : {}),
+    ...(i.card.cujgel_json ? { cujgel: i.card.cujgel_json } : {}),
     request: i.card.request,
     asking_thread: i.thread,
     tasks_project: i.tasksProject,

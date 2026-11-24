@@ -34,4 +34,12 @@ describe("cujgel/v1 card metadata parity",()=>{
     const m=JSON.parse(example);m.comparison_rev.sha256="b".repeat(64);
     expect(cardFingerprint({...data,card:parseCard(desc(JSON.stringify(m)))})).not.toBe(first);
   });
+  it("keeps exact integral revision bytes in the canonical snapshot and fingerprint",()=>{
+    const parse=(revision:string)=>parseCard(desc(example.replace('"revision": 1',`"revision": ${revision}`)));
+    const first=parse("9007199254740993"),next=parse("9007199254740992");
+    expect((first as any).cujgel_json).toContain('"revision":9007199254740993');
+    const fp=(card:ReturnType<typeof parseCard>)=>cardFingerprint({title:"Compare",card,thread:"thr_fixture",tasksProject:"fixture"});
+    expect(fp(first)).not.toBe(fp(next));
+    expect(fp(parse("1.0"))).toBe(fp(parse("1e0")));
+  });
 });
