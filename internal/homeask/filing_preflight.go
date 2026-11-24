@@ -17,6 +17,7 @@ func (f *CardFiler) Preflight(ctx context.Context, r CardRequest) error {
 		}
 	}
 	add(CheckOptionIDs(r.Ask))
+	add(f.checkCujgelFiling(ctx, r))
 	// Exact-request recovery must remain possible after temporary proof is gone.
 	existing := false
 	if CheckRequestKey(r.Key) == nil {

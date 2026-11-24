@@ -45,6 +45,7 @@ type RootRun struct {
 
 // Card is a parsed card description.
 type Card struct {
+	Cujgel     *CujgelLink     `json:"cujgel,omitempty"`
 	Secret     *SecretMetadata `json:"secret,omitempty"`
 	SubjectKey *SubjectKey     `json:"subject_key,omitempty"`
 	Signals    *Signals        `json:"signals,omitempty"`
@@ -96,12 +97,13 @@ func ParseCard(description string) (Card, error) {
 		rootBodies   []string
 		moveBodies   []string
 		secretBodies []string
+		cujgelBodies []string
 	)
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 		if strings.HasPrefix(line, "```") {
 			info := strings.TrimSpace(line[3:])
-			special := info == "home-ask" || info == "root-run" || info == "home-move" || info == "home-secret"
+			special := info == "home-ask" || info == "root-run" || info == "home-move" || info == "home-secret" || info == "cujgel/v1"
 			var body []string
 			closed := false
 			for i++; i < len(lines); i++ {
@@ -119,6 +121,8 @@ func ParseCard(description string) (Card, error) {
 					askBodies = append(askBodies, strings.Join(body, "\n"))
 				} else if info == "home-secret" {
 					secretBodies = append(secretBodies, strings.Join(body, "\n"))
+				} else if info == "cujgel/v1" {
+					cujgelBodies = append(cujgelBodies, strings.Join(body, "\n"))
 				} else if info == "home-move" {
 					moveBodies = append(moveBodies, strings.Join(body, "\n"))
 				} else {
@@ -210,6 +214,22 @@ func ParseCard(description string) (Card, error) {
 			return Card{}, err
 		}
 		c.Secret = m
+	}
+	if len(cujgelBodies) > 1 {
+		return Card{}, errors.New("more than one cujgel/v1 block")
+	}
+	if len(cujgelBodies) == 1 {
+		link, err := ParseCujgel(cujgelBodies[0])
+		if err != nil {
+			return Card{}, err
+		}
+		if err = link.checkOptions(c.Ask); err != nil {
+			return Card{}, err
+		}
+		if c.Secret != nil {
+			return Card{}, cujgelError("block", "--cujgel cannot be combined with --secret")
+		}
+		c.Cujgel = link
 	}
 	if c.SubjectKey != nil && c.SubjectKey.Type == "script" {
 		if c.RootRun == nil || c.SubjectKey.ScriptSHA != c.RootRun.SHA256 {

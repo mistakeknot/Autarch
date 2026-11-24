@@ -225,7 +225,7 @@ func commandWarning(question string) string {
 }
 
 func needsMkFileCmd() *cobra.Command {
-	var project, title, askFile, rootRun, request, moveFile, secretFile, ownerThread, urgency, stopped, prFlag, supersedes string
+	var project, title, askFile, rootRun, request, moveFile, secretFile, cujgelFile, ownerThread, urgency, stopped, prFlag, supersedes string
 	var blocks []string
 	var vizierOwned, checkOnly bool
 	var cardType string
@@ -302,6 +302,11 @@ a group-only re-file does not change Home's stored group. A substantive edit can
 generation carrying a different group. Request keys and group keys are global, not project-scoped;
 use specific keys.
 
+--cujgel FILE adds a metadata-only cujgel/v1 comparison link (UTF-8 JSON, at most
+16 KiB, regular file only). Its project must match the Tasks board's linked BB
+project and its variants must name this card's options. It supports --supersedes
+but cannot be combined with --secret.
+
 Cards whose options are all notice acknowledgments (read, ok, close and similar labels) are
 refused with exit 2: notices belong in the vizier inbox or digest. --move and --root-run are exempt.
 
@@ -313,6 +318,9 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cujgelFile != "" && secretFile != "" {
+				return &usageError{"--cujgel cannot be combined with --secret"}
+			}
 			if secretFile != "" && nonBlocking {
 				return &usageError{"--secret cannot be combined with --non-blocking: the secret request expires before the batch releases"}
 			}
@@ -326,6 +334,14 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			if cmd.Flags().Changed("request") {
 				if err := homeask.CheckRequestKey(request); err != nil {
 					return &usageError{"--request: " + err.Error()}
+				}
+			}
+			var cujgel *homeask.CujgelLink
+			if cujgelFile != "" {
+				var err error
+				cujgel, err = homeask.ReadCujgelFile(cujgelFile)
+				if err != nil {
+					return &usageError{"--cujgel: " + err.Error()}
 				}
 			}
 			var secret map[string]any
@@ -460,7 +476,7 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			if vizierOwned && cmd.Flags().Changed("owner-thread") {
 				failures = append(failures, &usageError{"give exactly one of --owner-thread or --vizier-owned"})
 			}
-			req := homeask.CardRequest{Secret: secret, Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread, VizierOwned: vizierOwned, Type: cardType, UI: ui, Attachments: attachments, Urgent: urgent, NonBlocking: nonBlocking, KeepList: keepList}
+			req := homeask.CardRequest{Cujgel: cujgel, Secret: secret, Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread, VizierOwned: vizierOwned, Type: cardType, UI: ui, Attachments: attachments, Urgent: urgent, NonBlocking: nonBlocking, KeepList: keepList}
 			var err error
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
@@ -526,6 +542,7 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 	cmd.Flags().StringVar(&askFile, "ask-file", "", "JSON file with the ask")
 	cmd.Flags().StringVar(&moveFile, "move", "", "home-move/v1 JSON file: what mk owes (script, pr, read or context); adds the mk-move label")
 	cmd.Flags().StringVar(&secretFile, "secret", "", "home-secret metadata JSON file; never include values")
+	cmd.Flags().StringVar(&cujgelFile, "cujgel", "", "cujgel/v1 comparison metadata JSON file (at most 16 KiB)")
 	cmd.Flags().StringVar(&rootRun, "root-run", "", "script=<abs path>,timeout=<seconds>,set=<name>")
 	cmd.Flags().StringVar(&request, "request", "", "Request key (default: derived from thread and ask); when given it must be non-empty and match the Request line key pattern")
 	cmd.Flags().StringVar(&stopped, "stopped", "", "Work stopped until the answer (required with blocker urgency, single line, at most 200 characters)")

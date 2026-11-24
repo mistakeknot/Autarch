@@ -38,6 +38,7 @@ type stubBB struct {
 	updated          [][]string
 	vizier           bool
 	bound            string // when set, the tasks board is confirmed bound to this Home project
+	linkedBBProject  string // optional BB project link for typed metadata fixtures
 }
 
 func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BBResult {
@@ -81,7 +82,7 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 		}
 		return j(`{"home_project":` + strconv.Quote(s.bound) + `,"state":"confirmed"}`)
 	case "tasks project list":
-		return j(`{"projects":[{"id":"P1","name":"P1"}]}`)
+		return j(`{"projects":[{"id":"P1","name":"P1","prefix":"ONE","linkedBbProjectId":` + strconv.Quote(s.linkedBBProject) + `}]}`)
 	case "tasks list --status":
 		if s.card {
 			return j(`{"tasks":[{"id":"T1","projectId":"P1","description":` + strconv.Quote(s.desc) + `}],"nextCursor":null}`)
