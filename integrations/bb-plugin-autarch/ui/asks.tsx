@@ -388,7 +388,7 @@ function ReadableAskCard({ ask, onPick, onOpen, nowMs, onNote, onLater, unbound 
                 {unbound ? (
                   <span className="font-medium [overflow-wrap:anywhere]" data-option-label>{o.label}</span>
                 ) : (
-                  <ConfirmTap needsConfirm={isDestructiveOption(o)} onConfirmed={() => void pick(o.id)} resetKey={`${ask.id}|${ask.revision}|${preselectedOption ?? ""}`}>
+                  <ConfirmTap needsConfirm={isDestructiveOption(o)} onConfirmed={() => void pick(o.id)} resetKey={preselectedOption === undefined ? `${ask.id}|${ask.revision}` : JSON.stringify([ask.id, ask.revision, preselectedOption])}>
                     {({ armed, onClick, onBlur }) => (
                       <ActionButton tone={isDestructiveOption(o) ? "destructive" : recommended ? "recommended" : "default"} selected={pending !== null ? pending === o.id : preselected === o.id} disabled={pending !== null} onClick={onClick} onBlur={onBlur} data-option={o.id} {...(armed ? { "data-confirming": "true", "aria-label": `${CONFIRM_LABEL}: ${o.label}` } : {})}>{armed ? CONFIRM_LABEL : o.label}</ActionButton>
                     )}
