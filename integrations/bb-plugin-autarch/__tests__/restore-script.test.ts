@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
-import { MIGRATIONS, migrate } from "../migrations.js";
+import { CODE_VERSION, MIGRATIONS, migrate } from "../migrations.js";
 import { createStoreHandle } from "../store.js";
 import { makeEnv, type Env } from "./service-helpers.js";
 import { populateV2, startV2Home, type V2Fixture } from "./v2-home.js";
@@ -748,7 +748,7 @@ describe("upgrade", () => {
   });
   it("a real migrated log line is a success (exit 0), also when it follows an older refusal", async () => {
     const ok = realLog("migrated");
-    expect(ok.join("\n")).toMatch(/autarch: schema 2 → 7/);
+    expect(ok.join("\n")).toContain(`autarch: schema 2 → ${CODE_VERSION}`);
     const { i, r } = await upgradeWithLog(["autarch: [home-refused:quiesce-required] earlier attempt", ...ok].join("\n") + "\n");
     expect(r.code, r.out).toBe(0);
     expect(verbs(i).filter((v) => v === "plugin disable").length).toBe(1);

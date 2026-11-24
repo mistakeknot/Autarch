@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/mistakeknot/autarch/internal/homeask"
 )
 
 // ExportOptions selects a read-only pick export.
@@ -38,9 +40,20 @@ func ExportPicks(w io.Writer, o ExportOptions) error {
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
-	rows, err := db.Query(`SELECT COALESCE(c.card_key,c.task_id),p.picked_at,c.state, p.option_id,COALESCE(c.title,''),d.kind,d.body_json,d.id,p.pick_id
+	// Keep older databases readable. Never derive a historical link from the
+	// current card: only the picked generation's immutable snapshot counts.
+	var hasSnapshots bool
+	if err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='decision_cujgel')").Scan(&hasSnapshots); err != nil {
+		return err
+	}
+	linkColumns, linkJoin := ",NULL,NULL", ""
+	if hasSnapshots {
+		linkColumns = ",COALESCE(d.ask_key,''),link.body_json"
+		linkJoin = " LEFT JOIN decision_cujgel link ON link.decision_id=d.id"
+	}
+	rows, err := db.Query(`SELECT COALESCE(c.card_key,c.task_id),p.picked_at,c.state, p.option_id,COALESCE(c.title,''),d.kind,d.body_json,d.id,p.pick_id`+linkColumns+`
  FROM picks p JOIN decisions d ON d.id=p.decision_id JOIN cards c ON c.task_id=d.task_id
- WHERE d.source='card' AND p."by"='mk' AND julianday(p.picked_at)>=julianday(?) AND julianday(p.picked_at)<=julianday(?)
+ `+linkJoin+` WHERE d.source='card' AND p."by"='mk' AND julianday(p.picked_at)>=julianday(?) AND julianday(p.picked_at)<=julianday(?)
  ORDER BY julianday(p.picked_at),p.pick_id`, end.AddDate(0, 0, -o.Days).Format(time.RFC3339Nano), end.Format(time.RFC3339Nano))
 	if err != nil {
 		return fmt.Errorf("read card picks: %w", err)
@@ -50,11 +63,20 @@ func ExportPicks(w io.Writer, o ExportOptions) error {
 	for rows.Next() {
 		var r pickExport
 		var body string
-		if err := rows.Scan(&r.ID, &r.Time, &r.State, &r.Pick, &r.Title, &r.Kind, &body, &r.DecisionID, &r.PickID); err != nil {
+		var askKey, cujgel sql.NullString
+		if err := rows.Scan(&r.ID, &r.Time, &r.State, &r.Pick, &r.Title, &r.Kind, &body, &r.DecisionID, &r.PickID, &askKey, &cujgel); err != nil {
 			return err
 		}
 		if err := r.enrich(body); err != nil {
 			return fmt.Errorf("decision %s: %w", r.DecisionID, err)
+		}
+		if cujgel.Valid {
+			link, err := homeask.ParseCujgel(cujgel.String)
+			if err != nil {
+				return fmt.Errorf("decision %s: invalid Cujgel snapshot: %w", r.DecisionID, err)
+			}
+			r.Cujgel = link
+			r.AskKey = &askKey.String
 		}
 		if err := enc.Encode(r); err != nil {
 			return err
@@ -86,6 +108,8 @@ type pickExport struct {
 	Revisions        *int                     `json:"revisions"`
 	DecisionID       string                   `json:"decision_id"`
 	PickID           string                   `json:"pick_id"`
+	AskKey           *string                  `json:"ask_key,omitempty"`
+	Cujgel           *homeask.CujgelLink      `json:"cujgel,omitempty"`
 }
 
 func nonempty(s string) *string {

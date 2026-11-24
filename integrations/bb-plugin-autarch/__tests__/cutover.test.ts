@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Asks } from "../asks.js";
 import { Catchup } from "../catchup.js";
 import { homeCli } from "../cli.js";
+import { CODE_VERSION, MIGRATIONS } from "../migrations.js";
 import type { Delegation } from "../delegation.js";
 import { buildQueue } from "../queueview.js";
 import type { Service } from "../service.js";
@@ -60,10 +61,10 @@ const rulingFiles = () => {
 };
 
 describe("cutover: a populated v2 database drains in place under v3", () => {
-  it("the fixture really is v2 data: schema 7 now, with a backup, and legacy rows (no card)", () => {
-    expect(svc.store.db.prepare("SELECT value FROM schema_meta WHERE key='schema_version'").get()).toEqual({ value: 7 });
+  it("the fixture really is v2 data: current schema now, with a backup, and legacy rows (no card)", () => {
+    expect(svc.store.db.prepare("SELECT value FROM schema_meta WHERE key='schema_version'").get()).toEqual({ value: CODE_VERSION });
     const log = svc.store.db.prepare("SELECT backup_path FROM migration_log").all() as { backup_path: string }[];
-    expect(log).toHaveLength(5);
+    expect(log).toHaveLength(MIGRATIONS.filter(m=>m.version>=3 && m.version<=CODE_VERSION).length);
     expect(existsSync(log[0]!.backup_path)).toBe(true);
     const rows = svc.store.db.prepare("SELECT id, source, task_id FROM decisions").all() as { id: string; source: string; task_id: string | null }[];
     expect(rows.length).toBeGreaterThanOrEqual(7);

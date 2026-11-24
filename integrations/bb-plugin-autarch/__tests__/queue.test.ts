@@ -11,6 +11,8 @@ import { TasksClient } from "../tasks.js";
 import { FakeTasks, type FakeTask } from "./tasks-fake.js";
 import { ask, makeEnv, verifiedDelegation, type Env } from "./service-helpers.js";
 import { pickOf } from "./helpers.js";
+import { readFileSync } from "node:fs";
+import { canonicalJson } from "../model.js";
 
 const T1 = "2026-10-01T00:00:01.000Z";
 const SHA = "a".repeat(64);
@@ -93,6 +95,36 @@ function rig(opts: { projectName?: string; projects?: string[] } = {}) {
   return api;
 }
 type Rig = ReturnType<typeof rig>;
+
+describe("Cujgel generation snapshots",()=>{
+  const link=JSON.parse(readFileSync(new URL("../../../internal/homeask/testdata/cujgel/citadel-link.json",import.meta.url),"utf8"));
+  function linked(r:Rig,value:unknown=link) {
+    return r.desc({key:"cujgel-fixture",ask:{project:"fixture",project_root:r.env.roots.fixture,ask_key:"cujgel:proj_fixture:comparison_fixture",options:[{id:"option-a",label:"First variant",kind:"ruling-only"},{id:"option-b",label:"Second variant",kind:"ruling-only"}]}})+"\n```cujgel/v1\n"+JSON.stringify(value)+"\n```\n";
+  }
+  it("stores immutable canonical metadata per generation and reads the current snapshot after restart",async()=>{
+    const r=rig({projectName:"fixture",projects:["fixture"]});const task=r.card();r.edit(task,{description:linked(r)});await r.poll();
+    const first=r.gens(task.id)[0];expect(first).toBeTruthy();
+    expect(r.db.prepare("SELECT name FROM sqlite_master WHERE name='decision_cujgel'").get()).toBeTruthy();
+    expect(r.db.prepare("SELECT body_json FROM decision_cujgel WHERE decision_id=?").get(first.id)).toEqual({body_json:canonicalJson(link)});
+    const next=structuredClone(link);next.comparison_rev.sha256="b".repeat(64);
+    r.edit(task,{description:linked(r,next)});await r.poll();
+    const gens=r.gens(task.id);expect(gens).toHaveLength(2);
+    expect(gens[0].card_fp).not.toBe(gens[1].card_fp);
+    expect(r.db.prepare("SELECT body_json FROM decision_cujgel ORDER BY decision_id").all()).toEqual([{body_json:canonicalJson(link)},{body_json:canonicalJson(next)}]);
+    expect(buildQueue(r.svc,new Asks(r.svc)).rows.find(x=>x.task_id===task.id)).toMatchObject({cujgel:next});
+    const restarted=r.env.open();
+    try { expect(buildQueue(restarted,new Asks(restarted)).rows.find(x=>x.task_id===task.id)).toMatchObject({cujgel:next}); } finally { restarted.store.close(); }
+    r.edit(task,{description:r.desc({key:"cujgel-fixture",ask:{project:"fixture",project_root:r.env.roots.fixture}})});await r.poll();
+    expect(r.gens(task.id)).toHaveLength(3);
+    expect(buildQueue(r.svc,new Asks(r.svc)).rows.find(x=>x.task_id===task.id)).not.toHaveProperty("cujgel");
+    expect(r.db.prepare("SELECT count(*) n FROM decision_cujgel").get()).toEqual({n:2});
+  });
+  it("makes malformed links display-only without any generation",async()=>{
+    const r=rig({projectName:"fixture",projects:["fixture"]});const task=r.card();r.edit(task,{description:linked(r,{...link,url:"fixture"})});await r.poll();
+    expect(r.gens(task.id)).toHaveLength(0);
+    expect(r.cardRow(task.id)).toMatchObject({state:"display",display_reason:expect.stringContaining("cujgel")});
+  });
+});
 
 async function requestAnswer(r: Rig, key: string) {
   const cli = homeCli({ svc: r.svc, asks: new Asks(r.svc), catchup: new Catchup(r.svc, verifiedDelegation(r.svc)),

@@ -1,0 +1,26 @@
+[
+  {
+    "name": "uppercase ids",
+    "body": "{\"project\":\"Proj_FIXTURE\",\"comparison_id\":\"Comparison_FIXTURE\",\"question_id\":\"Comparison_FIXTURE\",\"comparison_rev\":{\"revision\":1,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"variants\":[{\"variant_id\":\"Variant_A\",\"option_id\":\"option-a\"},{\"variant_id\":\"variant_b\",\"option_id\":\"option-b\"}]}"
+  },
+  {
+    "name": "four variants",
+    "body": "{\"project\":\"proj_fixture\",\"comparison_id\":\"comparison_fixture\",\"question_id\":\"comparison_fixture\",\"comparison_rev\":{\"revision\":1,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"variants\":[{\"variant_id\":\"variant_a\",\"option_id\":\"option-a\"},{\"variant_id\":\"variant_b\",\"option_id\":\"option-b\"},{\"variant_id\":\"variant_c\",\"option_id\":\"option-a\"},{\"variant_id\":\"variant_d\",\"option_id\":\"option-b\"}]}"
+  },
+  {
+    "name": "decimal integral",
+    "body": "{\n  \"project\": \"proj_fixture\",\n  \"comparison_id\": \"comparison_fixture\",\n  \"question_id\": \"comparison_fixture\",\n  \"comparison_rev\": {\n    \"revision\":1.0,\n    \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n  },\n  \"variants\": [\n    {\n      \"variant_id\": \"variant_a\",\n      \"option_id\": \"option-a\"\n    },\n    {\n      \"variant_id\": \"variant_b\",\n      \"option_id\": \"option-b\"\n    }\n  ]\n}\n"
+  },
+  {
+    "name": "exponent integral",
+    "body": "{\n  \"project\": \"proj_fixture\",\n  \"comparison_id\": \"comparison_fixture\",\n  \"question_id\": \"comparison_fixture\",\n  \"comparison_rev\": {\n    \"revision\":1e0,\n    \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n  },\n  \"variants\": [\n    {\n      \"variant_id\": \"variant_a\",\n      \"option_id\": \"option-a\"\n    },\n    {\n      \"variant_id\": \"variant_b\",\n      \"option_id\": \"option-b\"\n    }\n  ]\n}\n"
+  },
+  {
+    "name": "large integer",
+    "body": "{\n  \"project\": \"proj_fixture\",\n  \"comparison_id\": \"comparison_fixture\",\n  \"question_id\": \"comparison_fixture\",\n  \"comparison_rev\": {\n    \"revision\":9007199254740993,\n    \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n  },\n  \"variants\": [\n    {\n      \"variant_id\": \"variant_a\",\n      \"option_id\": \"option-a\"\n    },\n    {\n      \"variant_id\": \"variant_b\",\n      \"option_id\": \"option-b\"\n    }\n  ]\n}\n"
+  },
+  {
+    "name": "large finite integer",
+    "body": "{\n  \"project\": \"proj_fixture\",\n  \"comparison_id\": \"comparison_fixture\",\n  \"question_id\": \"comparison_fixture\",\n  \"comparison_rev\": {\n    \"revision\":1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111,\n    \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n  },\n  \"variants\": [\n    {\n      \"variant_id\": \"variant_a\",\n      \"option_id\": \"option-a\"\n    },\n    {\n      \"variant_id\": \"variant_b\",\n      \"option_id\": \"option-b\"\n    }\n  ]\n}\n"
+  }
+]

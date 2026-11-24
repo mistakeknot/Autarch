@@ -737,7 +737,7 @@ describe("v7 pick handler persistence", () => {
       const sql = `SELECT ${columns.map(c => `"${c}"`).join(",")} FROM ${name} ORDER BY rowid`;
       return { name, sql, rows: db.prepare(sql).all() };
     });
-    migrate(db);
+    migrate(db, {codeVersion:7});
     for (const index of indexes as {name:string;sql:string|null}[]) expect(db.prepare("SELECT name,sql FROM sqlite_master WHERE name=?").get(index.name)).toEqual(index);
     expect(()=>db.exec("INSERT INTO picks SELECT * FROM picks")).toThrow();
     for (const snap of snapshots) {
@@ -755,7 +755,7 @@ describe("v7 pick handler persistence", () => {
     expect(JSON.parse(log.table_counts_json)).toEqual(before.tableCounts);
     backup.close();
     const after = contentDigest(db);
-    migrate(db);
+    migrate(db, {codeVersion:7});
     expect(contentDigest(db)).toEqual(after);
     db.close();
   });
@@ -849,12 +849,12 @@ describe("v7 pick handler persistence", () => {
 
   it("fresh schema is additive, inert and keeps reader version 3", () => {
     const db = new Database(file);
-    expect(migrate(db)).toEqual({ schemaVersion: 7, minReaderVersion: 3 });
+    expect(migrate(db)).toEqual({ schemaVersion: CODE_VERSION, minReaderVersion: 3 });
     for (const table of ["pick_actions", "pick_note_fences"]) {
       expect(db.prepare(`SELECT count(*) n FROM ${table}`).get()).toEqual({ n: 0 });
     }
     expect(db.prepare("SELECT mode, epoch FROM pick_handler_control").get()).toEqual({ mode: "off", epoch: 0 });
-    expect(migrate(db)).toEqual({ schemaVersion: 7, minReaderVersion: 3 });
+    expect(migrate(db)).toEqual({ schemaVersion: CODE_VERSION, minReaderVersion: 3 });
     expect(db.prepare("SELECT count(*) n FROM migration_log WHERE version=7").get()).toEqual({ n: 1 });
     db.close();
   });
@@ -1105,11 +1105,11 @@ describe("v4 migration (moves)", () => {
 
     const logs: string[] = [];
     const db = new Database(file);
-    expect(migrate(db, { log: { info: (m) => logs.push(m) } })).toEqual({ schemaVersion: 7, minReaderVersion: 3 });
-    expect(logs.some((l) => l.startsWith("autarch: schema 3 → 7; backup ") && l.includes("verified"))).toBe(true);
+    expect(migrate(db, { log: { info: (m) => logs.push(m) } })).toEqual({ schemaVersion: CODE_VERSION, minReaderVersion: 3 });
+    expect(logs.some((l) => l.startsWith(`autarch: schema 3 → ${CODE_VERSION}; backup `) && l.includes("verified"))).toBe(true);
     expect(db.prepare("SELECT COUNT(*) c FROM cards").get()).toEqual({ c: 1 });
     expect(db.prepare("SELECT COUNT(*) c FROM moves").get()).toEqual({ c: 0 });
-    expect(db.prepare("SELECT version FROM migration_log ORDER BY version").all()).toEqual([{ version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }]);
+    expect(db.prepare("SELECT version FROM migration_log ORDER BY version").all()).toEqual(MIGRATIONS.filter(m=>m.version>=3 && m.version<=CODE_VERSION).map(m=>({version:m.version})));
     db.close();
   });
 

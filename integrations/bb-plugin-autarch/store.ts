@@ -796,6 +796,7 @@ export class Store {
         // Owner reopen paths retain the original display and scope. These are
         // historical evidence, not fresh host authority; the pick guard rereads.
         if (mode !== "replace" && d.source === "card") {
+          this.db.prepare("INSERT INTO decision_cujgel(decision_id,body_json) SELECT ?,body_json FROM decision_cujgel WHERE decision_id=?").run(d.id,prevId);
           const snapshot = this.db.prepare("SELECT detail_json FROM events WHERE decision_id = ? AND type = 'on-pick-targets' ORDER BY seq LIMIT 1").get(prevId) as { detail_json: string } | undefined;
           if (snapshot) {
             this.db.prepare("INSERT OR IGNORE INTO decision_blocks(decision_id, ref) SELECT ?, ref FROM decision_blocks WHERE decision_id = ?").run(d.id, prevId);
