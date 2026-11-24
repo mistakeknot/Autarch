@@ -15,6 +15,15 @@ describe("cujgel/v1 card metadata parity",()=>{
     expect(card.question).toBe("Which variant?");
   });
   for(const tc of negatives) it(`refuses ${tc.name}`,()=>expect(()=>parseCard(desc(tc.body))).toThrow());
+  it("accepts the shared positive cases",()=>{
+    const cases=JSON.parse(fixture("positive-cases.json")) as {name:string;body:string}[];
+    expect(cases.length).toBeGreaterThan(0);
+    for(const tc of cases) {
+      const card=parseCard(desc(tc.body));
+      expect(card.cujgel,tc.name).toBeDefined();
+      expect(card.question,tc.name).toBe("Which variant?");
+    }
+  });
   it("refuses duplicate or unterminated blocks",()=>{
     expect(()=>parseCard(desc()+"\n```cujgel/v1\n"+example+"\n```\n")).toThrow(/more than one cujgel/);
     expect(()=>parseCard(desc().slice(0,-5))).toThrow(/unterminated cujgel/);
