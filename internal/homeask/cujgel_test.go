@@ -264,11 +264,16 @@ func TestCujgelRequiredFieldsAndTypes(t *testing.T) {
 }
 
 func TestCujgelIntegralRevision(t *testing.T) {
-	for _, n := range []string{"1.0", "1e1", "9007199254740993"} {
+	for _, n := range []string{"1.0", "1e1", "9007199254740993", strings.Repeat("1", 100)} {
 		raw := strings.Replace(cujgelExample(t), `"revision": 1`, `"revision":`+n, 1)
 		link, err := ParseCujgel(raw)
 		if err != nil || string(link.ComparisonRev.Revision) != n {
 			t.Fatalf("integer %s was rounded or refused: %v", n, err)
+		}
+		r := requestWithCujgel(t)
+		r.Cujgel = link
+		if _, _, err := r.Description(); err != nil {
+			t.Errorf("schema-valid integer %s cannot be filed: %v", n, err)
 		}
 	}
 	for _, n := range []string{`"1"`, "0.99999999999999999999", "1e-1000000000"} {
