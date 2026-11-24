@@ -1,0 +1,19 @@
+{
+  "project": "proj_fixture",
+  "comparison_id": "comparison_fixture",
+  "question_id": "comparison_fixture",
+  "comparison_rev": {
+    "revision": 1,
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "variants": [
+    {
+      "variant_id": "variant_a",
+      "option_id": "option-a"
+    },
+    {
+      "variant_id": "variant_b",
+      "option_id": "option-b"
+    }
+  ]
+}

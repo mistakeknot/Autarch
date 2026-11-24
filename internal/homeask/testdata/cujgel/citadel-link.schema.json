@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cujgel Citadel link v1",
+  "type": "object",
+  "properties": {
+    "project": {
+      "$ref": "#/$defs/id"
+    },
+    "comparison_id": {
+      "$ref": "#/$defs/id"
+    },
+    "question_id": {
+      "$ref": "#/$defs/id"
+    },
+    "comparison_rev": {
+      "type": "object",
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/hash"
+        }
+      },
+      "required": [
+        "revision",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "variants": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "properties": {
+          "variant_id": {
+            "$ref": "#/$defs/id"
+          },
+          "option_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,127}(?![\\s\\S])"
+          }
+        },
+        "required": [
+          "variant_id",
+          "option_id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "project",
+    "comparison_id",
+    "question_id",
+    "comparison_rev",
+    "variants"
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}(?![\\s\\S])"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}(?![\\s\\S])"
+    }
+  },
+  "additionalProperties": false
+}
