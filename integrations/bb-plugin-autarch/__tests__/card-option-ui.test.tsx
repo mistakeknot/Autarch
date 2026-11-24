@@ -7,6 +7,7 @@ import { join } from "node:path";
 vi.mock("@get-bb/plugin-sdk/app",()=>({ThreadChat:()=>null}));
 import { AsksPanel, type AsksData, type OwedAsk } from "../ui/asks.js";
 import * as links from "../ui/cardlink.js";
+import { clickStarted, setTimingSink } from "../ui/clicktiming.js";
 
 const ask:OwedAsk={id:"fixture-decision",key:"FAKE-1",project:"fixture",thread:"thr_fixture",subject:"Compare options",asker:"thread",filed_at:"2030-01-01T00:00:00Z",revision:"fixture-revision",ask:{question:"Which variant?",options:[{id:"first",label:"First variant",kind:"ruling-only"},{id:"second",label:"Second variant",kind:"ruling-only"},{id:"delete",label:"Delete variant",kind:"ruling-only"}]}};
 const data=(card:OwedAsk|null):AsksData=>({owed:card?[card]:[],runbook:[],lane:[],asks:[],undeliverable:[],failures:[],uncertain:[],delegation:{settings:{},suspended:false},machineOwners:{}});
@@ -17,7 +18,7 @@ const note=vi.fn((...args:unknown[])=>rpc("note",args));
 const view=vi.fn((...args:unknown[])=>{void rpc("setViewing",args);});
 const submit=vi.fn();
 beforeEach(()=>{vi.clearAllMocks();(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;host=document.createElement("div");document.body.append(host);host.addEventListener("submit",submit);root=createRoot(host);});
-afterEach(async()=>{await act(async()=>root.unmount());host.remove();vi.restoreAllMocks();});
+afterEach(async()=>{await act(async()=>root.unmount());host.remove();setTimingSink(null);vi.unstubAllGlobals();vi.restoreAllMocks();});
 async function mount(option="first",card:OwedAsk|null=ask) {
   const choose=(links as any).cardOptionSelection;
   const result=choose?choose(option,card):{option:null,notice:null};
@@ -35,6 +36,11 @@ it("preselects without a pick, RPC write, submit or confirmation; mk's click ans
 });
 it("makes no RPC write merely by opening the option target",async()=>{
   await mount();for(const spy of [rpc,pick,note,view,submit])expect(spy).not.toHaveBeenCalled();
+});
+it("does not flush a previous click's timing RPC when the target opens",async()=>{
+  vi.stubGlobal("requestAnimationFrame",(cb:FrameRequestCallback)=>{cb(0);return 1;});
+  setTimingSink(t=>{void rpc("clickTiming",t);});clickStarted();
+  await mount();expect(rpc).not.toHaveBeenCalled();
 });
 it("can open a later card without moving it back or answering",async()=>{
   await mount("first",{...ask,later:{at:"2030-01-01",by:"fixture"}});
