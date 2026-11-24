@@ -254,7 +254,7 @@ func RequestIdentity(r CardRequest) (string, error) {
 		if _, err := r.cujgelBlockChecked(); err != nil {
 			return "", err
 		}
-		node["cujgel"] = r.Cujgel
+		node["cujgel"] = r.Cujgel.identity()
 	}
 	raw, err := json.Marshal(node)
 	if err != nil {

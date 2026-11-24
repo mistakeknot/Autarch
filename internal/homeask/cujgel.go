@@ -282,6 +282,21 @@ func cujgelEqual(a, b *CujgelLink) bool {
 	return ex == nil && ey == nil && bytes.Equal(x, y)
 }
 
+// identity is called after validation. Only this new metadata uses a decimal
+// string for the revision in H1: the shared encoder accepts machine integers,
+// whereas the schema also permits integral exponent forms and larger integers.
+// The stored block retains the original JSON number.
+func (link *CujgelLink) identity() map[string]any {
+	revision, _ := new(big.Rat).SetString(string(link.ComparisonRev.Revision))
+	return map[string]any{
+		"project":        link.Project,
+		"comparison_id":  link.ComparisonID,
+		"question_id":    link.QuestionID,
+		"comparison_rev": map[string]any{"revision": revision.Num().String(), "sha256": link.ComparisonRev.SHA256},
+		"variants":       link.Variants,
+	}
+}
+
 // checkCujgelFiling uses the target Tasks board's explicit BB link, never the
 // caller's ambient BB_PROJECT_ID or the Home project's display name.
 func (f *CardFiler) checkCujgelFiling(ctx context.Context, r CardRequest) error {
