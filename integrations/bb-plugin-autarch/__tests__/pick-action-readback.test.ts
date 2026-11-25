@@ -392,3 +392,9 @@ it("original wake owner stays the asker when a separate machine owner exists", (
   db.prepare("UPDATE decisions SET owner_thread = 'thr_machine' WHERE id = 'original'").run();
   expect(readReminderPick(store, "original-pick")?.owner).toBe("asker");
 });
+it.each([null, "sent", "queue_fixture"])("reminder does not upgrade nondurable original delivery evidence %s", evidence => {
+  const { store, db } = fixture(false, false);
+  db.prepare("UPDATE obligations SET state = 'done', attempt = 1 WHERE id = 'ordinary'").run();
+  db.prepare("INSERT INTO attempts(obligation_id,n,state,handle,evidence,at) VALUES ('ordinary',1,'delivered','queue_fixture',?,'2026-01-01T00:00:01Z')").run(evidence);
+  expect(readReminderPick(store, "original-pick")?.delivery).toBe("unknown");
+});
