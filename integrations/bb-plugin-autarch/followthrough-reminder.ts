@@ -204,10 +204,12 @@ export class ReminderConsumer {
     return owner.pid === process.pid && failedGateReleases.get(this.lockKey) === owner.token;
   }
   private readTakeoverGate(): { fd: number; owner: TakeoverOwner } | null {
-    // Fail closed on a damaged gate even if consumer.lock is absent. Stop all
-    // consumers using the spool and verify no takeover is running, then remove
-    // only <dataDir>/plugins/autarch/followthrough/.consumer-takeover while they
-    // remain stopped. Restart the consumers after clearing that entry.
+    // Fail closed on a damaged gate even if consumer.lock is absent. A single
+    // takeover-gate-invalid can occur during a peer's release and clears on the
+    // next tick. Act only if the state persists across ticks. Stop all consumers
+    // using the spool and verify no takeover is running, then remove only
+    // <dataDir>/plugins/autarch/followthrough/.consumer-takeover while they remain
+    // stopped. Restart the consumers after clearing that entry.
     let fd: number;
     try { fd = this.openDirectory(this.root, TAKEOVER_GATE); }
     catch (e) {
