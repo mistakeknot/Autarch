@@ -664,12 +664,20 @@ func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) 
 	}
 	return report, nil
 }
+
+func (f *CardFiler) lockForRelease(path string) (func(), error) {
+	if f.testBeforeReleaseLock != nil {
+		f.testBeforeReleaseLock(path)
+	}
+	return lockFile(path)
+}
+
 func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, string, error) {
 	dir, err := f.stateDir()
 	if err != nil {
 		return CardResult{}, "", err
 	}
-	keyUnlock, err := lockFile(filepath.Join(dir, "delivery-"+key+".lock"))
+	keyUnlock, err := f.lockForRelease(filepath.Join(dir, "delivery-"+key+".lock"))
 	if err != nil {
 		return CardResult{}, "", err
 	}
@@ -934,7 +942,7 @@ func (f *CardFiler) resolveTerminal(ctx context.Context, key string, reason erro
 			if err != nil {
 				return CardResult{}, err
 			}
-			unlock, err := lockFile(path)
+			unlock, err := f.lockForRelease(path)
 			if err != nil {
 				return CardResult{}, err
 			}

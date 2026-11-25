@@ -86,6 +86,8 @@ type CardFiler struct {
 	Check ProjectCheck
 	// Warn, when set, receives the non-fatal warning PrepareAsk returns during File. Nil drops it.
 	Warn func(string)
+
+	testBeforeReleaseLock func(string) // tests only: observe a held-delivery lock attempt
 }
 
 // Environment variables CardFilerFromEnv reads.
