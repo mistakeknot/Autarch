@@ -5,6 +5,9 @@ import { z } from "zod";
 import { ArchiveQuery } from "./archive.js";
 import { PickActionQuerySchema } from "./pickquery.js";
 
+// Card outcome parsing is always available, independent of action adapters.
+export const expectedOutcomeReaderVersions = [1] as const;
+
 // Outputs are checked only for the shape every caller relies on, and every object passes extra fields
 // through, so a service that adds a field never breaks a panel. Most write methods answer with the
 // `{ ok }` envelope; the read models answer with the one key their panel reads.

@@ -320,12 +320,129 @@ func (r CardRequest) wireAsk() (map[string]any, error) {
 		}
 		m["evidence"] = evidence
 	}
+	if _, err := prepareOutcomeMetadata(m, nil); err != nil {
+		return nil, err
+	}
 	if r.Pull {
 		m["pull"] = "mycroft"
 	} else if _, ok := m["pull"]; ok {
 		return nil, fmt.Errorf("%w: only Mycroft's threadless filing may set pull", ErrInvalid)
 	}
 	return m, nil
+}
+
+// PrepareExpectedOutcomeAuthoring supplies defaults for omitted deadlines in
+// an ask file. The card wire always carries an explicit deadline.
+func PrepareExpectedOutcomeAuthoring(raw []byte, ask map[string]any) (bool, error) {
+	return prepareOutcomeMetadata(ask, raw)
+}
+
+// prepareOutcomeMetadata validates and canonicalizes the optional fields before
+// they enter the card or its identity. Nested maps owned by the caller stay
+// intact. Only ask-file input may omit by_when.
+func prepareOutcomeMetadata(ask map[string]any, askFile []byte) (bool, error) {
+	defaults := map[string]int{
+		"merge": 86400, "close": 86400, "bead-closed": 259200,
+		"home-report-ok": 172800, "file-exists": 172800, "re-ask-by-date": 604800,
+	}
+	review, hasReview := ask["review_by"]
+	if hasReview {
+		date, err := canonicalCardInstant(review)
+		if err != nil {
+			return false, fmt.Errorf("%w: review_by: %v", ErrInvalid, err)
+		}
+		ask["review_by"] = date
+	}
+	options, optionsAreMaps := ask["options"].([]any)
+	for _, option := range options {
+		if _, ok := option.(map[string]any); !ok {
+			optionsAreMaps = false
+			break
+		}
+	}
+	scalarSource := askFile
+	if !optionsAreMaps && ask["options"] != nil {
+		// Programmatic callers may supply any JSON-encodable option slice.
+		raw, err := json.Marshal(ask["options"])
+		if err != nil {
+			return false, fmt.Errorf("%w: options: %v", ErrInvalid, err)
+		}
+		var decoded []any
+		_ = json.Unmarshal(raw, &decoded) // Description checks the option array shape.
+		options = decoded
+		if scalarSource == nil {
+			scalarSource = raw
+		}
+	}
+	var updated []any
+	for i, value := range options {
+		option, _ := value.(map[string]any)
+		outcome, present := option["expected_outcome"]
+		if !present {
+			continue
+		}
+		if scalarSource != nil && !scalarJSON(scalarSource) {
+			return false, fmt.Errorf("%w: expected_outcome: invalid Unicode scalar text", ErrInvalid)
+		}
+		if askFile != nil {
+			spec, _ := outcome.(map[string]any)
+			kind, _ := spec["kind"].(string)
+			if _, explicit := spec["by_when"]; !explicit && spec["schema"] == float64(1) && defaults[kind] != 0 {
+				spec = maps.Clone(spec)
+				spec["by_when"] = map[string]any{"after_seconds": defaults[kind]}
+				outcome = spec
+			}
+		}
+		raw, err := json.Marshal(outcome)
+		if err != nil {
+			return false, fmt.Errorf("%w: expected_outcome: %v", ErrInvalid, err)
+		}
+		spec, err := parseExpectedOutcome(raw)
+		if err != nil {
+			return false, fmt.Errorf("%w: expected_outcome: %v", ErrInvalid, err)
+		}
+		if spec["schema"] != float64(1) {
+			return false, fmt.Errorf("%w: expected_outcome authoring requires schema 1", ErrInvalid)
+		}
+		if updated == nil {
+			updated = append([]any(nil), options...)
+		}
+		option = maps.Clone(option)
+		option["expected_outcome"] = spec
+		updated[i] = option
+	}
+	if updated != nil {
+		ask["options"] = updated
+	}
+	return hasReview || updated != nil, nil
+}
+
+// PreflightExpectedOutcome checks reader support before authoring card metadata.
+// A plain request makes no capability call.
+func (f *CardFiler) PreflightExpectedOutcome(ctx context.Context, req CardRequest) error {
+	participates, err := prepareOutcomeMetadata(maps.Clone(req.Ask), nil)
+	if err != nil || !participates {
+		return err
+	}
+	return f.checkExpectedOutcomeReader(ctx, req.Thread)
+}
+
+func (f *CardFiler) checkExpectedOutcomeReader(ctx context.Context, thread string) error {
+	var caps map[string]json.RawMessage
+	if err := f.call(ctx, thread, &caps, "home", "capabilities", "--json"); err != nil {
+		return err
+	}
+	var schema int
+	var versions []int
+	if json.Unmarshal(caps["schema"], &schema) == nil && schema == 1 &&
+		json.Unmarshal(caps["expected_outcome"], &versions) == nil {
+		for _, version := range versions {
+			if version == 1 {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("%w: expected_outcome reader capability v1 unavailable", ErrHomeDown)
 }
 
 // CheckRequestKey refuses a Request key the card's Request line cannot carry. A card without a
@@ -397,17 +514,6 @@ func (r CardRequest) Description() (desc, ident string, err error) {
 	c, perr := ParseCard(desc)
 	if perr != nil {
 		return "", "", fmt.Errorf("%w: the ask does not read back as a card: %v", ErrInvalid, perr)
-	}
-	// The reader accepts follow-through metadata before the filer can author it.
-	if _, present := c.Ask["review_by"]; present {
-		return "", "", fmt.Errorf("%w: review_by is not writable yet", ErrInvalid)
-	}
-	options, _ := c.Ask["options"].([]any)
-	for _, raw := range options {
-		option, _ := raw.(map[string]any)
-		if _, present := option["expected_outcome"]; present {
-			return "", "", fmt.Errorf("%w: expected_outcome is not writable yet", ErrInvalid)
-		}
 	}
 	want := dedupe(r.Blocks)
 	got := make([]string, len(c.Blocks))

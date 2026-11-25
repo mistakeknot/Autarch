@@ -274,17 +274,27 @@ func evidenceRead(path string) ([]byte, error) {
 // PrepareEvidence accepts image_path only at the CLI boundary. No local path survives
 // into the stored ask. Existing references are checked against the same byte limits.
 func PrepareEvidence(ask map[string]any) error {
+	save, err := StageEvidence(ask)
+	if err != nil || save == nil {
+		return err
+	}
+	return save()
+}
+
+// StageEvidence validates and normalizes evidence before preflight. Its returned
+// function saves local imports once the filing checks have passed.
+func StageEvidence(ask map[string]any) (func() error, error) {
 	raw, ok := ask["evidence"]
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	data, err := json.Marshal(raw)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var list []map[string]any
 	if err = json.Unmarshal(data, &list); err != nil || len(list) > 6 {
-		return fmt.Errorf("evidence must be a list of at most 6 items")
+		return nil, fmt.Errorf("evidence must be a list of at most 6 items")
 	}
 	total := 0
 	var imports = map[string][]byte{}
@@ -330,21 +340,25 @@ func PrepareEvidence(ask map[string]any) error {
 	}
 	for _, item := range list {
 		if err := prepare(item); err != nil {
-			return err
+			return nil, err
 		}
 		for _, key := range []string{"before", "after"} {
 			if s, ok := item[key].(map[string]any); ok {
 				if err := prepare(s); err != nil {
-					return err
+					return nil, err
 				}
 			}
 		}
 	}
 	valid, err := evidenceFromWire(list)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if len(imports) > 0 {
+	ask["evidence"] = valid
+	if len(imports) == 0 {
+		return nil, nil
+	}
+	return func() error {
 		root := EvidenceRoot()
 		if err := prepareEvidenceRoot(root); err != nil {
 			return err
@@ -374,7 +388,6 @@ func PrepareEvidence(ask map[string]any) error {
 				return fmt.Errorf("cannot store evidence image")
 			}
 		}
-	}
-	ask["evidence"] = valid
-	return nil
+		return nil
+	}, nil
 }

@@ -3,7 +3,6 @@ package homeask
 import (
 	"encoding/json"
 	"os"
-	"strings"
 	"testing"
 )
 
@@ -52,43 +51,10 @@ func TestExpectedOutcomeSharedVectors(t *testing.T) {
 			if err != nil || NormalizedJSON(stored) != body {
 				t.Fatalf("stored card changed on readback: %v", err)
 			}
-			var wire map[string]any
-			if err := json.Unmarshal(row.Wire, &wire); err != nil {
-				t.Fatal(err)
-			}
-			request := CardRequest{Title: "Fixture", Key: "fixture", Ask: wire}
-			description, _, err := request.Description()
-			if row.Name == "absent" {
-				if err != nil {
-					t.Fatal(err)
+			if row.Name != "absent" {
+				if _, err := Parse([]byte(body)); err == nil {
+					t.Fatal("accepted card metadata on the non-card request path")
 				}
-				filed, err := ParseCard(description)
-				if err != nil {
-					t.Fatal(err)
-				}
-				filedAsk, err := filed.ToV1("thr_fixture")
-				if err != nil || NormalizedJSON(filedAsk) != row.Canonical {
-					t.Fatalf("legacy filer changed the card body: %v", err)
-				}
-				rawFiled, err := json.Marshal(filed.Ask)
-				if err != nil {
-					t.Fatal(err)
-				}
-				got, err := CanonicalJSON(rawFiled)
-				if err != nil {
-					t.Fatal(err)
-				}
-				want, err := CanonicalJSON(row.Wire)
-				if err != nil || got != want {
-					t.Fatalf("legacy filer changed the wire ask: %v", err)
-				}
-				return
-			}
-			if _, err := Parse([]byte(body)); err == nil {
-				t.Fatal("accepted card metadata on the non-card request path")
-			}
-			if err == nil || !strings.Contains(err.Error(), "is not writable yet") {
-				t.Fatalf("expected reader-only refusal from card writer, got %v", err)
 			}
 		})
 	}

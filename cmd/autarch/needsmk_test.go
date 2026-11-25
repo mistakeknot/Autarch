@@ -24,10 +24,11 @@ import (
 
 // stubBB answers the whole filing protocol for an empty tasks service.
 type stubBB struct {
-	mu    sync.Mutex
-	calls [][]string
-	desc  string
-	envs  []string
+	expectedOutcomeCapability string
+	mu                        sync.Mutex
+	calls                     [][]string
+	desc                      string
+	envs                      []string
 
 	creates          int  // tasks create calls that wrote a card
 	loseCreateAnswer bool // the card is written but the create answer is lost
@@ -59,6 +60,8 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 			return j(`[{"id":"thr_x","title":"Masaq' | vizier","pinnedAt":1,"archivedAt":null}]`)
 		}
 		return j(`[]`)
+	case "home capabilities --json":
+		return j(s.expectedOutcomeCapability)
 	case "home get --card":
 		return j(`{"task_id":"T1","project_id":"P1","state":"open","decision_state":"open","card_key":"P1-1"}`)
 	case "home get --request":
