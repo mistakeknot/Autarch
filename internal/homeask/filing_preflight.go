@@ -28,6 +28,7 @@ func (f *CardFiler) Preflight(ctx context.Context, r CardRequest) error {
 	}
 	if !existing {
 		add(f.CheckUI(r))
+		add(f.PreflightExpectedOutcome(ctx, r))
 	}
 	if _, _, err := r.Description(); err != nil {
 		add(fmt.Errorf("%w; fix the named field (option labels allow at most %d characters)", err, maxLabel))

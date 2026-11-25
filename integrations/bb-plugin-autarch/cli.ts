@@ -5,7 +5,7 @@
 // delegation settings, and no verb here touches them [D-16]: only the RPC path, driven by mk's
 // own browser, can. Exit codes: 2 usage or validation, 3 not filed, 5 already ruled, replaced
 // or closed, 1 anything else.
-import { homeMethods, verbSummary } from "./contract.js";
+import { expectedOutcomeReaderVersions, homeMethods, verbSummary } from "./contract.js";
 import { groupMoves } from "./moveexport.js";
 import { cliCommand, defineCli, type PluginCliResult } from "@get-bb/plugin-sdk";
 import type { Asks, LifecycleResult } from "./asks.js";
@@ -108,7 +108,14 @@ export function homeCli(p: HomeCliParts) {
       capabilities: cliCommand({
         summary: "Read supported card declaration and target lookup versions",
         options: { json: { type: "boolean", description: "Print JSON." } },
-        run: () => out({ schema: 1, on_pick: p.readTargetEvidence && svc.supportsOnPick() ? [1] : [], target_lookup: p.readTargetEvidence ? [1] : [], pick_action: [1], live_delivery: false }),
+        run: () => out({
+          schema: 1,
+          on_pick: p.readTargetEvidence && svc.supportsOnPick() ? [1] : [],
+          target_lookup: p.readTargetEvidence ? [1] : [],
+          pick_action: [1],
+          expected_outcome: expectedOutcomeReaderVersions,
+          live_delivery: false,
+        }),
       }),
       target: cliCommand({
         summary: "Read host thread title and project evidence",

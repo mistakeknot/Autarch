@@ -261,6 +261,12 @@ independent of the working directory; it also works with older Home plugins.
 If Tasks returns no project id, readback does not filter by project.
 --project is the tasks project. --ask-file is a JSON object with
 question, options and optionally subject, recommendation, ask_key, project and project_root.
+Optional review_by is an offset-bearing RFC 3339 instant. An option can declare
+expected_outcome with schema 1, a kind, a typed target and an optional by_when
+with exactly one of at (an RFC 3339 instant) or after_seconds (positive elapsed seconds).
+Omitting by_when uses 24 hours for merge and close, 72 for bead-closed,
+48 for home-report-ok and file-exists, and 7 days for re-ask-by-date.
+Filing either field requires Home to advertise expected_outcome reader version 1.
 Optional evidence: at most 6 items, each with caption (1-200 characters) and one HTTPS url,
 image reference {sha256,mime}, or before/after pair of those sources. URLs are at most 2048
 characters, without credentials or controls.
@@ -373,6 +379,7 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				}
 			}
 			var ask map[string]any
+			var authorsOutcome bool
 			if askFile == "" {
 				ask = moveOnlyAsk(title, move)
 			} else {
@@ -397,6 +404,10 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				if ask == nil {
 					return &usageError{"--ask-file is not a JSON object: got null"}
 				}
+				authorsOutcome, err = homeask.PrepareExpectedOutcomeAuthoring(raw, ask)
+				if err != nil {
+					return err
+				}
 			}
 			filer := newCardFiler()
 			if secret != nil {
@@ -412,7 +423,14 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 					return &usageError{err.Error()}
 				}
 			}
-			if err := homeask.PrepareEvidence(ask); err != nil {
+			var saveEvidence func() error
+			var err error
+			if authorsOutcome {
+				saveEvidence, err = homeask.StageEvidence(ask)
+			} else {
+				err = homeask.PrepareEvidence(ask)
+			}
+			if err != nil {
 				return &usageError{err.Error()}
 			}
 			if cmd.Flags().Changed("urgency") {
@@ -477,7 +495,6 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				failures = append(failures, &usageError{"give exactly one of --owner-thread or --vizier-owned"})
 			}
 			req := homeask.CardRequest{Cujgel: cujgel, Secret: secret, Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread, VizierOwned: vizierOwned, Type: cardType, UI: ui, Attachments: attachments, Urgent: urgent, NonBlocking: nonBlocking, KeepList: keepList}
-			var err error
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
 					return err
@@ -495,6 +512,11 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			}
 			if err := errors.Join(failures...); err != nil {
 				return err
+			}
+			if saveEvidence != nil {
+				if err := saveEvidence(); err != nil {
+					return &usageError{err.Error()}
+				}
 			}
 			if checkOnly {
 				fmt.Fprintln(cmd.OutOrStdout(), `{"checked":true}`)
