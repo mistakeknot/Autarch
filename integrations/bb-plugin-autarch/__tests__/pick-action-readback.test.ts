@@ -359,7 +359,7 @@ it.each(["absent", "merge"] as const)("picks the generation from the Go writer's
   await svc.ingestCard(task as Parameters<typeof svc.ingestCard>[0], { comments });
   const pick = store.pick(original.id)!;
   expect(pick).toMatchObject({ generation: 1, option_id: "yes", picked_at: now() });
-  const selected = parseStoredCardAsk(JSON.parse(store.decision(original.id)!.body_json)).options!.find(o => o.id === pick.option_id);
+  const selected = parseStoredCardAsk(JSON.parse(String(store.decision(original.id)!.body_json))).options!.find(o => o.id === pick.option_id);
   if (name === "absent") {
     expect(selected?.expected_outcome).toBeUndefined();
   } else {

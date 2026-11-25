@@ -261,6 +261,12 @@ independent of the working directory; it also works with older Home plugins.
 If Tasks returns no project id, readback does not filter by project.
 --project is the tasks project. --ask-file is a JSON object with
 question, options and optionally subject, recommendation, ask_key, project and project_root.
+Optional review_by is an offset-bearing RFC 3339 instant. An option can declare
+expected_outcome with schema 1, a kind, a typed target and an optional by_when
+with exactly one of at (an RFC 3339 instant) or after_seconds (positive elapsed seconds).
+Omitting by_when uses 24 hours for merge and close, 72 for bead-closed,
+48 for home-report-ok and file-exists, and 7 days for re-ask-by-date.
+Filing either field requires Home to advertise expected_outcome reader version 1.
 Optional evidence: at most 6 items, each with caption (1-200 characters) and one HTTPS url,
 image reference {sha256,mime}, or before/after pair of those sources. URLs are at most 2048
 characters, without credentials or controls.
@@ -397,8 +403,18 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				if ask == nil {
 					return &usageError{"--ask-file is not a JSON object: got null"}
 				}
+				if err := homeask.PrepareExpectedOutcomeAuthoring(raw, ask); err != nil {
+					return err
+				}
 			}
 			filer := newCardFiler()
+			// --check never reaches submission. Evidence imports can write files
+			// before submission, so check reader capability before importing them.
+			if checkOnly || ask["evidence"] != nil {
+				if err := filer.PreflightExpectedOutcome(cmd.Context(), homeask.CardRequest{Ask: ask, Thread: thread}); err != nil {
+					return err
+				}
+			}
 			if secret != nil {
 				deliveryType := cardType
 				if prFlag != "" || homeask.IsMergeAsk(ask) {

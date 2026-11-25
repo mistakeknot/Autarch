@@ -200,6 +200,9 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 	if _, _, err := r.Description(); err != nil {
 		return CardResult{}, err
 	}
+	if err := f.PreflightExpectedOutcome(ctx, r); err != nil {
+		return CardResult{}, err
+	}
 	if err := CheckStopped(r.Ask); err != nil {
 		return CardResult{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
@@ -611,6 +614,9 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	}
 	unlock()
 	r := e.Request
+	if err := f.PreflightExpectedOutcome(ctx, r); err != nil {
+		return CardResult{}, r.Type, err
+	}
 	projectAttention := func(err error) (CardResult, error) {
 		if !errors.Is(err, ErrProjectNotFound) {
 			return CardResult{}, err
