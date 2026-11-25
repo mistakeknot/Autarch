@@ -14,13 +14,14 @@ function result(id: string) { return JSON.parse(readFileSync(join(paths(), "rece
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "reminder-fixture-")); now = Date.parse("2026-11-25T18:00:00Z"); sdk = new FakeSdk();
   pick = { pickId: "pick_fixture", generation: 1, revision: "revision_fixture", option: "Proceed", owner: "thr_fixture", eligible: true, protected: false, delivery: "confirmed", cancelled: false };
+  mkdirSync(join(dir, "plugins/autarch"), { recursive: true, mode: 0o755 });
   consumer = open();
 });
 afterEach(() => { consumer.close(); rmSync(dir, { recursive: true, force: true }); });
 it.each([{}, { experimental_dataDir: "" }, { get experimental_dataDir() { throw Error("missing"); } }, { experimental_dataDir: "relative" }])("missing/empty/throwing/relative data directory is report mode", host => {
-  expect(reminderDataDir(host)).toBeNull(); expect(sdk.sent).toEqual([]);
+  expect(reminderDataDir({ server: host })).toBeNull(); expect(sdk.sent).toEqual([]);
 });
-it("usable getter retains the exact host directory", () => expect(reminderDataDir({ experimental_dataDir: dir })).toBe(dir));
+it("usable getter retains the exact host directory", () => expect(reminderDataDir({ server: { experimental_dataDir: dir } })).toBe(dir));
 it.each([
   { target: "thr_other" }, { text: "run something" }, { version: 2 }, { generation: 0 }, { pacific_date: "2026-02-30" }, { expires_at: "bad" }, { reason: "anything" }, { pick_id: "../../escape" }, { revision: "" },
 ])("strict request rejects %j", patch => expect(parseReminderRequest({ ...request(), ...patch }, now)).toBeNull());
@@ -111,12 +112,12 @@ it("no route consumes no lifetime attempt", async () => {
 import { registerReminderService } from "../followthrough-reminder.js";
 it.each([{}, { experimental_dataDir: "" }, { get experimental_dataDir() { throw Error("unavailable"); } }])("start gate registers no worker for unavailable getter", host => {
   const service = vi.fn(); const sources = vi.fn();
-  registerReminderService(Object.assign(Object.create(null, Object.getOwnPropertyDescriptors(host)), { background: { service } }), sources);
+  registerReminderService({ server: Object.create(null, Object.getOwnPropertyDescriptors(host)), background: { service } }, sources);
   expect(service).not.toHaveBeenCalled(); expect(sources).not.toHaveBeenCalled(); expect(sdk.sent).toEqual([]);
 });
 it("eligible service starts with the host path and the fixture SDK", async () => {
   consumer.close(); let start!: (signal: AbortSignal) => Promise<void>;
-  registerReminderService({ experimental_dataDir: dir, background: { service: (_: string, value: { start: typeof start }) => { start = value.start; } } }, () => ({ readPick: () => pick, listThreads: async () => rows(), sdk, now: () => now }));
+  registerReminderService({ server: { experimental_dataDir: dir }, background: { service: (_: string, value: { start: typeof start }) => { start = value.start; } } }, () => ({ readPick: () => pick, listThreads: async () => rows(), sdk, now: () => now }));
   consumer = open(); publish(); consumer.close();
   const abort = new AbortController(); const send = vi.spyOn(sdk, "send").mockImplementation(async () => { abort.abort(); return { delivery: "sent", messageId: "event_fixture" }; });
   await start(abort.signal); expect(send).toHaveBeenCalledTimes(1);
@@ -130,7 +131,7 @@ it("positive queue evidence reconciles unknown; a near marker does not", async (
   vi.spyOn(sdk, "queuedList").mockResolvedValueOnce([{ id: "queue_fixture", text: `${input} extra` }]);
   now += 86400000; publish(request("2026-11-26")); await consumer.tick(); expect(send).toHaveBeenCalledTimes(1);
   vi.mocked(sdk.queuedList).mockResolvedValue([{ id: "queue_fixture", text: input }]);
-  await consumer.tick(); expect(send).toHaveBeenCalledTimes(2);
+  await consumer.tick(); expect(send).toHaveBeenCalledTimes(1);
 });
 it("proven lost wake reaches only the new same-project successor", async () => {
   consumer.close(); pick.delivery = "none-confirmed";
@@ -174,4 +175,22 @@ it("cancelled wake with affirmative nondelivery can reach a proven successor aft
 it("fresh readiness is signaled only for a locked safe spool", async () => {
   await consumer.tick(); expect(JSON.parse(readFileSync(join(paths(), "readiness.json"), "utf8"))).toEqual({ version: 1, uid: process.getuid!(), ready_at: new Date(now).toISOString(), expires_at: new Date(now + 45000).toISOString() });
   expect(sdk.sent).toEqual([]);
+});
+it("host-created 0755 ancestors remain unchanged", async () => {
+  expect(consumer.active).toBe(true); publish(); await consumer.tick(); expect(sdk.sent).toHaveLength(1);
+});
+it("an earlier-day queued advisory prevents another reminder stacking", async () => {
+  sdk.fallback = { kind: "queue" }; publish(); await consumer.tick();
+  now += 86400000; publish(request("2026-11-26")); await consumer.tick(); expect(sdk.sent).toHaveLength(1);
+});
+it("stale temporary files are removed on setup without touching requests or receipts", () => {
+  consumer.close(); const id = publish();
+  for (const folder of [paths(), join(paths(), "receipts"), join(paths(), "requests")]) writeFileSync(join(folder, ".tmp-00000000-0000-4000-8000-000000000000"), "{}", { mode: 0o600 });
+  consumer = open(); expect(consumer.active).toBe(true);
+  for (const folder of [paths(), join(paths(), "receipts"), join(paths(), "requests")]) expect(readdirSync(folder).filter(f => f.startsWith(".tmp-"))).toEqual([]);
+  expect(readdirSync(join(paths(), "requests"))).toContain(`${id}.json`);
+});
+it("dead-process exclusive lock can be recovered without spawning", () => {
+  consumer.close(); writeFileSync(join(paths(), "consumer.lock"), JSON.stringify({ pid: 2147483647, token: "fixture" }), { mode: 0o600 });
+  consumer = open(); expect(consumer.active).toBe(true);
 });

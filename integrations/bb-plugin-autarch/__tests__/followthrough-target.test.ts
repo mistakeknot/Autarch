@@ -29,3 +29,6 @@ it("ordinary wake and notice fixtures retain byte-identical vizier fallback", as
   for (const rows of fixtures) results.push(await resolveWakeTarget("thr_fixture", async () => rows.map(r => ({ ...r, pinnedAt: null })), vizier));
   expect(JSON.stringify(results)).toBe('["thr_vizier","thr_next","thr_next","thr_vizier"]');
 });
+it("hidden same-title successor is ineligible", async () => {
+  expect(await resolveReminderTarget(owner.id, async () => [owner, { ...next, hidden: true }])).toBeNull();
+});

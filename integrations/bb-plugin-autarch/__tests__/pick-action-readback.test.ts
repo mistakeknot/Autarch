@@ -359,7 +359,7 @@ it("reminder readback rejects moved audit generation and withdrawal", () => {
 });
 it("reminder readback does not guess missing picks", () => { const { store } = fixture(false, false); expect(readReminderPick(store, "missing")).toBeNull(); });
 
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ReminderConsumer, reminderActionId } from "../followthrough-reminder.js";
@@ -371,6 +371,7 @@ it("reminder failure creates zero Home rows and legacy stranded reroute cannot s
   const before = db.prepare("SELECT total_changes() AS n").get();
   const sdk = new FakeSdk(); sdk.fallback = { kind: "throw", err: Object.assign(Error("refused"), { code: "ECONNREFUSED" }) };
   const dir = mkdtempSync(join(tmpdir(), "reminder-store-fixture-"));
+  mkdirSync(join(dir, "plugins/autarch"), { recursive: true });
   const consumer = new ReminderConsumer(dir, { readPick: id => readReminderPick(store, id), listThreads: async () => [{ id: "asker", title: "Worker", projectId: "proj_fixture", createdAt: 1, archivedAt: null, deletedAt: null }], sdk, now: () => Date.parse("2026-01-02T18:00:00Z") });
   try {
     const request = { version: 1, pick_id: "original-pick", generation: 1, revision: "rev-1", pacific_date: "2026-01-02", expires_at: "2026-01-02T19:00:00Z", reason: "overdue-outcome" };
@@ -398,6 +399,7 @@ it.each([null, "sent", "queue_fixture"])("reminder does not upgrade nondurable o
   db.prepare("UPDATE obligations SET state = 'done', attempt = 1 WHERE id = 'ordinary'").run();
   db.prepare("INSERT INTO attempts(obligation_id,n,state,handle,evidence,at) VALUES ('ordinary',1,'delivered','queue_fixture',?,'2026-01-01T00:00:01Z')").run(evidence);
   expect(readReminderPick(store, "original-pick")?.delivery).toBe("unknown");
+});
 it.each([
   ["absent", "without outcome metadata"],
   ["merge", "with the writer-filled default deadline"],
