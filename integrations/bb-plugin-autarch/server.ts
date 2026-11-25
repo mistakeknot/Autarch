@@ -334,8 +334,10 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       bb.log.warn(`${name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
-  bb.events.on("message.dispatched", ({ entry }) => guard("message.dispatched", () => parts?.loop.onQueueEvent({ type: "dispatched", id: entry.id })));
-  bb.events.on("message.cancelled", ({ entry }) => guard("message.cancelled", () => parts?.loop.onQueueEvent({ type: "cancelled", id: entry.id })));
+  const isReminderEntry = (entry: { content?: readonly { type: string; text?: string }[] }) =>
+    entry.content?.some(block => block.type === "text" && /^\[followthrough [a-f0-9]{64}\] Advisory:/.test(block.text ?? "")) ?? false;
+  bb.events.on("message.dispatched", ({ entry }) => guard("message.dispatched", () => isReminderEntry(entry) ? undefined : parts?.loop.onQueueEvent({ type: "dispatched", id: entry.id })));
+  bb.events.on("message.cancelled", ({ entry }) => guard("message.cancelled", () => isReminderEntry(entry) ? undefined : parts?.loop.onQueueEvent({ type: "cancelled", id: entry.id })));
   bb.events.on("thread.archived", ({ thread }) => guard("thread.archived", () => parts?.loop.onThreadGone(thread.id)));
   bb.events.on("thread.deleted", ({ thread }) => guard("thread.deleted", () => parts?.loop.onThreadGone(thread.id)));
   bb.events.on("turn.failed", (e) => guard("turn.failed", () => parts?.catchup.recordTurnFailed(e.threadId, e.requestId)));
@@ -359,15 +361,10 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     now: () => Date.now(),
     listThreads: async () => {
       // Reminder-only projection, fresh on every proof; ordinary wake/notice cache stays unchanged.
-      const rows: ReminderThreadRow[] = [];
-      let offset = 0;
-      for (let page = 0; page < 2000; page++) {
-        const got = await bb.sdk.threads.list({ limit: 100, offset, includeHidden: true }) as unknown as ReminderThreadRow[];
-        rows.push(...got.map(reminderThreadRow));
-        if (got.length === 0) return rows;
-        offset += got.length;
-      }
-      throw new Error("reminder thread list did not end");
+      // Omitting BOTH limit and offset is an unpaginated host DB read. The SDK
+      // forwards absent pagination unchanged; no page boundary can drift or skip a collision.
+      const rows = await bb.sdk.threads.list({ includeHidden: false }) as unknown as ReminderThreadRow[];
+      return rows.filter(row => !row.hidden).map(reminderThreadRow);
     },
   } : null);
   let queueRef: Queue | null = null;

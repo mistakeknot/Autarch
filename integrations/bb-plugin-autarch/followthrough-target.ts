@@ -6,14 +6,15 @@ export interface ReminderThreadRow {
   createdAt: number | null;
   archivedAt: number | null;
   deletedAt: number | null;
+  hidden?: boolean;
 }
 export const reminderThreadRow = (t: ReminderThreadRow): ReminderThreadRow => ({
   id: t.id, title: t.title ?? null, projectId: t.projectId ?? null, createdAt: t.createdAt ?? null,
-  archivedAt: t.archivedAt ?? null, deletedAt: t.deletedAt ?? null,
+  archivedAt: t.archivedAt ?? null, deletedAt: t.deletedAt ?? null, hidden: t.hidden ?? false,
 });
 export async function resolveReminderTarget(owner: string | null, list: () => Promise<ReminderThreadRow[]>): Promise<string | null> {
   try {
-    const rows = await list();
+    const rows = (await list()).filter(r => !r.hidden);
     if (new Set(rows.map(r => r.id)).size !== rows.length) return null;
     const live = (r: ReminderThreadRow) => r.archivedAt === null && r.deletedAt === null;
     const mine = rows.find(r => r.id === owner);

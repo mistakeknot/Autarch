@@ -42,7 +42,7 @@ it("setup failure retries on a later service tick without restart", async () => 
 });
 it.each(["message.dispatched", "message.cancelled"] as const)("%s for a reminder creates no Home row", async event => {
   const f = fixture(); const before = f.db.prepare("SELECT total_changes() AS n").get();
-  await f.harness.emitThreadEvent(event, { entry: makeQueueEntry({ id: "queue_fixture", content: [{ type: "text", text: `[followthrough ${"a".repeat(64)}] Advisory: fixture` }] }) });
+  await f.harness.emitThreadEvent(event, { entry: makeQueueEntry({ id: "queue_fixture", content: [{ type: "text", mentions: [], text: `[followthrough ${"a".repeat(64)}] Advisory: fixture` }] }) });
   expect(f.db.prepare("SELECT total_changes() AS n").get()).toEqual(before);
 });
 it.each([undefined, "", "relative"])("unusable server data directory logs exactly once: %s", value => {
@@ -74,6 +74,6 @@ it("unpaginated successor read cannot skip a collision at a moving offset bounda
 });
 it("ordinary queue events still record their existing Home evidence", async () => {
   const f = fixture(); const before = f.db.prepare("SELECT total_changes() AS n").get() as { n: number };
-  await f.harness.emitThreadEvent("message.dispatched", { entry: makeQueueEntry({ id: "queue_fixture", content: [{ type: "text", text: "[home-msg fixture #1] ordinary" }] }) });
+  await f.harness.emitThreadEvent("message.dispatched", { entry: makeQueueEntry({ id: "queue_fixture", content: [{ type: "text", mentions: [], text: "[home-msg fixture #1] ordinary" }] }) });
   expect((f.db.prepare("SELECT total_changes() AS n").get() as { n: number }).n).toBeGreaterThan(before.n);
 });

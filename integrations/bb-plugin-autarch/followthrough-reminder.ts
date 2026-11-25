@@ -1,8 +1,7 @@
 // Same-user, primary-host filesystem boundary. No Home writes or ordinary wake-loop participation.
-import { constants as C, openSync, closeSync, fstatSync, mkdirSync, readdirSync, readSync, writeSync, fsyncSync, renameSync } from "node:fs";
+import { constants as C, openSync, closeSync, fstatSync, mkdirSync, readdirSync, readSync, writeSync, fsyncSync, renameSync, lstatSync, unlinkSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { z } from "zod";
 import { resolveReminderTarget, type ReminderThreadRow } from "./followthrough-target.js";
 import type { WakeSdk } from "./wakes.js";
@@ -26,8 +25,8 @@ export function parseReminderRequest(raw: unknown, now: number): ReminderRequest
   return r;
 }
 export const reminderActionId = (r: Pick<ReminderRequest, "pick_id" | "generation" | "pacific_date">): string => hash(JSON.stringify([r.pick_id, r.generation, r.pacific_date]));
-export function reminderDataDir(host: { readonly experimental_dataDir?: unknown }): string | null {
-  try { const d = host.experimental_dataDir; return typeof d === "string" && d.trim() !== "" && isAbsolute(d) ? d : null; } catch { return null; }
+export function reminderDataDir(host: { readonly server?: { readonly experimental_dataDir?: unknown } }): string | null {
+  try { const d = host.server?.experimental_dataDir; return typeof d === "string" && d.trim() !== "" && isAbsolute(d) ? d : null; } catch { return null; }
 }
 export interface ReminderPick {
   pickId: string; generation: number; revision: string; option: string; owner: string | null;
@@ -43,17 +42,18 @@ export interface ReminderSources {
 const receiptSchema = z.object({
   action: z.string().regex(/^[a-f0-9]{64}$/), pick_id: z.string(), generation: z.number().int().positive(), pacific_date: z.string(),
   status: z.enum(["claimed", "accepted", "queued", "rejected", "unknown", "capped", "expired", "no-route"]),
-  attempted: z.boolean(), target: z.string().nullable(), input: z.string(),
+  handle: z.string().optional(), attempted: z.boolean(), target: z.string().nullable(), input: z.string(),
 }).strict();
 type Receipt = z.infer<typeof receiptSchema>;
 const journalSchema = z.object({ version: z.literal(1), entries: z.array(receiptSchema).max(3) }).strict();
 const absent = (e: unknown) => (e as NodeJS.ErrnoException).code === "ENOENT";
 /** Linux pinned directory descriptors: every untrusted component is opened O_NOFOLLOW.
  * /proc/self/fd refers to our already-open descriptor, never to a caller-provided symlink.
- * flock locks the inherited open file description and stays held by this process's fd.
+ * An exclusive pid lock is reclaimed only on affirmative process death; claims remain durable.
  */
 export class ReminderConsumer {
   private dirs: number[] = [];
+  private spoolDirs = new Set<number>();
   private root = -1;
   private requests = -1;
   private receipts = -1;
@@ -68,15 +68,54 @@ export class ReminderConsumer {
         if (part === "." || part === "..") throw Error("unsafe path");
         fd = this.keep(openSync(this.path(fd, part), C.O_RDONLY | C.O_DIRECTORY | C.O_NOFOLLOW));
       }
-      for (const part of ["plugins", "autarch", "followthrough"]) fd = this.directory(fd, part);
-      this.root = fd; this.requests = this.directory(fd, "requests"); this.receipts = this.directory(fd, "receipts");
-      this.lock = this.file(this.root, "consumer.lock", C.O_RDWR | C.O_CREAT);
-      const result = spawnSync("flock", ["--exclusive", "--nonblock", "3"], { stdio: ["ignore", "ignore", "ignore", this.lock] });
-      if (result.error || result.status !== 0) throw Error("consumer locked or flock unavailable");
+      // Design choice: experimental_dataDir itself is never a write destination.
+      // Only our plugin's own directory may hold the followthrough spool, beside data.db.
+      // These two host-created ancestors may be 0755; ownership and O_NOFOLLOW suffice.
+      const pluginDir = this.ancestor(this.ancestor(fd, "plugins"), "autarch");
+      try { mkdirSync(this.path(pluginDir, "followthrough"), { mode: 0o700 }); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; }
+      this.root = this.keep(openSync(this.path(pluginDir, "followthrough"), C.O_RDONLY | C.O_DIRECTORY | C.O_NOFOLLOW));
+      this.privateStat(this.root, true); this.spoolDirs.add(this.root);
+      this.requests = this.directory(this.root, "requests"); this.receipts = this.directory(this.root, "receipts");
+      this.acquireLock();
+      for (const parent of this.spoolDirs) {
+        for (const name of readdirSync(`/proc/self/fd/${parent}`)) {
+          if (/^\.tmp-[a-f0-9-]{36}$/.test(name)) this.remove(parent, name);
+        }
+      }
       this.active = true;
     } catch { this.close(); }
   }
   private path(fd: number, name: string) { if (!/^[a-zA-Z0-9_.-]+$/.test(name)) throw Error("unsafe name"); return `/proc/self/fd/${fd}/${name}`; }
+  private spoolPath(fd: number, name: string) {
+    if (!this.spoolDirs.has(fd)) throw Error("outside followthrough spool");
+    this.privateStat(fd, true); return this.path(fd, name);
+  }
+  private ancestor(parent: number, name: string) {
+    const fd = this.keep(openSync(this.path(parent, name), C.O_RDONLY | C.O_DIRECTORY | C.O_NOFOLLOW));
+    if (fstatSync(fd).uid !== this.uid) throw Error("unsafe ancestor owner");
+    return fd;
+  }
+  private acquireLock() {
+    try {
+      const old = z.object({ pid: z.number().int().positive(), token: z.string() }).strict().parse(this.read(this.root, "consumer.lock"));
+      try { process.kill(old.pid, 0); throw Error("consumer already running"); }
+      catch (e) { if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e; }
+      this.remove(this.root, "consumer.lock");
+    } catch (e) { if (!absent(e)) throw e; }
+    this.write(this.root, "consumer.lock", { pid: process.pid, token: randomUUID() }, true);
+    this.lock = this.file(this.root, "consumer.lock");
+  }
+  private sameFile(parent: number, name: string, fd: number): boolean {
+    const a = fstatSync(fd), b = lstatSync(this.spoolPath(parent, name));
+    return a.dev === b.dev && a.ino === b.ino;
+  }
+  private remove(parent: number, name: string) {
+    const fd = this.file(parent, name);
+    try {
+      if (!this.sameFile(parent, name, fd)) throw Error("spool file changed");
+      unlinkSync(this.spoolPath(parent, name)); fsyncSync(parent);
+    } finally { closeSync(fd); }
+  }
   private keep(fd: number) { this.dirs.push(fd); return fd; }
   private privateStat(fd: number, directory: boolean) {
     const st = fstatSync(fd);
@@ -85,12 +124,12 @@ export class ReminderConsumer {
     return st;
   }
   private directory(parent: number, name: string) {
-    try { mkdirSync(this.path(parent, name), { mode: 0o700 }); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; }
-    const fd = this.keep(openSync(this.path(parent, name), C.O_RDONLY | C.O_DIRECTORY | C.O_NOFOLLOW));
-    this.privateStat(fd, true); return fd;
+    try { mkdirSync(this.spoolPath(parent, name), { mode: 0o700 }); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; }
+    const fd = this.keep(openSync(this.spoolPath(parent, name), C.O_RDONLY | C.O_DIRECTORY | C.O_NOFOLLOW));
+    this.privateStat(fd, true); this.spoolDirs.add(fd); return fd;
   }
   private file(parent: number, name: string, flags = C.O_RDONLY) {
-    const fd = openSync(this.path(parent, name), flags | C.O_NOFOLLOW | C.O_NONBLOCK, 0o600);
+    const fd = openSync(this.spoolPath(parent, name), flags | C.O_NOFOLLOW | C.O_NONBLOCK, 0o600);
     try { this.privateStat(fd, false); return fd; } catch (e) { closeSync(fd); throw e; }
   }
   private read(parent: number, name: string): unknown {
@@ -108,7 +147,7 @@ export class ReminderConsumer {
     const fd = this.file(parent, temp, C.O_WRONLY | C.O_CREAT | C.O_EXCL);
     try { const bytes = Buffer.from(JSON.stringify(value)); let n = 0; while (n < bytes.length) n += writeSync(fd, bytes, n, bytes.length - n); fsyncSync(fd); }
     finally { closeSync(fd); }
-    if (!exclusive) renameSync(this.path(parent, temp), this.path(parent, name));
+    if (!exclusive) renameSync(this.spoolPath(parent, temp), this.spoolPath(parent, name));
     fsyncSync(parent);
   }
   private matching(p: ReminderPick | null, r: ReminderRequest): p is ReminderPick {
@@ -133,6 +172,7 @@ export class ReminderConsumer {
     if (!this.active || this.busy) return;
     this.busy = true;
     try {
+      if (!this.sameFile(this.root, "consumer.lock", this.lock)) { this.active = false; return; }
       for (const fd of [this.root, this.requests, this.receipts]) this.privateStat(fd, true);
       // Producer handshake from the owner-delivery plan: private readiness.json beside
       // requests/receipts. Design choice: 45 s validity for a 15 s poll. A stopped,
@@ -175,12 +215,16 @@ export class ReminderConsumer {
     if (Date.parse(r.expires_at) <= this.s.now()) { terminal("expired"); return; }
     if (entries.length >= 3) { terminal("capped"); return; }
     // Only positive exact-text host evidence settles an ambiguous claim. Absence is unknown.
-    for (const prior of entries.filter(e => e.status === "unknown" || e.status === "claimed")) {
+    for (const prior of entries.filter(e => e.status === "unknown" || e.status === "claimed" || e.status === "queued")) {
       if (!prior.target || !prior.input) return;
       const accepted = (await this.s.sdk.acceptedEvents(prior.target)).some(e => !!e.id && e.text === prior.input);
       const queued = (await this.s.sdk.queuedList(prior.target)).some(e => !!e.id && e.text === prior.input);
-      if (!accepted && !queued) return;
-      prior.status = accepted ? "accepted" : "queued"; putJournal();
+      if (queued) { prior.status = "queued"; putJournal(); return; }
+      if (!accepted) {
+        if (!prior.handle || await this.s.sdk.queuedState(prior.target, prior.handle) !== "cancelled") return;
+        prior.status = "rejected";
+      } else prior.status = "accepted";
+      putJournal();
     }
     const proof = await this.proof(r);
     if (!proof) { terminal("no-route"); return; }
@@ -192,10 +236,12 @@ export class ReminderConsumer {
     const input = `[followthrough ${action}] Advisory: selected option ${JSON.stringify(last.pick.option)} still needs outcome review. Read the authenticated action: bb home pick-action --pick ${r.pick_id}`;
     if (input.length > 2048) { terminal("no-route"); return; }
     const receipt: Receipt = { ...base, status: "claimed", attempted: true, target: last.target, input };
+    if (!this.sameFile(this.root, "consumer.lock", this.lock)) { this.active = false; return; }
     this.write(this.receipts, name, receipt, true); // exclusive claim, fsync file AND directory before any SDK call
     entries.push(receipt); putJournal();
     try {
       const sent = await this.s.sdk.send({ threadId: last.target, input, mode: "queue-if-active", wakeCause: "retry", wakeRef: `followthrough:${action}` });
+      if (sent.delivery === "queued") receipt.handle = sent.queuedMessageId;
       receipt.status = sent.delivery === "queued" ? "queued" : sent.delivery === "sent" && sent.messageId ? "accepted" : "unknown";
     } catch (e) {
       // Only an affirmative transport refusal is definitive; timeouts and all other exceptions are ambiguous.
@@ -205,26 +251,31 @@ export class ReminderConsumer {
   }
   close() {
     this.active = false;
-    if (this.lock >= 0) { closeSync(this.lock); this.lock = -1; }
+    if (this.lock >= 0) {
+      try { if (this.sameFile(this.root, "consumer.lock", this.lock)) this.remove(this.root, "consumer.lock"); } catch { /* never remove another consumer's lock */ }
+      closeSync(this.lock); this.lock = -1;
+    }
     for (const fd of this.dirs.reverse()) closeSync(fd);
     this.dirs = [];
   }
 }
 
 interface ReminderHost {
-  readonly experimental_dataDir?: unknown;
+  readonly server?: { readonly experimental_dataDir?: unknown };
+  log?: { info: (message: string) => unknown };
   background: { service: (name: string, definition: { start: (signal: AbortSignal) => Promise<void> }) => unknown };
 }
 /** Getter and value are both guarded before registration. No alternate path or send transport. */
 export function registerReminderService(host: ReminderHost, sources: () => ReminderSources | null): void {
   const dataDir = reminderDataDir(host);
-  if (!dataDir) return;
+  if (!dataDir) { host.log?.info("followthrough reminders: report mode (server data directory unavailable)"); return; }
   host.background.service("home-followthrough-reminders", {
     async start(signal) {
       let consumer: ReminderConsumer | null = null;
       try {
         while (!signal.aborted) {
           const s = sources();
+          if (consumer && !consumer.active) { consumer.close(); consumer = null; }
           if (!consumer && s) consumer = new ReminderConsumer(dataDir, s);
           if (consumer) await consumer.tick();
           if (signal.aborted) break;
