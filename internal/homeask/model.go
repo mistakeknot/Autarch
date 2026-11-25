@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -26,13 +27,14 @@ import (
 
 // Option is one answer mk can pick.
 type Option struct {
-	OnPick      json.RawMessage `json:"on_pick,omitempty"`
-	ID          string          `json:"id,omitempty"`
-	Label       string          `json:"label"`
-	Kind        string          `json:"kind,omitempty"`
-	Reversible  bool            `json:"reversible,omitempty"`
-	Instruction string          `json:"instruction,omitempty"`
-	Approval    *Approval       `json:"approval,omitempty"`
+	ExpectedOutcome json.RawMessage `json:"expected_outcome,omitempty"`
+	OnPick          json.RawMessage `json:"on_pick,omitempty"`
+	ID              string          `json:"id,omitempty"`
+	Label           string          `json:"label"`
+	Kind            string          `json:"kind,omitempty"`
+	Reversible      bool            `json:"reversible,omitempty"`
+	Instruction     string          `json:"instruction,omitempty"`
+	Approval        *Approval       `json:"approval,omitempty"`
 }
 
 // Approval is the spec an option may carry (P-12). It makes the option
@@ -68,6 +70,7 @@ type Question struct {
 
 // Ask is the filing request for every caller.
 type Ask struct {
+	ReviewBy json.RawMessage `json:"review_by,omitempty"`
 	// These filing attributes are outside the normalized ask hashes.
 	Urgent         bool       `json:"urgent,omitempty"`
 	KeepList       string     `json:"keep_list,omitempty"`
@@ -140,7 +143,22 @@ func parseAskSource(data []byte, requireStopped, cardSource bool) (Ask, error) {
 		if err := checkStopped(m, requireStopped); err != nil {
 			return Ask{}, err
 		}
+		if cardSource {
+			options, _ := m["options"].([]any)
+			for _, raw := range options {
+				option, _ := raw.(map[string]any)
+				if err := exactCardOptionKeys(option); err != nil {
+					return Ask{}, err
+				}
+			}
+		}
 		for k, raw := range fields {
+			if cardSource && k != "options" && strings.EqualFold(k, "options") {
+				return Ask{}, fmt.Errorf("invalid ask field %q", k)
+			}
+			if strings.EqualFold(k, "review_by") && (k != "review_by" || !cardSource) {
+				return Ask{}, errors.New("review_by requires card source and exact spelling")
+			}
 			if strings.EqualFold(k, "stopped") {
 				if k != "stopped" {
 					return Ask{}, fmt.Errorf("invalid ask field %q", k)
@@ -169,6 +187,9 @@ func parseAskSource(data []byte, requireStopped, cardSource bool) (Ask, error) {
 		return Ask{}, errors.New("invalid ask: trailing data after the JSON value")
 	}
 	for _, o := range a.Options {
+		if len(o.ExpectedOutcome) > 0 && !cardSource {
+			return Ask{}, errors.New("expected_outcome requires card source")
+		}
 		if len(o.OnPick) > 0 {
 			// Before normalization, a non-nil slice distinguishes an explicit
 			// questions array (even empty) from omitted or null questions.
@@ -181,6 +202,182 @@ func parseAskSource(data []byte, requireStopped, cardSource bool) (Ask, error) {
 		}
 	}
 	return Normalize(a)
+}
+
+var (
+	cardInstantRe  = regexp.MustCompile(`^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,9})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$`)
+	outcomeIDRe    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:_.-]{0,127}$`)
+	outcomePRURLRe = regexp.MustCompile(`^https://github\.com/([^/]+/[^/]+)/pull/[1-9][0-9]{0,8}$`)
+)
+
+const maxOutcomePRs = 32
+
+func canonicalCardInstant(value any) (string, error) {
+	s, _ := value.(string)
+	if !cardInstantRe.MatchString(s) || strings.HasPrefix(s, "0000") || strings.HasSuffix(s, "-00:00") {
+		return "", errors.New("expected an offset-bearing RFC 3339 timestamp")
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil || t.UTC().Year() < 1 || t.UTC().Year() > 9999 {
+		return "", errors.New("invalid calendar date or UTC year")
+	}
+	return t.UTC().Format(time.RFC3339Nano), nil
+}
+
+// Card outcome metadata describes evidence, without authorizing an action.
+func parseExpectedOutcome(raw json.RawMessage) (map[string]any, error) {
+	var spec map[string]any
+	if !scalarJSON(raw) || json.Unmarshal(raw, &spec) != nil || spec == nil {
+		return nil, errors.New("expected an object with valid Unicode")
+	}
+	kind, _ := spec["kind"].(string)
+	version, versioned := spec["schema"]
+	if !versioned {
+		if (kind != "merge" && kind != "close") || len(spec) != 2 {
+			return nil, errors.New("historical outcome requires kind and prs")
+		}
+		prs, err := outcomePRList(spec["prs"])
+		if err != nil {
+			return nil, err
+		}
+		for _, pr := range prs {
+			url, _ := pr.(string)
+			match := outcomePRURLRe.FindStringSubmatch(url)
+			if match == nil || !validOutcomeRepo(match[1]) {
+				return nil, errors.New("historical prs must contain canonical GitHub PR URLs")
+			}
+		}
+		return spec, nil
+	}
+	if version != float64(1) || len(spec) != 4 {
+		return nil, errors.New("v1 outcome requires schema, kind, target, and by_when")
+	}
+	deadline, _ := spec["by_when"].(map[string]any)
+	if len(deadline) != 1 {
+		return nil, errors.New("by_when requires exactly one of at or after_seconds")
+	}
+	if at, ok := deadline["at"]; ok {
+		canonical, err := canonicalCardInstant(at)
+		if err != nil {
+			return nil, err
+		}
+		deadline["at"] = canonical
+	} else if !validOutcomeInt(deadline["after_seconds"], 9007199254740991) {
+		return nil, errors.New("after_seconds must be a positive safe integer")
+	}
+	target, _ := spec["target"].(map[string]any)
+	if err := validateOutcomeTarget(kind, target); err != nil {
+		return nil, err
+	}
+	return spec, nil
+}
+
+func validOutcomeInt(value any, max int64) bool {
+	n, ok := value.(float64)
+	return ok && n > 0 && n <= float64(max) && n == float64(int64(n))
+}
+
+func validOutcomeRepo(repo string) bool {
+	if !acRepoRe.MatchString(repo) {
+		return false
+	}
+	owner, name, _ := strings.Cut(repo, "/")
+	return owner != "." && owner != ".." && name != "." && name != ".."
+}
+
+func outcomePRList(value any) ([]any, error) {
+	prs, _ := value.([]any)
+	if len(prs) == 0 || len(prs) > maxOutcomePRs {
+		return nil, fmt.Errorf("prs must contain 1-%d pull requests", maxOutcomePRs)
+	}
+	return prs, nil
+}
+
+func validateOutcomeTarget(kind string, target map[string]any) error {
+	str := func(key string) string { value, _ := target[key].(string); return value }
+	switch kind {
+	case "merge", "close":
+		if err := acExactKeys(target, []string{"prs"}, "target"); err != nil {
+			return err
+		}
+		prs, err := outcomePRList(target["prs"])
+		if err != nil {
+			return err
+		}
+		type prKey struct {
+			repo   string
+			number float64
+		}
+		seen := make(map[prKey]bool, len(prs))
+		for _, value := range prs {
+			pr, _ := value.(map[string]any)
+			repo, _ := pr["repo"].(string)
+			head, _ := pr["head"].(string)
+			if !validOutcomeRepo(repo) || !validOutcomeInt(pr["number"], 999999999) {
+				return errors.New("PR target requires a repository and positive PR number")
+			}
+			// Repository case and differing heads do not make separate PRs.
+			key := prKey{repo: strings.ToLower(repo), number: pr["number"].(float64)}
+			if seen[key] {
+				return errors.New("duplicate PR target")
+			}
+			seen[key] = true
+			if kind == "merge" {
+				if len(pr) != 3 || !acHeadRe.MatchString(head) {
+					return errors.New("merge target requires a full lowercase PR head")
+				}
+			} else if len(pr) != 2 {
+				return errors.New("close target permits only repo and number")
+			}
+		}
+	case "bead-closed":
+		if len(target) != 2 || !outcomeIDRe.MatchString(str("tracker")) || !outcomeIDRe.MatchString(str("bead")) {
+			return errors.New("bead target requires tracker and bead identifiers")
+		}
+	case "home-report-ok", "file-exists":
+		if err := acExactKeys(target, []string{"path", "sha256"}, "target"); err != nil {
+			return err
+		}
+		p := str("path")
+		if len(p) > maxRootScript || !strings.HasPrefix(p, "/") || strings.ContainsRune(p, '\\') ||
+			strings.ContainsFunc(p, func(r rune) bool { return r < 32 || r == 127 }) || !norm.NFC.IsNormalString(p) {
+			return errors.New("target requires a canonical absolute path")
+		}
+		for _, part := range strings.Split(p[1:], "/") {
+			if part == "" || part == "." || part == ".." {
+				return errors.New("target path contains an empty or relative component")
+			}
+		}
+		if _, hasSHA := target["sha256"]; (kind == "home-report-ok" || hasSHA) && !rootSHARe.MatchString(str("sha256")) {
+			return errors.New("target requires a full lowercase sha256")
+		}
+	case "re-ask-by-date":
+		if len(target) != 1 || !outcomeIDRe.MatchString(str("ask_key")) {
+			return errors.New("re-ask target requires an ask_key identifier")
+		}
+	default:
+		return errors.New("unknown expected_outcome kind")
+	}
+	return nil
+}
+
+// Normalization validates card metadata. When an Ask was assembled by hand,
+// malformed fields are omitted by the canonical encoder.
+func cardMetadataNode(raw json.RawMessage) any {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil
+	}
+	node, err := fromDecoded(v)
+	if err != nil {
+		return nil
+	}
+	return node
 }
 
 // normText is the normalization ask_key, subject and the semantic key's
@@ -310,6 +507,16 @@ func normalize(in Ask) (Ask, []Problem) {
 		ps.add("evidence", err.Error())
 	}
 	a := in
+	if len(in.ReviewBy) > 0 {
+		var date string
+		_ = json.Unmarshal(in.ReviewBy, &date)
+		canonical, err := canonicalCardInstant(date)
+		if err != nil {
+			ps.add("review_by", err.Error())
+		} else {
+			a.ReviewBy, _ = json.Marshal(canonical)
+		}
+	}
 	a.Options = append([]Option(nil), in.Options...)
 	a.Steps = append([]string(nil), in.Steps...)
 	a.Questions = make([]Question, len(in.Questions))
@@ -366,6 +573,14 @@ func normalize(in Ask) (Ask, []Problem) {
 	}
 	for i := range a.Options {
 		o := &a.Options[i]
+		if len(o.ExpectedOutcome) > 0 {
+			outcome, err := parseExpectedOutcome(o.ExpectedOutcome)
+			if err != nil {
+				ps.add("expected_outcome", err.Error())
+			} else {
+				o.ExpectedOutcome, _ = json.Marshal(outcome)
+			}
+		}
 		if len(o.OnPick) > 0 {
 			if _, err := ValidateOnPick(o.OnPick, *o, CardValidationContext{Source: "card"}); err != nil {
 				ps.add("on_pick", err.Error())
@@ -688,6 +903,9 @@ func optionNode(o Option) map[string]any {
 		m["approval"] = map[string]any{"kind": o.Approval.Kind, "target": o.Approval.Target,
 			"identity": o.Approval.Identity, "ttl": o.Approval.TTL}
 	}
+	if len(o.ExpectedOutcome) > 0 {
+		m["expected_outcome"] = cardMetadataNode(o.ExpectedOutcome)
+	}
 	if len(o.OnPick) > 0 {
 		var v any
 		d := json.NewDecoder(bytes.NewReader(o.OnPick))
@@ -749,11 +967,15 @@ func scopeNode(a Ask) map[string]any {
 }
 
 func bodyNode(a Ask) map[string]any {
-	return map[string]any{
+	node := map[string]any{
 		"v": a.V, "kind": a.Kind, "ask_key": a.AskKey, "subject": a.Subject, "question": a.Question,
 		"recommendation": a.Recommendation, "supersedes": a.Supersedes, "mention_of": a.MentionOf,
 		"options": optionsNode(a.Options), "questions": questionsNode(a.Questions), "steps": stepsNode(a.Steps), "machine": machineNode(a.Machine, true),
 	}
+	if len(a.ReviewBy) > 0 {
+		node["review_by"] = cardMetadataNode(a.ReviewBy)
+	}
+	return node
 }
 
 // NormalizedJSON is the canonical JSON of the whole normalized ask, request_id included.
@@ -800,11 +1022,15 @@ func Revision(a Ask) string {
 	for _, o := range n.Options {
 		opts = append(opts, optionNode(o))
 	}
-	return hashOf(map[string]any{
+	node := map[string]any{
 		"scope": scopeNode(n), "kind": n.Kind, "question": n.Question, "options": opts, "questions": questionsNode(n.Questions),
 		"recommendation": n.Recommendation, "supersedes": n.Supersedes,
 		"steps": stepsNode(n.Steps), "machine": machineNode(n.Machine, true),
-	})
+	}
+	if len(n.ReviewBy) > 0 {
+		node["review_by"] = cardMetadataNode(n.ReviewBy)
+	}
+	return hashOf(node)
 }
 
 // SemanticKey (P-11) says two filings ask the same thing. It is empty when the

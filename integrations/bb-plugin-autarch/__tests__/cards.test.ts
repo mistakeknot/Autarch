@@ -4,8 +4,10 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { askingThread, parseCard, toV1, type TaskComment } from "../cards";
+import { askingThread, cardFingerprint, parseCard, toV1, type TaskComment } from "../cards";
 import { normalizedJson, parseAsk, identity, revision, semanticKey } from "../model";
+import { Service } from "../service";
+import { readStoredAsk } from "../askbody";
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "cards");
 const docs = readdirSync(dir)
@@ -79,4 +81,52 @@ describe("askingThread vectors (shared with Go)", () => {
     }
   }
   it("has the expected volume", () => expect(n).toBeGreaterThanOrEqual(6));
+});
+
+const outcomes: { name: string; wire?: Record<string, unknown>; stored?: Record<string, unknown>; canonical?: string; error?: boolean }[] =
+  JSON.parse(readFileSync(new URL("../../../testdata/expected-outcome-vectors.json", import.meta.url), "utf8"));
+const outcomeCard = (wire: Record<string, unknown>) =>
+  parseCard("Proceed?\nBlocks: thread:thr_fixture\nRequest: fixture sha256:0123456789abcdef\n```home-ask\n" + JSON.stringify(wire) + "\n```");
+
+describe("expected outcomes (shared with Go)", () => {
+  for (const row of outcomes) it(row.name, () => {
+    if (row.stored) {
+      expect(readStoredAsk(JSON.stringify(row.stored), "card")).toBeNull();
+      return;
+    }
+    if (row.error) {
+      expect(() => outcomeCard(row.wire!)).toThrow();
+      return;
+    }
+    const body = normalizedJson(toV1(outcomeCard(row.wire!), "thr_fixture"));
+    expect(body).toBe(row.canonical);
+    expect(normalizedJson(readStoredAsk(body, "card")!)).toBe(body);
+    if (row.name !== "absent") expect(readStoredAsk(body, "home")).toBeNull();
+  });
+
+  it("preserves the original generation's selected check after a card edit", () => {
+    const original = outcomes.find(row => row.name === "merge")!;
+    const amended = structuredClone(original.wire) as { options: { expected_outcome?: { by_when: { after_seconds: number } } }[] };
+    amended.options[0]!.expected_outcome!.by_when.after_seconds = 172800;
+    const project = "fixture-project";
+    const thread = "thr_fixture";
+    const snapshot = (wire: Record<string, unknown>, generation: number, supersedes: string | null) => {
+      const card = outcomeCard(wire);
+      const fingerprint = cardFingerprint({ title: "Fixture", card, thread, tasksProject: project });
+      // Use the actual generation projection without a live service or database.
+      const genInput = Service.prototype["genInput"];
+      return genInput.call({}, { id: "fixture", projectId: project } as Parameters<typeof genInput>[0], card, thread, fingerprint, generation, supersedes,
+        { project_root: "/fixture", root_dev: "1", root_ino: "2", root_fsid: null });
+    };
+    const gen1 = snapshot(original.wire!, 1, null);
+    const gen2 = snapshot(amended, 2, gen1.id);
+    expect(gen2.supersedes).toBe(gen1.id);
+    expect(gen2.revision).not.toBe(gen1.revision);
+    expect(gen2.card_fp).not.toBe(gen1.card_fp);
+    const originalBody = readStoredAsk(gen1.body_json, "card")!;
+    const amendedBody = readStoredAsk(gen2.body_json, "card")!;
+    const selected = (body: typeof originalBody) => JSON.parse(normalizedJson(body)).options.find((o: { id: string }) => o.id === "yes").expected_outcome;
+    expect(selected(originalBody).by_when).toEqual({ after_seconds: 86400 });
+    expect(selected(amendedBody).by_when).toEqual({ after_seconds: 172800 });
+  });
 });

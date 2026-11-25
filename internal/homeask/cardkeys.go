@@ -2,6 +2,10 @@ package homeask
 
 import "errors"
 
+func exactCardOptionKeys(option map[string]any) error {
+	return acExactKeys(option, []string{"id", "label", "kind", "reversible", "instruction", "approval", "on_pick", "expected_outcome"}, "option")
+}
+
 // The CLI's v2 map route must not preserve case-folded nested keys that the
 // strict TS parser refuses. Leave valid values/omissions unchanged so existing
 // Request identities remain stable. The typed v1 route already re-encodes them.
@@ -12,7 +16,7 @@ func exactCardNestedKeys(ask map[string]any) error {
 		if !ok {
 			continue
 		} // ToV1 checks value types.
-		if err := acExactKeys(option, []string{"id", "label", "kind", "reversible", "instruction", "approval", "on_pick"}, "option"); err != nil {
+		if err := exactCardOptionKeys(option); err != nil {
 			return err
 		}
 		if _, participating := option["on_pick"]; participating {

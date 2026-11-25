@@ -70,7 +70,7 @@ const MAX_ROOT_SCRIPT = 4096;
 const MAX_ROOT_TIMEOUT = 3600;
 const PLACEHOLDER_THREAD = "thr_placeholder";
 
-const V2_ALLOWED = new Set(["schema", "project", "project_root", "question", "options", "questions", "ask_key", "subject", "recommendation", "pull", "auto_close", "urgency", "stopped", "evidence", "group", "subject_key", "signals"]);
+const V2_ALLOWED = new Set(["schema", "project", "project_root", "question", "options", "questions", "ask_key", "subject", "recommendation", "pull", "auto_close", "urgency", "stopped", "evidence", "group", "subject_key", "signals", "review_by"]);
 const V1_ONLY = new Set(["v", "kind", "thread", "asker", "request_id", "supersedes", "mention_of", "steps", "machine"]);
 /** Block-ref kinds that count toward the Blocks count; others are shown but not counted. */
 export const COUNTED = new Set(["bead", "thread", "project"]);
