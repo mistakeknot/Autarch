@@ -264,6 +264,19 @@ it("serializes stale takeover when a rival reaches the stale lock's final unlink
     rival?.close();
   }
 });
+it("recovers a dead takeover guard and leaves a tombstone that cannot be overwritten", () => {
+  abandonedLock(JSON.stringify({ pid: 2147483647, token: "fixture" }));
+  const guardName = ".consumer-takeover";
+  const guard = join(paths(), guardName);
+  const owner = JSON.stringify({ pid: 2147483647, token: "fixture", start: "fixture-start" });
+  mkdirSync(guard, { mode: 0o700 });
+  writeFileSync(join(guard, "owner.json"), owner, { mode: 0o600 });
+  consumer = open();
+  expect(consumer.active).toBe(true);
+  const guards = readdirSync(paths()).filter(name => name.startsWith(guardName));
+  expect(guards).toEqual([expect.stringMatching(/^\.consumer-takeover-retired-[a-f0-9]{64}$/)]);
+  expect(readFileSync(join(paths(), guards[0]!, "owner.json"), "utf8")).toBe(owner);
+});
 it("keeps the stale lock if the new consumer cannot read its own identity", () => {
   const stale = JSON.stringify({ pid: 2147483647, token: "fixture" });
   abandonedLock(stale);
