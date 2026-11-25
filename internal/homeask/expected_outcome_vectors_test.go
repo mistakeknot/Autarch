@@ -3,6 +3,7 @@ package homeask
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -47,6 +48,14 @@ func TestExpectedOutcomeSharedVectors(t *testing.T) {
 			if row.Name != "absent" {
 				if _, err := Parse([]byte(body)); err == nil {
 					t.Fatal("accepted card metadata on the non-card request path")
+				}
+				var wire map[string]any
+				if err := json.Unmarshal(row.Wire, &wire); err != nil {
+					t.Fatal(err)
+				}
+				request := CardRequest{Title: "Fixture", Key: "fixture", Ask: wire}
+				if _, _, err := request.Description(); err == nil || !strings.Contains(err.Error(), "is not writable yet") {
+					t.Fatalf("expected reader-only refusal from card writer, got %v", err)
 				}
 			}
 		})
