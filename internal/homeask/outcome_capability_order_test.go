@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -93,5 +92,29 @@ func TestOutcomeHeldReleaseRepairsRoutingWithoutReader(t *testing.T) {
 		bb.count("tasks", "create") != 1 || bb.count("tasks", "update") != 0 || bb.tasks[0].Desc != original ||
 		bb.count("home", "capabilities") != probes+1 {
 		t.Fatalf("unexpected card writes or delivery state: %v", bb.calls)
+	}
+}
+
+func TestOutcomeHeldReleaseRefusesBodyEditWithoutReader(t *testing.T) {
+	ctx := context.Background()
+	bb, f, req, capability := outcomeFilingFixture(t)
+	req.Ask["ask_key"] = "fixture-choice"
+	req.Ask["review_by"] = "2026-01-01T00:00:00Z"
+	first, err := f.FileOrUpdateCard(ctx, req, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := bb.tasks[0].Desc
+	req.Key = "fixture-held-edit"
+	req.NonBlocking = true
+	req.Ask["review_by"] = "2026-01-02T00:00:00Z"
+	if result, err := f.FileOrUpdateCard(ctx, req, first.ID); err != nil || !result.Queued {
+		t.Fatalf("want held edit: %+v, %v", result, err)
+	}
+	*capability = BBResult{Stdout: []byte(`{"schema":1}`)}
+	if _, _, err := f.releaseOne(ctx, req.Key); !errors.Is(err, ErrHomeDown) ||
+		bb.count("tasks", "update") != 0 || bb.count("tasks", "create") != 1 ||
+		bb.count("tasks", "comment") != 1 || bb.tasks[0].Desc != original {
+		t.Fatalf("want refused edit with unchanged card, got %v, calls %v", err, bb.calls)
 	}
 }
