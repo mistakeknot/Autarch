@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, existsSync, readdirSync, chmodSync, rmSync, wri
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createFakePluginHost, makeQueueEntry } from "@get-bb/plugin-sdk/testing";
+import type { ReminderThreadRow } from "../followthrough-target.js";
 import { wireHome } from "../server.js";
 import { createStoreHandle } from "../store.js";
 import { ReminderConsumer, reminderActionId, pacificDate, registerReminderService } from "../followthrough-reminder.js";
@@ -62,8 +63,8 @@ it.each(["collision", "hidden", "oversize"])("bounded successor proof refuses %s
   f.db.prepare("UPDATE obligations SET state = 'done', attempt = 1 WHERE id = 'wake_fixture'").run();
   f.db.prepare("INSERT INTO attempts(obligation_id,n,state,evidence,at) VALUES ('wake_fixture',1,'delivered','event_fixture','2026-01-01T00:00:01Z')").run();
   const owner = { id: "thr_fixture", title: "Worker", projectId: "proj_fixture", createdAt: 1, archivedAt: 10, deletedAt: null };
-  let rows = [owner, ...Array.from({ length: 101 }, (_, n) => ({ ...owner, id: `thr_fixture_${n}`, title: "Other", archivedAt: null })), { ...owner, id: "thr_next", createdAt: 11, archivedAt: null }, { ...owner, id: "thr_collision", createdAt: 12, archivedAt: null }];
-  if (reason === "hidden") rows = [owner, { ...owner, id: "thr_next", createdAt: 11, archivedAt: null, visibility: "hidden" } as typeof owner];
+  let rows: ReminderThreadRow[] = [owner, ...Array.from({ length: 101 }, (_, n) => ({ ...owner, id: `thr_fixture_${n}`, title: "Other", archivedAt: null })), { ...owner, id: "thr_next", createdAt: 11, archivedAt: null }, { ...owner, id: "thr_collision", createdAt: 12, archivedAt: null }];
+  if (reason === "hidden") rows = [owner, { ...owner, id: "thr_next", createdAt: 11, archivedAt: null, visibility: "hidden" }];
   if (reason === "oversize") rows = Array.from({ length: 1001 }, (_, n) => ({ ...owner, id: `thr_fixture_${n}` }));
   const list = vi.fn(async (args: { offset?: number; limit?: number }) => args.limit ? rows.slice(args.offset ?? 0, (args.offset ?? 0) + args.limit) : rows);
   f.harness.sdk.stub("threads.list", list);
