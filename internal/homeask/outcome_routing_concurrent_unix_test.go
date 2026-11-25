@@ -17,9 +17,10 @@ import (
 func TestOutcomeConcurrentHeldReleasesRouteOnce(t *testing.T) {
 	bb, f, req, card := heldOutcomeWithInterruptedRouting(t)
 	lockPath := filepath.Join(f.StateDir, "delivery-"+req.Key+".lock")
-	// With the per-key delivery lock removed, the shared Request lock still
-	// serializes routing. Only the handshake observes the lock-order change.
-	// The assertions below guard the delivery outcome.
+	// Removing the per-key delivery lock changes the order seen by the handshake.
+	// If the handshake permits that order, the empty-second-result check catches
+	// the duplicate replay in cards[1]. Keep both checks: the shared Request lock
+	// can still leave one routing comment and one delivery record.
 	cards := runOverlappingHeldReleases(t, f, req.Key, req.Key, lockPath)
 	if !cards[0].Replay || cards[0].ID != card.ID || cards[1].ID != "" {
 		t.Fatalf("expected exactly one replay of the existing card, got %+v", cards)
@@ -273,7 +274,7 @@ func runOverlappingHeldReleases(t *testing.T, f *CardFiler, firstKey, secondKey,
 		select {
 		case result, ok := <-done:
 			if !ok {
-				t.Fatalf("release %d did not finish before %v", i+1, ctx.Err())
+				t.Fatalf("release %d closed its result channel without sending a result", i+1)
 			}
 			if result.err != nil {
 				t.Fatalf("release %d: %v", i+1, result.err)
