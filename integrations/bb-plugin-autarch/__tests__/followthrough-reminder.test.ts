@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { ReminderConsumer, reminderActionId, reminderDataDir, parseReminderRequest, type ReminderPick, type ReminderSources } from "../followthrough-reminder.js";
+import { ReminderConsumer, reminderActionId, reminderDataDir, parseReminderRequest, resetFailedGateReleasesForTest, type ReminderPick, type ReminderSources } from "../followthrough-reminder.js";
 import { FakeSdk } from "./wakes-helpers.js";
 const unlinkHook = vi.hoisted(() => ({ before: undefined as (() => void) | undefined }));
 const renameHook = vi.hoisted(() => ({ before: undefined as ((from: string, to: string) => void) | undefined }));
@@ -32,7 +32,11 @@ beforeEach(() => {
   mkdirSync(join(dir, "plugins/autarch"), { recursive: true, mode: 0o755 });
   consumer = open();
 });
-afterEach(() => { consumer.close(); rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => {
+  resetFailedGateReleasesForTest();
+  consumer.close();
+  rmSync(dir, { recursive: true, force: true });
+});
 it.each([{}, { experimental_dataDir: "" }, { get experimental_dataDir() { throw Error("missing"); } }, { experimental_dataDir: "relative" }])("missing/empty/throwing/relative data directory is report mode", host => {
   expect(reminderDataDir({ server: host })).toBeNull(); expect(sdk.sent).toEqual([]);
 });

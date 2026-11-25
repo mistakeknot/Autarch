@@ -20,6 +20,12 @@ const failedGateKey = Symbol.for("autarch.followthrough.failed-takeover-releases
 const processState = globalThis as typeof globalThis & { [key: symbol]: Map<string, string> | undefined };
 const heldLocks = processState[holderKey] ??= new Map<string, string>();
 const failedGateReleases = processState[failedGateKey] ??= new Map<string, string>();
+
+/** Clear failed takeover releases between tests, including after an assertion fails. */
+export function resetFailedGateReleasesForTest(): void {
+  failedGateReleases.clear();
+}
+
 class LockRefusal extends Error {
   constructor(readonly state: string) { super(state); }
 }
