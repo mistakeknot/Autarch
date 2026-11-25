@@ -398,6 +398,17 @@ func (r CardRequest) Description() (desc, ident string, err error) {
 	if perr != nil {
 		return "", "", fmt.Errorf("%w: the ask does not read back as a card: %v", ErrInvalid, perr)
 	}
+	// The reader accepts follow-through metadata before the filer can author it.
+	if _, present := c.Ask["review_by"]; present {
+		return "", "", fmt.Errorf("%w: review_by is not writable yet", ErrInvalid)
+	}
+	options, _ := c.Ask["options"].([]any)
+	for _, raw := range options {
+		option, _ := raw.(map[string]any)
+		if _, present := option["expected_outcome"]; present {
+			return "", "", fmt.Errorf("%w: expected_outcome is not writable yet", ErrInvalid)
+		}
+	}
 	want := dedupe(r.Blocks)
 	got := make([]string, len(c.Blocks))
 	for i, br := range c.Blocks {

@@ -12,7 +12,7 @@ func exactCardNestedKeys(ask map[string]any) error {
 		if !ok {
 			continue
 		} // ToV1 checks value types.
-		if err := acExactKeys(option, []string{"id", "label", "kind", "reversible", "instruction", "approval", "on_pick"}, "option"); err != nil {
+		if err := acExactKeys(option, []string{"id", "label", "kind", "reversible", "instruction", "approval", "on_pick", "expected_outcome"}, "option"); err != nil {
 			return err
 		}
 		if _, participating := option["on_pick"]; participating {

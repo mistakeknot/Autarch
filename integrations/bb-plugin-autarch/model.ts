@@ -23,6 +23,19 @@ export interface Approval {
   ttl?: number;
 }
 
+type OutcomeDeadline = { at: string } | { after_seconds: number };
+type OutcomePR = { repo: string; number: number };
+type VersionedOutcome = { schema: 1; by_when: OutcomeDeadline } & (
+  | { kind: "merge"; target: { prs: (OutcomePR & { head: string })[] } }
+  | { kind: "close"; target: { prs: OutcomePR[] } }
+  | { kind: "bead-closed"; target: { tracker: string; bead: string } }
+  | { kind: "home-report-ok"; target: { path: string; sha256: string } }
+  | { kind: "file-exists"; target: { path: string; sha256?: string } }
+  | { kind: "re-ask-by-date"; target: { ask_key: string } }
+);
+
+export type ExpectedOutcome = VersionedOutcome | { kind: "merge" | "close"; prs: string[] };
+
 export interface AskOption {
   id?: string;
   label: string;
@@ -31,6 +44,7 @@ export interface AskOption {
   instruction?: string;
   approval?: Approval;
   on_pick?: OnPick;
+  expected_outcome?: ExpectedOutcome;
 }
 
 /** One option of a sub-question: a label and an optional one-line detail shown under it. */
@@ -79,6 +93,7 @@ export interface Ask {
   // A filing or update changing only evidence is a no-op, like Urgency.
   evidence?: Evidence[];
   group?: MergeGroup;
+  review_by?: string;
 }
 
 const MAX_INSTRUCTION = 8000;
@@ -166,6 +181,103 @@ function str(o: Record<string, unknown>, k: string): string {
   return v as string;
 }
 
+const CARD_INSTANT = /^([0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9])(?:\.([0-9]{1,9}))?(Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$(?![\s\S])/;
+const OUTCOME_ID = /^[A-Za-z0-9][A-Za-z0-9:_.-]{0,127}$(?![\s\S])/;
+const OUTCOME_REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$(?![\s\S])/;
+const OUTCOME_PR_URL = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/[1-9][0-9]{0,8}$(?![\s\S])/;
+const OUTCOME_HEAD = /^[0-9a-f]{40}$(?![\s\S])/;
+const OUTCOME_SHA = /^[0-9a-f]{64}$(?![\s\S])/;
+const OUTCOME_CONTROL = /[\u0000-\u001f\u007f]/u;
+
+function canonicalCardInstant(value: unknown): string {
+  const match = typeof value === "string" && CARD_INSTANT.exec(value);
+  if (!match || match[1]!.startsWith("0000")) return fail("expected an offset-bearing RFC 3339 timestamp");
+  const [, local, fraction, zone] = match;
+  // Compare the local calendar before applying the offset, and preserve sub-millisecond precision.
+  if (new Date(local + "Z").toISOString().slice(0, 19) !== local) return fail("invalid calendar date");
+  const utc = new Date(local + zone).toISOString();
+  if (utc.length !== 24 || utc.startsWith("0000")) return fail("invalid UTC year");
+  const digits = fraction?.replace(/0+$/, "");
+  return utc.slice(0, 19) + (digits ? "." + digits : "") + "Z";
+}
+
+const positiveOutcomeInt = (value: unknown, max: number): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= max;
+const outcomeId = (value: unknown): value is string => typeof value === "string" && OUTCOME_ID.test(value);
+const outcomeRepo = (value: unknown): value is string =>
+  typeof value === "string" && OUTCOME_REPO.test(value) && value.split("/").every(part => part !== "." && part !== "..");
+
+function outcomePRList(input: unknown): unknown[] {
+  if (!Array.isArray(input) || input.length === 0 || input.length > 32) return fail("prs must contain 1-32 pull requests");
+  return input;
+}
+
+function parseExpectedOutcome(input: unknown): ExpectedOutcome {
+  const spec = obj(input, "expected_outcome");
+  const kind = spec.kind;
+  if (!Object.hasOwn(spec, "schema")) {
+    known(spec, ["kind", "prs"], "historical expected_outcome");
+    if (kind !== "merge" && kind !== "close") return fail("historical outcome requires merge or close");
+    const prs = outcomePRList(spec.prs).map(raw => {
+      const match = typeof raw === "string" && OUTCOME_PR_URL.exec(raw);
+      if (!match || !outcomeRepo(match[1])) return fail("historical prs must contain canonical GitHub PR URLs");
+      return match[0];
+    });
+    return { kind, prs };
+  }
+  known(spec, ["schema", "kind", "target", "by_when"], "expected_outcome");
+  if (spec.schema !== 1) return fail("unsupported expected_outcome schema");
+  const due = obj(spec.by_when, "by_when");
+  if (Object.keys(due).length !== 1) return fail("by_when requires exactly one of at or after_seconds");
+  let by_when: OutcomeDeadline;
+  if (Object.hasOwn(due, "at")) by_when = { at: canonicalCardInstant(due.at) };
+  else if (positiveOutcomeInt(due.after_seconds, Number.MAX_SAFE_INTEGER)) by_when = { after_seconds: due.after_seconds };
+  else return fail("after_seconds must be a positive safe integer");
+
+  const target = obj(spec.target, "expected_outcome target");
+  const base = { schema: 1 as const, by_when };
+  switch (kind) {
+    case "merge":
+    case "close": {
+      known(target, ["prs"], "target");
+      const prs = outcomePRList(target.prs).map(value => {
+        const pr = obj(value, "PR target");
+        known(pr, kind === "merge" ? ["repo", "number", "head"] : ["repo", "number"], "PR target");
+        if (!outcomeRepo(pr.repo) || !positiveOutcomeInt(pr.number, 999999999)) return fail("PR target requires a repository and positive PR number");
+        return { repo: pr.repo, number: pr.number, head: pr.head };
+      });
+      if (kind === "merge") return { ...base, kind, target: { prs: prs.map(pr => {
+        if (typeof pr.head !== "string" || !OUTCOME_HEAD.test(pr.head)) return fail("merge target requires a full lowercase PR head");
+        return { repo: pr.repo, number: pr.number, head: pr.head };
+      }) } };
+      return { ...base, kind, target: { prs: prs.map(({ repo, number }) => ({ repo, number })) } };
+    }
+    case "bead-closed":
+      known(target, ["tracker", "bead"], "target");
+      if (!outcomeId(target.tracker) || !outcomeId(target.bead)) return fail("bead target requires tracker and bead identifiers");
+      return { ...base, kind, target: { tracker: target.tracker, bead: target.bead } };
+    case "home-report-ok":
+    case "file-exists": {
+      known(target, ["path", "sha256"], "target");
+      const { path, sha256 } = target;
+      if (typeof path !== "string" || !path.isWellFormed() || path.normalize("NFC") !== path || new TextEncoder().encode(path).length > 4096 ||
+          !path.startsWith("/") || path.includes("\\") || OUTCOME_CONTROL.test(path) ||
+          path.slice(1).split("/").some(part => part === "" || part === "." || part === "..")) {
+        return fail("target requires a canonical absolute path");
+      }
+      if (kind === "file-exists" && !Object.hasOwn(target, "sha256")) return { ...base, kind, target: { path } };
+      if (typeof sha256 !== "string" || !OUTCOME_SHA.test(sha256)) return fail("target requires a full lowercase sha256");
+      return { ...base, kind, target: { path, sha256 } };
+    }
+    case "re-ask-by-date":
+      known(target, ["ask_key"], "target");
+      if (!outcomeId(target.ask_key)) return fail("re-ask target requires an ask_key identifier");
+      return { ...base, kind, target: { ask_key: target.ask_key } };
+    default:
+      return fail("unknown expected_outcome kind");
+  }
+}
+
 /** Strictly decodes a parsed JSON request (unknown fields are refused) and returns it normalized. */
 export function parseAsk(input: unknown): Ask { return parseAskValue(input, true); }
 
@@ -176,10 +288,11 @@ export function parseStoredCardAsk(input: unknown): Ask { return parseAskValue(i
 
 function parseAskValue(input: unknown, requireStopped: boolean, cardSource = false): Ask {
   const o = obj(input, "ask");
-  known(o, TOP_FIELDS, "ask");
+  known(o, cardSource ? [...TOP_FIELDS, "review_by"] : TOP_FIELDS, "ask");
   const a: Record<string, unknown> = {};
   if (o.evidence !== undefined) a.evidence = validateEvidence(o.evidence);
   if (o.group !== undefined) a.group = validateGroup(o.group);
+  if (Object.hasOwn(o, "review_by")) a.review_by = canonicalCardInstant(o.review_by);
   if (o.v !== undefined && o.v !== null) {
     if (typeof o.v !== "number") fail("invalid ask: v must be a number");
     a.v = o.v;
@@ -189,7 +302,7 @@ function parseAskValue(input: unknown, requireStopped: boolean, cardSource = fal
     if (!Array.isArray(o.options)) fail("invalid ask: options must be an array");
     a.options = (o.options as unknown[]).map((raw) => {
       const p = obj(raw, "option");
-      known(p, cardSource ? [...OPTION_FIELDS, "on_pick"] : OPTION_FIELDS, "option");
+      known(p, cardSource ? [...OPTION_FIELDS, "on_pick", "expected_outcome"] : OPTION_FIELDS, "option");
       const opt: Record<string, unknown> = { id: str(p, "id"), label: str(p, "label"), kind: str(p, "kind"), instruction: str(p, "instruction") };
       if (p.reversible !== undefined && p.reversible !== null) {
         if (typeof p.reversible !== "boolean") fail("invalid ask: reversible must be a boolean");
@@ -205,6 +318,7 @@ function parseAskValue(input: unknown, requireStopped: boolean, cardSource = fal
         }
         opt.approval = ap;
       }
+      if (Object.hasOwn(p, "expected_outcome")) opt.expected_outcome = parseExpectedOutcome(p.expected_outcome);
       if (Object.hasOwn(p, "on_pick")) {
         if (o.kind !== "decide" || o.asker !== "thread" || o.questions) fail("on_pick requires a thread card decision");
         opt.on_pick = parseOnPick(p.on_pick, p as unknown as AskOption, { source: "card" });
@@ -329,6 +443,7 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
         kind: (o.kind ?? "") as OptionKind,
         instruction: clean("instruction", o.instruction ?? ""),
       };
+      if (o.expected_outcome !== undefined) opt.expected_outcome = parseExpectedOutcome(o.expected_outcome);
       if (o.on_pick !== undefined) opt.on_pick = parseOnPick(o.on_pick, o, { source: "card" });
       if (o.reversible) opt.reversible = true;
       if (o.approval) {
@@ -440,6 +555,7 @@ function normalize(input: Ask): { ask?: Ask; problems: Problem[] } {
   }
   if (input.evidence !== undefined) out.evidence = validateEvidence(input.evidence);
   if (input.group !== undefined) out.group = validateGroup(input.group);
+  if (input.review_by !== undefined) out.review_by = canonicalCardInstant(input.review_by);
   if (out.request_id === "") out.request_id = identityOf(out);
   return { ask: out, problems: ps };
 }
@@ -583,6 +699,7 @@ const sha = (v: Node) => createHash("sha256").update(canon(v)).digest("hex");
 function optionNode(o: AskOption): Node {
   const n: { [k: string]: Node } = { id: o.id, label: o.label, kind: o.kind, instruction: o.instruction, reversible: o.reversible ?? false };
   if (o.approval) n.approval = { kind: o.approval.kind, target: o.approval.target, identity: o.approval.identity, ttl: o.approval.ttl ?? 0 };
+  if (o.expected_outcome) n.expected_outcome = o.expected_outcome;
   if (o.on_pick) n.on_pick = JSON.parse(JSON.stringify(o.on_pick));
   return n;
 }
@@ -597,6 +714,7 @@ function bodyNode(a: Ask): { [k: string]: Node } {
   return {
     v: a.v,
     kind: a.kind,
+    ...(a.review_by === undefined ? {} : { review_by: a.review_by }),
     ask_key: a.ask_key,
     subject: a.subject,
     question: a.question,
@@ -640,6 +758,7 @@ export function revision(a: Ask): string {
   return sha({
     scope: scopeNode(n),
     kind: n.kind,
+    ...(n.review_by === undefined ? {} : { review_by: n.review_by }),
     question: n.question,
     options: optionsNode(n.options),
     questions: questionsNode(n.questions),

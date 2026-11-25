@@ -79,7 +79,7 @@ const (
 
 var (
 	v2Allowed = map[string]bool{"schema": true, "project": true, "project_root": true, "question": true,
-		"options": true, "questions": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true, "urgency": true, "stopped": true, "evidence": true, "group": true, subjectKeyMetadata: true, signalsMetadata: true}
+		"options": true, "questions": true, "ask_key": true, "subject": true, "recommendation": true, "pull": true, "auto_close": true, "urgency": true, "stopped": true, "evidence": true, "group": true, "review_by": true, subjectKeyMetadata: true, signalsMetadata: true}
 	v1Only = map[string]bool{"v": true, "kind": true, "thread": true, "asker": true, "request_id": true,
 		"supersedes": true, "mention_of": true, "steps": true, "machine": true}
 	countedKinds = map[string]bool{"bead": true, "thread": true, "project": true}
@@ -300,8 +300,10 @@ func parseWireAsk(body string, c *Card) error {
 	if options, ok := m["options"].([]any); ok {
 		for _, raw := range options {
 			if option, ok := raw.(map[string]any); ok {
-				if _, present := option["on_pick"]; present && !scalarJSON([]byte(body)) {
-					return errors.New("on_pick: invalid Unicode scalar text")
+				for _, key := range []string{"on_pick", "expected_outcome"} {
+					if _, present := option[key]; present && !scalarJSON([]byte(body)) {
+						return fmt.Errorf("%s: invalid Unicode scalar text", key)
+					}
 				}
 			}
 		}
