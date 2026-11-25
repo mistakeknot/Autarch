@@ -26,6 +26,6 @@ it("ordinary wake and notice fixtures retain byte-identical vizier fallback", as
   const vizier = vi.fn(async () => ({ ok: true as const, id: "thr_vizier", via: "stored" as const }));
   const fixtures = [[], [owner, next], [owner, { ...next, createdAt: 1 }], [owner, next, { ...next, id: "thr_other" }]];
   const results = [];
-  for (const rows of fixtures) results.push(await resolveWakeTarget("thr_fixture", async () => rows, vizier));
+  for (const rows of fixtures) results.push(await resolveWakeTarget("thr_fixture", async () => rows.map(r => ({ ...r, pinnedAt: null })), vizier));
   expect(JSON.stringify(results)).toBe('["thr_vizier","thr_next","thr_next","thr_vizier"]');
 });

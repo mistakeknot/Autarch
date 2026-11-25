@@ -348,7 +348,7 @@ it("reminder readback keeps immutable generation, option and original wake owner
 });
 it.each(["pick-relay", "pick-receipt"])("reminder refuses frozen %s rows", kind => {
   const { store } = fixture(false, false);
-  store.db.prepare("UPDATE obligations SET kind = ?, recipient = 'thr_frozen' WHERE id = 'ordinary'").run(kind);
+  store.db.prepare("UPDATE obligations SET kind = ?, recipient = 'thr_frozen', next_try_at = '9999-12-31T23:59:59.999Z', allow_reroute = 0, allow_batch = 0, require_message_id = 1 WHERE id = 'ordinary'").run(kind);
   expect(readReminderPick(store, "original-pick")?.protected).toBe(true);
 });
 it("reminder readback rejects moved audit generation and withdrawal", () => {
@@ -357,3 +357,38 @@ it("reminder readback rejects moved audit generation and withdrawal", () => {
   expect(readReminderPick(store, "original-pick")?.eligible).toBe(false);
 });
 it("reminder readback does not guess missing picks", () => { const { store } = fixture(false, false); expect(readReminderPick(store, "missing")).toBeNull(); });
+
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { ReminderConsumer, reminderActionId } from "../followthrough-reminder.js";
+import { WakeLoop } from "../wakes.js";
+it("reminder failure creates zero Home rows and legacy stranded reroute cannot send it", async () => {
+  const { store, svc, db } = fixture(false, false);
+  db.prepare("UPDATE obligations SET state = 'done', attempt = 1 WHERE id = 'ordinary'").run();
+  db.prepare("INSERT INTO attempts(obligation_id,n,state,evidence,at) VALUES ('ordinary',1,'delivered','event_fixture','2026-01-01T00:00:01Z')").run();
+  const before = db.prepare("SELECT total_changes() AS n").get();
+  const sdk = new FakeSdk(); sdk.fallback = { kind: "throw", err: Object.assign(Error("refused"), { code: "ECONNREFUSED" }) };
+  const dir = mkdtempSync(join(tmpdir(), "reminder-store-fixture-"));
+  const consumer = new ReminderConsumer(dir, { readPick: id => readReminderPick(store, id), listThreads: async () => [{ id: "asker", title: "Worker", projectId: "proj_fixture", createdAt: 1, archivedAt: null, deletedAt: null }], sdk, now: () => Date.parse("2026-01-02T18:00:00Z") });
+  try {
+    const request = { version: 1, pick_id: "original-pick", generation: 1, revision: "rev-1", pacific_date: "2026-01-02", expires_at: "2026-01-02T19:00:00Z", reason: "overdue-outcome" };
+    writeFileSync(join(dir, "plugins/autarch/followthrough/requests", `${reminderActionId(request)}.json`), JSON.stringify(request), { mode: 0o600 });
+    await consumer.tick(); await consumer.tick();
+    expect(sdk.sent).toHaveLength(1); expect(db.prepare("SELECT total_changes() AS n").get()).toEqual(before);
+    const route = vi.fn(async () => "thr_vizier"); const legacy = new WakeLoop(svc, sdk, route);
+    await legacy.drain(); expect(route).not.toHaveBeenCalled(); expect(sdk.sent).toHaveLength(1);
+  } finally { consumer.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+it("cancelled original queue is positive nondelivery but no permission to remind a live owner", () => {
+  const { store, db } = fixture(false, false);
+  db.prepare("UPDATE obligations SET state = 'undeliverable', attempt = 1 WHERE id = 'ordinary'").run();
+  db.prepare("INSERT INTO attempts(obligation_id,n,state,handle,at) VALUES ('ordinary',1,'not-delivered','queue_fixture','2026-01-01T00:00:01Z')").run();
+  store.recordQueueEvent("queue_fixture", "cancelled");
+  expect(readReminderPick(store, "original-pick")).toMatchObject({ cancelled: true, delivery: "none-confirmed" });
+});
+it("original wake owner stays the asker when a separate machine owner exists", () => {
+  const { store, db } = fixture(false, false);
+  db.prepare("UPDATE decisions SET owner_thread = 'thr_machine' WHERE id = 'original'").run();
+  expect(readReminderPick(store, "original-pick")?.owner).toBe("asker");
+});
