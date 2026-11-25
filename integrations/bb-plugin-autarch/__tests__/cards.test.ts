@@ -83,18 +83,22 @@ describe("askingThread vectors (shared with Go)", () => {
   it("has the expected volume", () => expect(n).toBeGreaterThanOrEqual(6));
 });
 
-const outcomes: { name: string; wire: Record<string, unknown>; canonical?: string; error?: boolean }[] =
+const outcomes: { name: string; wire?: Record<string, unknown>; stored?: Record<string, unknown>; canonical?: string; error?: boolean }[] =
   JSON.parse(readFileSync(new URL("../../../testdata/expected-outcome-vectors.json", import.meta.url), "utf8"));
 const outcomeCard = (wire: Record<string, unknown>) =>
   parseCard("Proceed?\nBlocks: thread:thr_fixture\nRequest: fixture sha256:0123456789abcdef\n```home-ask\n" + JSON.stringify(wire) + "\n```");
 
 describe("expected outcomes (shared with Go)", () => {
   for (const row of outcomes) it(row.name, () => {
-    if (row.error) {
-      expect(() => outcomeCard(row.wire)).toThrow();
+    if (row.stored) {
+      expect(readStoredAsk(JSON.stringify(row.stored), "card")).toBeNull();
       return;
     }
-    const body = normalizedJson(toV1(outcomeCard(row.wire), "thr_fixture"));
+    if (row.error) {
+      expect(() => outcomeCard(row.wire!)).toThrow();
+      return;
+    }
+    const body = normalizedJson(toV1(outcomeCard(row.wire!), "thr_fixture"));
     expect(body).toBe(row.canonical);
     expect(normalizedJson(readStoredAsk(body, "card")!)).toBe(body);
     if (row.name !== "absent") expect(readStoredAsk(body, "home")).toBeNull();
@@ -114,7 +118,7 @@ describe("expected outcomes (shared with Go)", () => {
       return genInput.call({}, { id: "fixture", projectId: project } as Parameters<typeof genInput>[0], card, thread, fingerprint, generation, supersedes,
         { project_root: "/fixture", root_dev: "1", root_ino: "2", root_fsid: null });
     };
-    const gen1 = snapshot(original.wire, 1, null);
+    const gen1 = snapshot(original.wire!, 1, null);
     const gen2 = snapshot(amended, 2, gen1.id);
     expect(gen2.supersedes).toBe(gen1.id);
     expect(gen2.revision).not.toBe(gen1.revision);
