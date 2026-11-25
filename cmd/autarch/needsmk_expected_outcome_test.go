@@ -102,7 +102,7 @@ func TestNeedsMkExpectedOutcomeAuthoring(t *testing.T) {
 
 func TestNeedsMkOutcomeAskKeyRetryWithoutReader(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thr_fixture")
-	s := &stubBB{expectedOutcomeCapability: `{"schema":1,"expected_outcome":[1]}`}
+	s := &stubBB{title: "Fixture", expectedOutcomeCapability: `{"schema":1,"expected_outcome":[1]}`}
 	input := `{"project":"example","project_root":"/fixture","ask_key":"fixture-choice","question":"Proceed?","review_by":"2026-01-01T00:00:00Z","options":[{"id":"yes","label":"Proceed"},{"id":"no","label":"Wait"}]}`
 	file := func(input string) error {
 		_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Fixture", "--ask-file", writeAskBody(t, input))

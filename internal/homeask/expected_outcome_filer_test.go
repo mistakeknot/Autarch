@@ -20,6 +20,10 @@ func outcomeFilingFixture(t *testing.T) (*memBB, *CardFiler, CardRequest, *BBRes
 		if strings.Join(args, " ") == "home capabilities --json" {
 			return &capability
 		}
+		if len(args) >= 4 && strings.Join(args[:3], " ") == "home get --card" {
+			result := okRes(CardView{TaskID: args[3], ProjectID: "P1", State: "open"})
+			return &result
+		}
 		return nil
 	}
 	req := CardRequest{Project: "P1", Title: "Fixture", Key: "fixture", Thread: "thr_fixture", Ask: map[string]any{

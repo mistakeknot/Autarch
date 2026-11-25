@@ -13,14 +13,6 @@ import (
 func TestOutcomeAskKeyRetryWithoutReader(t *testing.T) {
 	ctx := context.Background()
 	bb, f, req, capability := outcomeFilingFixture(t)
-	read := bb.fail
-	bb.fail = func(args []string) *BBResult {
-		if len(args) >= 4 && strings.Join(args[:3], " ") == "home get --card" {
-			result := okRes(CardView{TaskID: args[3], ProjectID: "P1", State: "open"})
-			return &result
-		}
-		return read(args)
-	}
 	req.Ask["ask_key"] = "fixture-choice"
 	req.Ask["review_by"] = "2026-01-01T00:00:00Z"
 	if _, err := f.FileOrUpdateCard(ctx, req, ""); err != nil {
