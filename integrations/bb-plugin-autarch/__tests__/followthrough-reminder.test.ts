@@ -171,3 +171,7 @@ it("cancelled wake with affirmative nondelivery can reach a proven successor aft
   consumer = new ReminderConsumer(dir, { readPick: () => pick, listThreads: async () => [{ ...rows()[0]!, archivedAt: 10 }, { ...rows()[0]!, id: "thr_next", createdAt: 11 }], sdk, now: () => now });
   publish({ ...request(), reason: "confirmed-nondelivery" }); await consumer.tick(); expect(sdk.sent.map(s => s.threadId)).toEqual(["thr_next"]);
 });
+it("fresh readiness is signaled only for a locked safe spool", async () => {
+  await consumer.tick(); expect(JSON.parse(readFileSync(join(paths(), "readiness.json"), "utf8"))).toEqual({ version: 1, uid: process.getuid!(), ready_at: new Date(now).toISOString(), expires_at: new Date(now + 45000).toISOString() });
+  expect(sdk.sent).toEqual([]);
+});
