@@ -281,6 +281,32 @@ it("logs an unsuccessful gate release and recovers that exact gate on the next r
   await consumer.tick();
   expect(sdk.sent).toHaveLength(1);
 });
+it("refuses a live same-PID takeover gate with a token other than the recorded release failure", () => {
+  const stale = JSON.stringify({ pid: 2147483647, token: "fixture" });
+  abandonedLock(stale);
+  renameHook.before = from => {
+    if (from.endsWith("/.consumer-takeover")) throw Error("fixture rename failure");
+  };
+  try {
+    consumer = open();
+    expect(consumer.state).toBe("takeover-gate-release-failed");
+  } finally {
+    renameHook.before = undefined;
+  }
+
+  const ownerPath = join(paths(), ".consumer-takeover", "owner.json");
+  const failedOwner = JSON.parse(readFileSync(ownerPath, "utf8"));
+  expect(failedOwner.pid).toBe(process.pid);
+  const liveOwner = { ...failedOwner, token: "fixture-other" };
+  expect(liveOwner.token).not.toBe(failedOwner.token);
+  writeFileSync(ownerPath, JSON.stringify(liveOwner), { mode: 0o600 });
+  abandonedLock(stale);
+  consumer = open();
+  expect(consumer.state).toBe("lock-contended");
+  expect(consumer.active).toBe(false);
+  expect(JSON.parse(readFileSync(ownerPath, "utf8"))).toEqual(liveOwner);
+  expect(readFileSync(join(paths(), "consumer.lock"), "utf8")).toBe(stale);
+});
 
 const oldTakeoverAge = 86400001;
 const takeoverStage = ".consumer-takeover-00000000-0000-4000-8000-000000000000";
@@ -427,6 +453,22 @@ it("a send accepted before Pacific midnight keeps that date when its reply cross
   const second = publish(request("2026-11-26")); await consumer.tick();
   expect(send).toHaveBeenCalledTimes(2);
   expect(result(second).status).toBe("accepted");
+});
+it.each(["missing createdAt", "acceptedEvents throws"])("a send reply crossing Pacific midnight uses the return date when %s", async evidence => {
+  now = Date.parse("2026-11-26T07:59:59Z");
+  const events = vi.spyOn(sdk, "acceptedEvents");
+  if (evidence === "acceptedEvents throws") events.mockRejectedValueOnce(Error("fixture event history unavailable"));
+  const send = sdk.send.bind(sdk);
+  vi.spyOn(sdk, "send").mockImplementationOnce(async args => {
+    const sent = await send(args);
+    now += 2000;
+    return sent;
+  });
+  const id = publish();
+  await consumer.tick();
+  expect(events).toHaveBeenCalledWith("thr_fixture");
+  expect(sdk.accepted[0]).not.toHaveProperty("createdAt");
+  expect(result(id)).toMatchObject({ status: "accepted", resolved_date: "2026-11-26" });
 });
 it("deliberate reminder cancellation never becomes permission to re-nag", async () => {
   sdk.fallback = { kind: "queue" }; publish(); await consumer.tick(); sdk.cancel("q1");

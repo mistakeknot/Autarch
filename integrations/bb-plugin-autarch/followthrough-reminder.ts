@@ -8,7 +8,9 @@ import type { WakeSdk } from "./wakes.js";
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 // Design choice: allow an interrupted exclusive lock creation 60 seconds to finish.
 const LOCK_INIT_GRACE_MS = 60_000;
-// Keep takeover leftovers for at least a day before considering cleanup.
+// Measure the cleanup age from the directory mtime set when owner.json was
+// written. Retirement preserves that time. The stage-directory guard protects
+// tombstones a delayed contender could still need.
 const TAKEOVER_CLEANUP_AGE_MS = 86_400_000;
 const TAKEOVER_GATE = ".consumer-takeover";
 const TAKEOVER_STAGE = /^\.consumer-takeover-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -202,6 +204,10 @@ export class ReminderConsumer {
     return owner.pid === process.pid && failedGateReleases.get(this.lockKey) === owner.token;
   }
   private readTakeoverGate(): { fd: number; owner: TakeoverOwner } | null {
+    // Fail closed on a damaged gate even if consumer.lock is absent. Stop all
+    // consumers using the spool and verify no takeover is running, then remove
+    // only <dataDir>/plugins/autarch/followthrough/.consumer-takeover while they
+    // remain stopped. Restart the consumers after clearing that entry.
     let fd: number;
     try { fd = this.openDirectory(this.root, TAKEOVER_GATE); }
     catch (e) {
