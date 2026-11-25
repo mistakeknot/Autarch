@@ -135,12 +135,14 @@ type RootRunSpec = RootRun
 
 // CardRequest is one filing.
 type CardRequest struct {
-	Cujgel       *CujgelLink            // optional cujgel/v1 metadata; never a supplied URL or path
-	Secret       map[string]any         // metadata only, validated before any task write
-	replayEntry  *filingEntry           // internal verified replay target
-	replacesHeld string                 // internal escalation source, never part of the wire or saved JSON
-	beforeCreate func(string) error     // record an update falling back to create
-	afterUpdate  func(CardResult) error // persist a successful edit before its ruling read
+	Cujgel          *CujgelLink            // optional cujgel/v1 metadata; never a supplied URL or path
+	Secret          map[string]any         // metadata only, validated before any task write
+	replayEntry     *filingEntry           // internal verified replay target
+	replacesHeld    string                 // internal escalation source, never part of the wire or saved JSON
+	beforeBodyWrite func() error           // authorize an outcome update or its fallback creation
+	beforeCreate    func(string) error     // record an update falling back to create
+	afterUpdate     func(CardResult) error // persist a successful edit before its ruling read
+	SaveEvidence    func() error           `json:"-"` // commit staged evidence if this submission authors an outcome card
 
 	Urgent      bool
 	KeepList    string
@@ -1186,11 +1188,17 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (result CardR
 	}
 	defer unlock()
 
-	if err := f.ensureLabel(ctx, req.Project); err != nil {
-		return CardResult{}, err
+	ensureLabels := func() error {
+		if err := f.ensureLabel(ctx, req.Project); err != nil {
+			return err
+		}
+		if req.Move != nil {
+			return f.ensureLabelNamed(ctx, req.Project, MoveLabel)
+		}
+		return nil
 	}
-	if req.Move != nil {
-		if err := f.ensureLabelNamed(ctx, req.Project, MoveLabel); err != nil {
+	if req.beforeBodyWrite == nil {
+		if err := ensureLabels(); err != nil {
 			return CardResult{}, err
 		}
 	}
@@ -1211,6 +1219,14 @@ func (f *CardFiler) fileCard(ctx context.Context, req CardRequest) (result CardR
 	}
 	if req.Owner != "" {
 		if err := f.checkOwnerLive(ctx, req.Owner); err != nil {
+			return CardResult{}, err
+		}
+	}
+	if req.beforeBodyWrite != nil {
+		if err := req.beforeBodyWrite(); err != nil {
+			return CardResult{}, err
+		}
+		if err := ensureLabels(); err != nil {
 			return CardResult{}, err
 		}
 	}
