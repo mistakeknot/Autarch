@@ -10,6 +10,16 @@ import (
 // Preflight runs the existing wire parser and project checks without submitting.
 // Independent failures are joined so callers can fix them in one pass.
 func (f *CardFiler) Preflight(ctx context.Context, r CardRequest) error {
+	return f.preflight(ctx, r, true)
+}
+
+// PreflightForSubmission leaves the reader check to the delivery path, where
+// the filer can distinguish an unchanged edit from a body write.
+func (f *CardFiler) PreflightForSubmission(ctx context.Context, r CardRequest) error {
+	return f.preflight(ctx, r, false)
+}
+
+func (f *CardFiler) preflight(ctx context.Context, r CardRequest, checkReader bool) error {
 	var failures []error
 	add := func(err error) {
 		if err != nil {
@@ -28,7 +38,9 @@ func (f *CardFiler) Preflight(ctx context.Context, r CardRequest) error {
 	}
 	if !existing {
 		add(f.CheckUI(r))
-		add(f.PreflightExpectedOutcome(ctx, r))
+		if checkReader {
+			add(f.PreflightExpectedOutcome(ctx, r))
+		}
 	}
 	if _, _, err := r.Description(); err != nil {
 		add(fmt.Errorf("%w; fix the named field (option labels allow at most %d characters)", err, maxLabel))

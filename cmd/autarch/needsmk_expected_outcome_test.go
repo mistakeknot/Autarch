@@ -84,19 +84,46 @@ func TestNeedsMkExpectedOutcomeAuthoring(t *testing.T) {
 			if err := json.Unmarshal([]byte(out), &result); err != nil || result.Key != card.Request.Key || result.CardKey != "P1-1" {
 				t.Fatalf("filing receipt: %s (%v)", out, err)
 			}
-			capabilityRead := false
+			capabilityReads := 0
 			for _, call := range runner.calls {
 				if strings.Join(call, " ") == "home capabilities --json" {
-					capabilityRead = true
+					capabilityReads++
 				}
-				if strings.Join(call[:2], " ") == "tasks create" && capabilityRead != (row.Name != "absent") {
+				if strings.Join(call[:2], " ") == "tasks create" && (capabilityReads == 1) != (row.Name != "absent") {
 					t.Fatalf("unexpected capability preflight before creation: %v", runner.calls)
 				}
 			}
-			if row.Name == "absent" && capabilityRead {
-				t.Fatal("plain card unexpectedly checked capabilities")
+			if capabilityReads > 1 || (row.Name == "absent" && capabilityReads != 0) {
+				t.Fatalf("unexpected capability call count: %d", capabilityReads)
 			}
 		})
+	}
+}
+
+func TestNeedsMkOutcomeAskKeyRetryWithoutReader(t *testing.T) {
+	t.Setenv("BB_THREAD_ID", "thr_fixture")
+	s := &stubBB{title: "Fixture", expectedOutcomeCapability: `{"schema":1,"expected_outcome":[1]}`}
+	input := `{"project":"example","project_root":"/fixture","ask_key":"fixture-choice","question":"Proceed?","review_by":"2026-01-01T00:00:00Z","options":[{"id":"yes","label":"Proceed"},{"id":"no","label":"Wait"}]}`
+	file := func(input string) error {
+		_, err := runNeedsMk(t, s, "file", "--project", "P1", "--title", "Fixture", "--ask-file", writeAskBody(t, input))
+		return err
+	}
+	if err := file(input); err != nil {
+		t.Fatal(err)
+	}
+	input = strings.Replace(input, "2026-01-01", "2026-01-02", 1)
+	if err := file(input); err != nil || len(s.updated) != 1 {
+		t.Fatalf("initial edit: %v, writes: %v", err, s.updated)
+	}
+	s.expectedOutcomeCapability = `{"schema":1}`
+	s.calls = nil
+	if err := file(input); err != nil || s.creates != 1 || len(s.updated) != 1 {
+		t.Fatalf("exact retry: %v, calls: %v", err, s.calls)
+	}
+	for _, call := range s.calls {
+		if strings.Join(call, " ") == "home capabilities --json" {
+			t.Fatal("exact retry queried capability")
+		}
 	}
 }
 

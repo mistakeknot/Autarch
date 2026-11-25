@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -323,8 +324,28 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		}
 		lookupUnlock()
 	}
-	if err := f.PreflightExpectedOutcome(ctx, r); err != nil {
+	authorsOutcome, err := prepareOutcomeMetadata(maps.Clone(r.Ask), nil)
+	if err != nil {
 		return CardResult{}, err
+	}
+	outcomeUpdate := authorsOutcome && updateLane
+	// One probe per admission attempt. A redirect or a concurrent queue
+	// change starts a new attempt so it cannot reuse capability evidence.
+	authorize := sync.OnceValue(func() error {
+		if authorsOutcome {
+			if err := f.checkExpectedOutcomeReader(ctx, r.Thread); err != nil {
+				return err
+			}
+		}
+		if r.SaveEvidence != nil {
+			return r.SaveEvidence()
+		}
+		return nil
+	})
+	if !outcomeUpdate || r.NonBlocking || windowHeld || queueChecks {
+		if err := authorize(); err != nil {
+			return CardResult{}, err
+		}
 	}
 	if f.pilot("linkcheck") {
 		if v := f.checkLinks(ctx, r); len(v) > 0 {
@@ -426,6 +447,8 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		return old.heldResult(r.Key, true), nil
 	}
 	retiredHeld := map[string]filingEntry{}
+	admitted := exists
+	var admitUpdate func() error
 	if !exists {
 		for _, key := range retiring {
 			entry := state[key]
@@ -459,13 +482,36 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 			v.FiledAt = f.clock().Format(time.RFC3339Nano)
 			state[r.Key] = v
 		}
-		if err = saveFilingState(path, state); err != nil {
-			return CardResult{}, err
-		}
-		f.pilotEvent(r, "filed", "", "")
-		if held {
-			f.pilotEvent(r, "held", "", reason)
-			return state[r.Key].heldResult(r.Key, false), nil
+		if outcomeUpdate && !held {
+			// Only the edit path knows whether a body will be written. Keep the
+			// delivery locks and merge our entries into fresh state at that point.
+			admitUpdate = func() error {
+				current, path, done, err := f.openState()
+				if err != nil {
+					return err
+				}
+				defer done()
+				current[r.Key] = state[r.Key]
+				for key := range retiredHeld {
+					current[key] = state[key]
+				}
+				if err := saveFilingState(path, current); err != nil {
+					return err
+				}
+				admitted = true
+				f.pilotEvent(r, "filed", "", "")
+				return nil
+			}
+		} else {
+			if err = saveFilingState(path, state); err != nil {
+				return CardResult{}, err
+			}
+			admitted = true
+			f.pilotEvent(r, "filed", "", "")
+			if held {
+				f.pilotEvent(r, "held", "", reason)
+				return state[r.Key].heldResult(r.Key, false), nil
+			}
 		}
 	}
 
@@ -474,6 +520,21 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 	var result CardResult
 	r.beforeCreate = func(key string) error { return f.chargeCreation(r, key) }
 	r.afterUpdate = func(result CardResult) error { return f.recordWrittenEdit(r.Key, result) }
+	writingBody := !outcomeUpdate
+	if outcomeUpdate {
+		r.beforeBodyWrite = func() error {
+			if err := authorize(); err != nil {
+				return err
+			}
+			if !admitted {
+				if err := admitUpdate(); err != nil {
+					return err
+				}
+			}
+			writingBody = true
+			return nil
+		}
+	}
 	if update {
 		result, err = f.fileOrUpdateCard(ctx, r, supersedes)
 	} else {
@@ -481,12 +542,17 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 	}
 	// Even an unchanged existing card answers the retired request. Keep its
 	// immutable registry key so retries follow that card rather than create one.
-	if result.ID != "" && (len(retiredHeld) > 0 || r.replacesHeld != "" || (update && result.Replay && !result.Updated)) && !errors.Is(err, errNoCardWritten) {
+	hasPredecessor := len(retiredHeld) > 0 || r.replacesHeld != ""
+	if outcomeUpdate && !admitted && hasPredecessor && result.ID != "" && err == nil {
+		err = admitUpdate()
+	}
+	unchangedUpdate := update && result.Replay && !result.Updated
+	if admitted && result.ID != "" && (hasPredecessor || (unchangedUpdate && writingBody)) && !errors.Is(err, errNoCardWritten) {
 		if saveErr := f.recordWrittenEdit(r.Key, result); saveErr != nil {
 			err = errors.Join(err, fmt.Errorf("%w: record delivered card: %v", ErrOutcomeUnknown, saveErr))
 		}
 	}
-	if !exists && errors.Is(err, errNoCardWritten) && (errors.Is(err, ErrInvalid) || errors.Is(err, ErrAlreadyRuled)) {
+	if !exists && admitted && errors.Is(err, errNoCardWritten) && (errors.Is(err, ErrInvalid) || errors.Is(err, ErrAlreadyRuled)) {
 		current, p, done, e := f.openState()
 		if e != nil {
 			return result, errors.Join(err, e)
@@ -499,7 +565,9 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		done()
 		err = errors.Join(err, e)
 	}
-	err = errors.Join(err, f.noteDelivery(r.Key, result))
+	if admitted && (writingBody || hasPredecessor) {
+		err = errors.Join(err, f.noteDelivery(r.Key, result))
+	}
 	return result, err
 }
 
@@ -658,7 +726,7 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	}
 	if authorsOutcome {
 		if e.Attempted {
-			// Recover an already-routed card before requiring support for a new write.
+			// Resume delivery of an existing body before checking support for a new one.
 			delivered, err := f.resolveTerminal(ctx, key, nil)
 			if err != nil || delivered.ID != "" {
 				return delivered, r.Type, err
@@ -804,8 +872,8 @@ func (f *CardFiler) CancelHeld(key string) error {
 
 // resolveTerminal completes a known delivery, or retires a proven absent one.
 // Finding the card supersedes a refusal based on stale project or ruling state.
-// A nil reason recovers proven delivery after an uncertain write and leaves an
-// undelivered request held. A terminal error also permits retiring an absent card.
+// A nil reason recovers a proven card, including an interrupted routing step.
+// A terminal error also permits retiring an absent card.
 func (f *CardFiler) resolveTerminal(ctx context.Context, key string, reason error) (CardResult, error) {
 	current, _, done, readErr := f.openState()
 	if readErr != nil {
@@ -824,7 +892,9 @@ func (f *CardFiler) resolveTerminal(ctx context.Context, key string, reason erro
 		return candidate, err
 	}
 	var delivered *found
-	if e.DeliveredCard != "" {
+	// A creation can be recorded before its routing comment is posted.
+	recorded := e.DeliveredCard != "" && (reason != nil || e.CreationKey == "")
+	if recorded {
 		deliveredKey := e.DeliveredKey
 		if deliveredKey == "" {
 			deliveredKey = key
@@ -849,9 +919,34 @@ func (f *CardFiler) resolveTerminal(ctx context.Context, key string, reason erro
 		}
 		delivered = candidate
 	}
-	if reason == nil && (delivered == nil || (!removed && e.DeliveredCard == "" &&
-		!e.Request.Pull && AskingThread(delivered.Comments) != e.Request.routeThread())) {
-		return CardResult{}, nil
+	if reason == nil {
+		if delivered == nil {
+			return CardResult{}, nil
+		}
+		if !removed && !recorded && !e.Request.Pull && AskingThread(delivered.Comments) != e.Request.routeThread() {
+			// Hold the same Request lock as a direct filer and check again. Replay
+			// verifies routing ownership and repairs only a missing agent comment.
+			req := e.Request
+			req.Key = delivered.Req.Key
+			path, err := f.lockPath(req.Key)
+			if err != nil {
+				return CardResult{}, err
+			}
+			unlock, err := lockFile(path)
+			if err != nil {
+				return CardResult{}, err
+			}
+			defer unlock()
+			delivered, err = lookup(req.Key)
+			if err != nil || delivered == nil {
+				return CardResult{}, err
+			}
+			if !removed {
+				if _, err := f.replay(ctx, req, delivered); err != nil {
+					return CardResult{}, err
+				}
+			}
+		}
 	}
 	state, path, unlock, err := f.openState()
 	if err != nil {

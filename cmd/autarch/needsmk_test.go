@@ -28,6 +28,7 @@ type stubBB struct {
 	mu                        sync.Mutex
 	calls                     [][]string
 	desc                      string
+	title                     string
 	envs                      []string
 
 	creates          int  // tasks create calls that wrote a card
@@ -110,7 +111,7 @@ func (s *stubBB) run(_ context.Context, env []string, args ...string) homeask.BB
 		if s.commented {
 			cm = `[{"id":"c1","kind":"agent","threadId":"` + s.thread + `","createdAt":"2026-10-01T00:00:01Z"}]`
 		}
-		return j(`{"task":{"id":"T1","projectId":"P1","createdAt":"2026-10-01T00:00:00Z","description":` + strconv.Quote(s.desc) + `},"comments":` + cm + `}`)
+		return j(`{"task":{"id":"T1","projectId":"P1","createdAt":"2026-10-01T00:00:00Z","title":` + strconv.Quote(s.title) + `,"description":` + strconv.Quote(s.desc) + `},"comments":` + cm + `}`)
 	case "tasks comment T1":
 		if s.failComment {
 			return homeask.BBResult{Err: errors.New("deadline exceeded")}

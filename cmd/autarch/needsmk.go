@@ -507,20 +507,27 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				}
 				req.Key = homeask.DerivedKey(thread, ident)
 			}
-			if err := filer.Preflight(ctx, req); err != nil {
+			preflight := filer.PreflightForSubmission
+			if checkOnly {
+				preflight = filer.Preflight
+			}
+			if err := preflight(ctx, req); err != nil {
 				failures = append(failures, err)
 			}
 			if err := errors.Join(failures...); err != nil {
 				return err
 			}
-			if saveEvidence != nil {
-				if err := saveEvidence(); err != nil {
-					return &usageError{err.Error()}
-				}
-			}
 			if checkOnly {
 				fmt.Fprintln(cmd.OutOrStdout(), `{"checked":true}`)
 				return nil
+			}
+			if saveEvidence != nil {
+				req.SaveEvidence = func() error {
+					if err := saveEvidence(); err != nil {
+						return &usageError{err.Error()}
+					}
+					return nil
+				}
 			}
 			if filer.ReadbackTimeout <= 0 {
 				filer.ReadbackTimeout = readbackTimeout
