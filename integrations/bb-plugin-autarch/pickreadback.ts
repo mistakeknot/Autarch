@@ -188,3 +188,40 @@ function readSnapshot(s: PickReadSources, query: PickActionQuery, routing: (ordi
     optional_metadata_unavailable: ["card_title"],
   };
 }
+
+/** Fresh, read-only ordinary-wake evidence for the reminder adapter. Protected rows
+ * never become reminder work; their frozen targets remain owned by their handler.
+ */
+export function readReminderPick(store: Store, pickId: string): import("./followthrough-reminder.js").ReminderPick | null {
+  try {
+    return store.db.transaction(() => {
+      const pick = store.pickByPickId(pickId);
+      if (!pick) return null;
+      const snapshot = store.pickEvidenceSnapshot(pick.decision_id);
+      if (!snapshot || !snapshot.pick || snapshot.pick.pick_id !== pickId) return null;
+      const d = snapshot.decision;
+      if (d.generation === null) return null;
+      const work = store.obligationsFor(d.id);
+      const protectedRows = work.some(o => o.kind === "pick-relay" || o.kind === "pick-receipt");
+      const wakes = work.filter(o => o.kind === "wake" && o.op === `wake:${d.id}:${pickId}`);
+      const wake = wakes.length === 1 ? wakes[0]! : null;
+      const attempts = wake ? store.attempts(wake.id) : [];
+      const cancelled = attempts.some(a => a.handle && store.queueEvent(a.handle)?.type === "cancelled");
+      const confirmed = attempts.some(a => a.state === "delivered" && !!a.evidence && a.evidence !== "sent" && a.evidence !== a.handle
+        || a.handle && store.queueEvent(a.handle)?.type === "dispatched");
+      const nondelivery = attempts.length > 0 && attempts.every(a => a.state === "not-delivered");
+      const latest = snapshot.generations.at(-1);
+      const card = d.task_id ? store.db.prepare("SELECT state FROM cards WHERE task_id = ?").get(d.task_id) as { state: string } | undefined : undefined;
+      return {
+        pickId, generation: d.generation, revision: pick.revision,
+        // The option identifier is the immutable selection, without copying script-bearing labels or instructions.
+        option: pick.option_id, owner: d.thread,
+        eligible: !!wake && !wake.voided_at && !d.withdrawn_at && !d.resolved_at && !d.superseded_by
+          && d.revision === pick.revision && (!latest || latest.decision_id === d.id)
+          && (!d.task_id || !!card && !["closed", "cancelled", "archived"].includes(card.state)),
+        protected: protectedRows, cancelled,
+        delivery: confirmed ? "confirmed" as const : nondelivery ? "none-confirmed" as const : "unknown" as const,
+      };
+    }).deferred();
+  } catch { return null; }
+}

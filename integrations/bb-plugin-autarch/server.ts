@@ -7,6 +7,9 @@
 // (cli.ts) and the skill in skills/home/SKILL.md that tells agents how to use it. A write
 // publishes a realtime signal so every open page refetches.
 import { resolveWakeTarget as resolveWakeTargetWithReason, type ReportReroute } from "./wake-target.js";
+import { registerReminderService } from "./followthrough-reminder.js";
+import { reminderThreadRow, type ReminderThreadRow } from "./followthrough-target.js";
+import { readReminderPick } from "./pickreadback.js";
 import { postNoteOnce } from "./notepost.js";
 import { wireGovernor } from "./governor-runtime.js";
 import { threadEventLimit } from "./hostLimits.js";
@@ -331,8 +334,10 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       bb.log.warn(`${name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
-  bb.events.on("message.dispatched", ({ entry }) => guard("message.dispatched", () => parts?.loop.onQueueEvent({ type: "dispatched", id: entry.id })));
-  bb.events.on("message.cancelled", ({ entry }) => guard("message.cancelled", () => parts?.loop.onQueueEvent({ type: "cancelled", id: entry.id })));
+  const isReminderEntry = (entry: { content?: readonly { type: string; text?: string }[] }) =>
+    entry.content?.some(block => block.type === "text" && /^\[followthrough [a-f0-9]{64}\] Advisory:/.test(block.text ?? "")) ?? false;
+  bb.events.on("message.dispatched", ({ entry }) => guard("message.dispatched", () => isReminderEntry(entry) ? undefined : parts?.loop.onQueueEvent({ type: "dispatched", id: entry.id })));
+  bb.events.on("message.cancelled", ({ entry }) => guard("message.cancelled", () => isReminderEntry(entry) ? undefined : parts?.loop.onQueueEvent({ type: "cancelled", id: entry.id })));
   bb.events.on("thread.archived", ({ thread }) => guard("thread.archived", () => parts?.loop.onThreadGone(thread.id)));
   bb.events.on("thread.deleted", ({ thread }) => guard("thread.deleted", () => parts?.loop.onThreadGone(thread.id)));
   bb.events.on("turn.failed", (e) => guard("turn.failed", () => parts?.catchup.recordTurnFailed(e.threadId, e.requestId)));
@@ -350,6 +355,18 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       if (parts) await parts.loop.start(signal);
     },
   });
+  registerReminderService(bb, () => parts ? {
+    readPick: id => readReminderPick(parts!.svc.store, id),
+    sdk: deps.sdk ?? sdkAdapter(bb.sdk.threads as unknown as ThreadsLike),
+    now: () => Date.now(),
+    listThreads: async () => {
+      // Reminder-only projection, fresh on every proof; ordinary wake/notice cache stays unchanged.
+      // Omitting BOTH limit and offset is an unpaginated host DB read. The SDK
+      // forwards absent pagination unchanged; no page boundary can drift or skip a collision.
+      const rows = await bb.sdk.threads.list({ includeHidden: false }) as unknown as ReminderThreadRow[];
+      return rows.filter(row => !row.hidden).map(reminderThreadRow);
+    },
+  } : null);
   let queueRef: Queue | null = null;
   let tasksRef: TasksClient | null = null;
   // One desk for the process: its per-key serialisation only works when every RPC shares the same instance.
