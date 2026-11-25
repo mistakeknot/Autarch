@@ -34,6 +34,21 @@ function governorWriteAllowed(use: ReturnType<typeof fsWriteUses>[number], file 
   if (use.api === "appendFile") return a[0] === 'join(cfg.storage_root,id,"inbox.md")';
   return false;
 }
+// Audited reminder writer: only pinned spool descriptors may reach writing opens,
+// renames or unlink. Ancestor descriptors are read-only; only the named spool is created.
+function reminderWriteAllowed(use: ReturnType<typeof fsWriteUses>[number]): boolean {
+  const a = use.args?.map(s => s.replace(/\s/g, "")) ?? [];
+  if (use.api === "openSync") {
+    if (a[1] === "C.O_RDONLY|C.O_DIRECTORY|C.O_NOFOLLOW") return a[0] === '"/"' || a[0] === "this.path(fd,part)" || a[0] === "this.path(parent,name)" || a[0] === 'this.path(pluginDir,"followthrough")' || a[0] === "this.spoolPath(parent,name)";
+    return a[0] === "this.spoolPath(parent,name)" && a[1] === "flags|C.O_NOFOLLOW|C.O_NONBLOCK" && a[2] === "0o600";
+  }
+  if (use.api === "mkdirSync") return ["this.spoolPath(parent,name)", 'this.path(pluginDir,"followthrough")'].includes(a[0]) && a[1] === "{mode:0o700}";
+  if (use.api === "writeSync") return a.join(",") === "fd,bytes,n,bytes.length-n";
+  if (use.api === "fsyncSync") return a.length === 1 && ["fd", "parent"].includes(a[0]);
+  if (use.api === "renameSync") return a[0] === "this.spoolPath(parent,temp)" && a[1] === "this.spoolPath(parent,name)";
+  if (use.api === "unlinkSync") return a[0] === "this.spoolPath(parent,name)";
+  return false;
+}
 const RDONLY_PLUS_FSYNC = new Set(["backup.ts"]);
 // settled.ts reads one coordinator's settled-for-mk.md O_RDONLY | O_NOFOLLOW and writes nothing.
 // docread.ts is the document reader: it opens one allowlisted file O_RDONLY | O_NOFOLLOW and writes nothing.
@@ -50,6 +65,7 @@ describe("fs write scope (plan Task 2.7)", () => {
       const sf = parseFile(f);
       for (const u of [...fsWriteUses(sf, name === "governor-runtime.ts" ? ["disk"] : name === "governor.ts" ? ["fs"] : [], governor), ...atomicJsonUses(sf)]) {
         if (governor && governorWriteAllowed(u, name)) continue;
+        if (name === "followthrough-reminder.ts" && reminderWriteAllowed(u)) continue;
         const okRead = isOpener(u.api) && readOnlyFlags(u.flags);
         if (RDONLY_PLUS_FSYNC.has(name) && (okRead || isFdOnly(u.api))) continue;
         if (RDONLY_ONLY.has(name) && okRead) continue;
@@ -69,6 +85,7 @@ describe("fs write scope (plan Task 2.7)", () => {
     expect(uses("settled.ts")).toEqual(["openSync"]);
     expect(uses("evidencestore.ts")).toEqual(["openSync"]);
     expect(uses("trigger.ts")).toEqual(["openSync"]);
+    expect(uses("followthrough-reminder.ts")).toEqual(expect.arrayContaining(["openSync", "mkdirSync", "writeSync", "renameSync", "unlinkSync", "fsyncSync"]));
     // Pilot configuration is shared with the filer, not plugin-owned. Metrics use
     // Store's SQLite events; this module stays a filesystem reader (bead mk-bzi8s.12).
     expect(uses("pilotmetrics.ts")).toEqual([]);
@@ -82,6 +99,16 @@ describe("fs write scope (plan Task 2.7)", () => {
     for (const src of ['disk.writeFile("/unexpected", next)', 'fs.appendFile(join(cfg.storage_root,id,"other.md"), text)', 'disk.rename(path, "/unexpected")', 'disk.rm(cfg.state_dir)', 'disk.unlink(join(other,f))']) {
       const uses = fsWriteUses(parse(`import * as fs from "node:fs/promises"; ${src}`), ["disk"]);
       expect(uses.length).toBe(1); expect(uses.every(u => governorWriteAllowed(u)), src).toBe(false);
+    }
+  });
+  it("audits reminder writes narrowly and catches injected destinations and unsafe opens", () => {
+    const sf = parseFile(serverSources().find(f => rel(f) === "followthrough-reminder.ts")!);
+    const uses = fsWriteUses(sf);
+    expect(uses.length).toBeGreaterThan(6); expect(uses.every(reminderWriteAllowed)).toBe(true);
+    expect(sf.text).toContain("if (!this.spoolDirs.has(fd)) throw");
+    for (const code of ['openSync(path, C.O_WRONLY)', 'mkdirSync(dataDir)', 'unlinkSync(path)', 'renameSync(this.spoolPath(parent,temp), path)', 'writeFileSync(path, bytes)']) {
+      const bad = fsWriteUses(parse(`import { openSync, mkdirSync, unlinkSync, renameSync, writeFileSync } from "node:fs"; ${code}`));
+      expect(bad.length).toBeGreaterThan(0); expect(bad.every(reminderWriteAllowed)).toBe(false);
     }
   });
   it("detects namespace values, aliases and arbitrary atomicJson destinations", () => {
