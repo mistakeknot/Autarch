@@ -1,8 +1,7 @@
 // Same-user, primary-host filesystem boundary. No Home writes or ordinary wake-loop participation.
-import { constants as C, openSync, closeSync, fstatSync, mkdirSync, readdirSync, readSync, writeSync, fsyncSync, renameSync, lstatSync, unlinkSync, readFileSync, type Stats } from "node:fs";
+import { constants as C, openSync, closeSync, fstatSync, mkdirSync, readdirSync, readSync, writeSync, fsyncSync, renameSync, lstatSync, unlinkSync, rmdirSync, readFileSync, type Stats } from "node:fs";
 import { isAbsolute } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { z } from "zod";
 import { resolveReminderTarget, type ReminderThreadRow } from "./followthrough-target.js";
 import type { WakeSdk } from "./wakes.js";
@@ -80,7 +79,7 @@ const journalSchema = z.object({ version: z.literal(1), entries: z.array(receipt
 const absent = (e: unknown) => (e as NodeJS.ErrnoException).code === "ENOENT";
 /** Linux pinned directory descriptors: every untrusted component is opened O_NOFOLLOW.
  * /proc/self/fd refers to our already-open descriptor, never to a caller-provided symlink.
- * Lock snapshots are checked for liveness and stale takeovers serialize on the old inode.
+ * Lock snapshots are checked for liveness and stale takeovers serialize through a directory rename.
  */
 export class ReminderConsumer {
   private dirs: number[] = [];
@@ -172,11 +171,43 @@ export class ReminderConsumer {
     }
     const start = identity(process.pid);
     if (!start) throw new LockRefusal("lock-owner-unavailable");
-    if (snapshot) this.remove(this.root, "consumer.lock", snapshot.stat, snapshot.text);
     const token = randomUUID();
-    this.write(this.root, "consumer.lock", { pid: process.pid, token, start }, true);
+    const owner = { pid: process.pid, token, start };
+    if (snapshot) this.takeOverLock(snapshot, owner, identity);
+    this.write(this.root, "consumer.lock", owner, true);
     this.lock = this.file(this.root, "consumer.lock"); this.lockToken = token;
     heldLocks.set(this.lockKey, token);
+  }
+  private takeOverLock(snapshot: { stat: Stats; text: string }, owner: { pid: number; token: string; start: string }, identity: (pid: number) => string | null) {
+    const parent = this.root;
+    const gate = ".consumer-takeover";
+    const temp = `${gate}-${owner.token}`;
+    const stage = this.directory(parent, temp);
+    let published = false;
+    try {
+      this.write(stage, "owner.json", owner, true);
+      try { this.move(parent, temp, gate); }
+      catch (e) {
+        if (!["EEXIST", "ENOTEMPTY"].includes((e as NodeJS.ErrnoException).code ?? "")) throw e;
+        const incumbent = this.openDirectory(parent, gate);
+        const old = lockSchema.parse(this.read(incumbent, "owner.json"));
+        if (!old.start) throw new LockRefusal("lock-owner-unavailable");
+        if (identity(old.pid) === old.start) throw new LockRefusal("lock-contended");
+        if (!this.sameFile(parent, gate, incumbent)) throw new LockRefusal("lock-changed");
+        // POSIX rename cannot overwrite a nonempty directory. Keep this
+        // tombstone so a delayed rival for the same gate cannot move its
+        // live replacement there, even after the winner releases the gate.
+        this.move(parent, gate, `${gate}-retired-${hash(old.token)}`);
+        this.move(parent, temp, gate);
+      }
+      published = true;
+      this.remove(parent, "consumer.lock", snapshot.stat, snapshot.text);
+    } finally {
+      // Move the gate out of the way while it is still nonempty.
+      if (published) this.move(parent, gate, temp);
+      try { this.remove(stage, "owner.json"); } catch (e) { if (!absent(e)) throw e; }
+      rmdirSync(this.spoolPath(parent, temp));
+    }
   }
   private sameFile(parent: number, name: string, fd: number): boolean {
     const a = fstatSync(fd), b = lstatSync(this.spoolPath(parent, name));
@@ -185,12 +216,6 @@ export class ReminderConsumer {
   private remove(parent: number, name: string, expected?: Stats, expectedText?: string) {
     const fd = this.file(parent, name);
     try {
-      if (expectedText !== undefined) {
-        // flock's fd mode locks the inherited open file description. Closing the
-        // child copy leaves our fd locked through the final path check and unlink.
-        const guard = spawnSync("/usr/bin/flock", ["-n", "-E", "75", "3"], { stdio: ["ignore", "ignore", "ignore", fd] });
-        if (guard.status !== 0) throw new LockRefusal(guard.status === 75 ? "lock-contended" : "lock-takeover-unavailable");
-      }
       const found = fstatSync(fd);
       if (expected && (found.dev !== expected.dev || found.ino !== expected.ino)) throw new LockRefusal("lock-changed");
       // Also compare the captured content: a freed inode can be reused between
@@ -209,6 +234,9 @@ export class ReminderConsumer {
   }
   private directory(parent: number, name: string) {
     try { mkdirSync(this.spoolPath(parent, name), { mode: 0o700 }); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; }
+    return this.openDirectory(parent, name);
+  }
+  private openDirectory(parent: number, name: string) {
     const fd = this.keep(openSync(this.spoolPath(parent, name), C.O_RDONLY | C.O_DIRECTORY | C.O_NOFOLLOW));
     this.privateStat(fd, true); this.spoolDirs.add(fd); return fd;
   }
@@ -233,8 +261,11 @@ export class ReminderConsumer {
     const fd = this.file(parent, temp, C.O_WRONLY | C.O_CREAT | C.O_EXCL);
     try { const bytes = Buffer.from(JSON.stringify(value)); let n = 0; while (n < bytes.length) n += writeSync(fd, bytes, n, bytes.length - n); fsyncSync(fd); }
     finally { closeSync(fd); }
-    if (!exclusive) renameSync(this.spoolPath(parent, temp), this.spoolPath(parent, name));
+    if (!exclusive) this.move(parent, temp, name);
     fsyncSync(parent);
+  }
+  private move(parent: number, temp: string, name: string) {
+    renameSync(this.spoolPath(parent, temp), this.spoolPath(parent, name));
   }
   private matching(p: ReminderPick | null, r: ReminderRequest): p is ReminderPick {
     return !!p && p.eligible && !p.protected && p.pickId === r.pick_id && p.generation === r.generation && p.revision === r.revision;
