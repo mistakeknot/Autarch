@@ -141,3 +141,28 @@ it("consumer source exposes no HTTP, CLI, RPC write or credential", () => {
   const source = readFileSync(new URL("../followthrough-reminder.ts", import.meta.url), "utf8");
   expect(source).not.toMatch(/fetch\(|\.post\(|\.rpc\(|tokenReader|process\.env|rerouteStranded|resolveWakeTarget|addObligation/);
 });
+it("claim and lifetime reservation are durable before the SDK is called", async () => {
+  const id = publish(); vi.spyOn(sdk, "send").mockImplementation(async () => {
+    expect(result(id)).toMatchObject({ status: "claimed", attempted: true });
+    const journal = readdirSync(join(paths(), "receipts")).find(f => f.startsWith("generation-"))!;
+    expect(JSON.parse(readFileSync(join(paths(), "receipts", journal), "utf8")).entries).toHaveLength(1);
+    throw Error("process lost response");
+  });
+  await consumer.tick(); expect(result(id).status).toBe("unknown");
+});
+it("unsafe directory change during fresh host lookup prevents dispatch", async () => {
+  consumer.close(); consumer = new ReminderConsumer(dir, { readPick: () => pick, listThreads: async () => { chmodSync(paths(), 0o755); return rows(); }, sdk, now: () => now });
+  publish(); await consumer.tick(); expect(sdk.sent).toEqual([]);
+});
+it("request swapped for a symlink during host lookup prevents dispatch", async () => {
+  const id = publish(); const path = join(paths(), "requests", `${id}.json`);
+  consumer.close(); let swapped = false;
+  consumer = new ReminderConsumer(dir, { readPick: () => pick, listThreads: async () => { if (!swapped) { swapped = true; rmSync(path); symlinkSync("/fixture", path); } return rows(); }, sdk, now: () => now });
+  await consumer.tick(); expect(sdk.sent).toEqual([]);
+});
+it.each(["symlink", "oversize"])("unsafe receipt %s prevents dispatch", async kind => {
+  const id = publish(); const path = join(paths(), "receipts", `${id}.json`);
+  if (kind === "symlink") symlinkSync("/fixture", path);
+  else writeFileSync(path, " ".repeat(16385), { mode: 0o600 });
+  await consumer.tick(); expect(sdk.sent).toEqual([]);
+});
