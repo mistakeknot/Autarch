@@ -342,7 +342,7 @@ it("image readback retains the existing ordinary-wake operation and never re-enc
 it.each([
   ["absent", "without outcome metadata"],
   ["merge", "with the writer-filled default deadline"],
-] as const)("picks the Go writer's %s fixture %s", async (name) => {
+] as const)("picks the Go writer's %s fixture %s", async (name, _description) => {
   const descriptions = JSON.parse(readFileSync(new URL("../../../testdata/expected-outcome-writer.json", import.meta.url), "utf8"));
   const db = new Database(":memory:");
   databases.push(db);
