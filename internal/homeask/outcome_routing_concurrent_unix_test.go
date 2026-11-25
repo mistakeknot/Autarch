@@ -17,11 +17,14 @@ import (
 func TestOutcomeConcurrentHeldReleasesRouteOnce(t *testing.T) {
 	bb, f, req, card := heldOutcomeWithInterruptedRouting(t)
 	lockPath := filepath.Join(f.StateDir, "delivery-"+req.Key+".lock")
+	// With the per-key delivery lock removed, the shared Request lock still
+	// serializes routing. Only the handshake observes the lock-order change.
+	// The assertions below guard the delivery outcome.
 	cards := runOverlappingHeldReleases(t, f, req.Key, req.Key, lockPath)
 	if !cards[0].Replay || cards[0].ID != card.ID || cards[1].ID != "" {
 		t.Fatalf("expected exactly one replay of the existing card, got %+v", cards)
 	}
-	assertOneHeldRoutingComment(t, bb, req, cards)
+	assertOneHeldRoutingComment(t, bb, req, cards[:]...)
 	assertHeldDeliveries(t, f, card, req.Key)
 }
 
@@ -39,15 +42,48 @@ func TestOutcomeConcurrentHeldEntriesForSameCardRouteOnce(t *testing.T) {
 			t.Fatalf("expected both held entries to recover the same card, got %+v", cards)
 		}
 	}
-	assertOneHeldRoutingComment(t, bb, req, cards)
+	assertOneHeldRoutingComment(t, bb, req, cards[:]...)
 	assertHeldDeliveries(t, f, card, req.Key, otherKey)
 }
 
 func TestOutcomeHeldEntriesRecoverRoutingAfterLostReply(t *testing.T) {
 	bb, f, req, card := heldOutcomeWithInterruptedRouting(t)
 	otherKey := addHeldEntryForSameCard(t, f, req.Key)
+	loseHeldRoutingReply(t, bb, f, req)
+
+	var cards [2]CardResult
+	for i, key := range []string{req.Key, otherKey} {
+		result, _, err := f.releaseOne(t.Context(), key)
+		if err != nil || !result.Replay || result.ID != card.ID || result.Key != req.Key {
+			t.Fatalf("expected held entry %d to recover the existing card, got %+v, %v", i+1, result, err)
+		}
+		cards[i] = result
+	}
+	assertOneHeldRoutingComment(t, bb, req, cards[:]...)
+	assertHeldDeliveries(t, f, card, req.Key, otherKey)
+}
+
+func TestOutcomeHeldRoutingLostReplyRecoversAfterRestart(t *testing.T) {
+	bb, f, req, card := heldOutcomeWithInterruptedRouting(t)
+	loseHeldRoutingReply(t, bb, f, req)
+
+	// Start from configuration and the persisted directories, with the same
+	// fake remote card and none of the previous filer's runtime hooks.
+	restarted := &CardFiler{StateDir: f.StateDir, LockDir: f.LockDir, Run: bb.run, Now: filingTestNow}
+	report, err := restarted.ReleaseDetailed(t.Context())
+	delivered := report.Groups["other"]
+	if err != nil || len(delivered) != 1 || !delivered[0].Replay || delivered[0].ID != card.ID || delivered[0].Key != req.Key {
+		t.Fatalf("expected the persisted hold to recover the existing card after restart, got %+v, %v", report, err)
+	}
+	assertOneHeldRoutingComment(t, bb, req, delivered...)
+	assertHeldDeliveries(t, restarted, card, req.Key)
+}
+
+func loseHeldRoutingReply(t *testing.T, bb *memBB, f *CardFiler, req CardRequest) {
+	t.Helper()
 	ctx := t.Context()
 	run := f.Run
+	defer func() { f.Run = run }()
 	f.Run = func(ctx context.Context, env []string, args ...string) BBResult {
 		result := run(ctx, env, args...)
 		if len(args) >= 2 && args[0] == "tasks" && args[1] == "comment" && !result.failed() {
@@ -56,22 +92,10 @@ func TestOutcomeHeldEntriesRecoverRoutingAfterLostReply(t *testing.T) {
 		return result
 	}
 	_, _, err := f.releaseOne(ctx, req.Key)
-	f.Run = run
 	if !errors.Is(err, ErrOutcomeUnknown) || bb.count("tasks", "comment") != 1 ||
 		len(bb.tasks[0].Comments) != 1 || AskingThread(bb.tasks[0].Comments) != req.Thread {
 		t.Fatalf("expected one accepted comment and an uncertain reply, got %v, calls %v", err, bb.calls)
 	}
-
-	var cards [2]CardResult
-	for i, key := range []string{req.Key, otherKey} {
-		result, _, err := f.releaseOne(ctx, key)
-		if err != nil || !result.Replay || result.ID != card.ID || result.Key != req.Key {
-			t.Fatalf("expected held entry %d to recover the existing card, got %+v, %v", i+1, result, err)
-		}
-		cards[i] = result
-	}
-	assertOneHeldRoutingComment(t, bb, req, cards)
-	assertHeldDeliveries(t, f, card, req.Key, otherKey)
 }
 
 func addHeldEntryForSameCard(t *testing.T, f *CardFiler, requestKey string) string {
@@ -133,7 +157,7 @@ func heldOutcomeWithInterruptedRouting(t *testing.T) (*memBB, *CardFiler, CardRe
 	return bb, f, req, card
 }
 
-func assertOneHeldRoutingComment(t *testing.T, bb *memBB, req CardRequest, cards [2]CardResult) {
+func assertOneHeldRoutingComment(t *testing.T, bb *memBB, req CardRequest, cards ...CardResult) {
 	t.Helper()
 	desc, _, err := req.Description()
 	if err != nil {
@@ -214,10 +238,8 @@ func runOverlappingHeldReleases(t *testing.T, f *CardFiler, firstKey, secondKey,
 		go func() {
 			defer close(done)
 			card, _, err := filer.releaseOne(ctx, key)
-			select {
-			case done <- attempt{card, err}:
-			case <-ctx.Done():
-			}
+			// This worker sends once to its own one-slot channel.
+			done <- attempt{card, err}
 		}()
 		return done
 	}
