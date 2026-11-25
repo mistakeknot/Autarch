@@ -540,6 +540,8 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 	} else {
 		result, err = f.fileCardReadback(ctx, r)
 	}
+	// For an unchanged v1 update, the existing card is the receipt. Leave
+	// filing state alone regardless of reader support unless retiring a predecessor.
 	// Even an unchanged existing card answers the retired request. Keep its
 	// immutable registry key so retries follow that card rather than create one.
 	hasPredecessor := len(retiredHeld) > 0 || r.replacesHeld != ""
