@@ -77,3 +77,8 @@ it("ordinary queue events still record their existing Home evidence", async () =
   await f.harness.emitThreadEvent("message.dispatched", { entry: makeQueueEntry({ id: "queue_fixture", content: [{ type: "text", mentions: [], text: "[home-msg fixture #1] ordinary" }] }) });
   expect((f.db.prepare("SELECT total_changes() AS n").get() as { n: number }).n).toBeGreaterThan(before.n);
 });
+it("report-mode diagnostic cannot break host initialization when logging throws", () => {
+  const info = vi.fn(() => { throw Error("fixture log unavailable"); }), service = vi.fn();
+  expect(() => registerReminderService({ server: {}, log: { info }, background: { service } }, () => null)).not.toThrow();
+  expect(info).toHaveBeenCalledTimes(1); expect(service).not.toHaveBeenCalled();
+});
