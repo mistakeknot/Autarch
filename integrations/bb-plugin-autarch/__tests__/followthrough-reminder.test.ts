@@ -307,6 +307,42 @@ it("refuses a live same-PID takeover gate with a token other than the recorded r
   expect(JSON.parse(readFileSync(ownerPath, "utf8"))).toEqual(liveOwner);
   expect(readFileSync(join(paths(), "consumer.lock"), "utf8")).toBe(stale);
 });
+it("a recorded gate release failure cannot authorize takeover in another spool", () => {
+  const stale = JSON.stringify({ pid: 2147483647, token: "fixture" });
+  abandonedLock(stale);
+  renameHook.before = from => {
+    if (from.endsWith("/.consumer-takeover")) throw Error("fixture rename failure");
+  };
+  try {
+    consumer = open();
+    expect(consumer.state).toBe("takeover-gate-release-failed");
+  } finally {
+    renameHook.before = undefined;
+  }
+
+  const owner = readFileSync(join(paths(), ".consumer-takeover", "owner.json"), "utf8");
+  const otherDir = mkdtempSync(join(tmpdir(), "reminder-other-fixture-"));
+  const otherRoot = join(otherDir, "plugins/autarch/followthrough");
+  const otherGate = join(otherRoot, ".consumer-takeover");
+  const otherLock = join(otherRoot, "consumer.lock");
+  let other: ReminderConsumer | undefined;
+  try {
+    mkdirSync(otherGate, { recursive: true, mode: 0o700 });
+    writeFileSync(join(otherGate, "owner.json"), owner, { mode: 0o600 });
+    writeFileSync(otherLock, stale, { mode: 0o600 });
+    other = new ReminderConsumer(otherDir, sources());
+    expect(other.state).toBe("lock-contended");
+    expect(other.active).toBe(false);
+    expect(readFileSync(join(otherGate, "owner.json"), "utf8")).toBe(owner);
+    expect(readFileSync(otherLock, "utf8")).toBe(stale);
+
+    consumer = open();
+    expect(consumer.active).toBe(true);
+  } finally {
+    other?.close();
+    rmSync(otherDir, { recursive: true, force: true });
+  }
+});
 
 const oldTakeoverAge = 86400001;
 const takeoverStage = ".consumer-takeover-00000000-0000-4000-8000-000000000000";
@@ -467,6 +503,7 @@ it.each(["missing createdAt", "acceptedEvents throws"])("a send reply crossing P
   const id = publish();
   await consumer.tick();
   expect(events).toHaveBeenCalledWith("thr_fixture");
+  if (evidence === "acceptedEvents throws") expect(events).toHaveBeenCalledTimes(1);
   expect(sdk.accepted[0]).not.toHaveProperty("createdAt");
   expect(result(id)).toMatchObject({ status: "accepted", resolved_date: "2026-11-26" });
 });
