@@ -337,3 +337,23 @@ it("image readback retains the existing ordinary-wake operation and never re-enc
   expect(svc.readPickAction({ pick_id: "original-pick" })).toMatchObject({ kind: "action", facts: { images: { count: 2, op: "wake:original:original-pick" } } });
   expect(count).toHaveBeenCalledWith("wake:original:original-pick");
 });
+
+// Reminder projection is read-only and never relaxes protected relay/receipt routing.
+import { readReminderPick } from "../pickreadback.js";
+it("reminder readback keeps immutable generation, option and original wake owner without writes", () => {
+  const { store, db } = fixture(false, false);
+  const before = db.prepare("SELECT total_changes() AS n").get();
+  expect(readReminderPick(store, "original-pick")).toMatchObject({ pickId: "original-pick", generation: 1, option: "a", owner: "asker", eligible: true, protected: false, delivery: "unknown" });
+  expect(db.prepare("SELECT total_changes() AS n").get()).toEqual(before);
+});
+it.each(["pick-relay", "pick-receipt"])("reminder refuses frozen %s rows", kind => {
+  const { store } = fixture(false, false);
+  store.db.prepare("UPDATE obligations SET kind = ?, recipient = 'thr_frozen' WHERE id = 'ordinary'").run(kind);
+  expect(readReminderPick(store, "original-pick")?.protected).toBe(true);
+});
+it("reminder readback rejects moved audit generation and withdrawal", () => {
+  const { store, db } = fixture(false, false);
+  db.prepare("UPDATE decisions SET withdrawn_at = '2026-01-02T00:00:00Z' WHERE id = 'original'").run();
+  expect(readReminderPick(store, "original-pick")?.eligible).toBe(false);
+});
+it("reminder readback does not guess missing picks", () => { const { store } = fixture(false, false); expect(readReminderPick(store, "missing")).toBeNull(); });

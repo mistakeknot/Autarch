@@ -107,3 +107,37 @@ it("no route consumes no lifetime attempt", async () => {
   consumer.close(); consumer = new ReminderConsumer(dir, { readPick: () => pick, listThreads: async () => [], sdk, now: () => now });
   const id = publish(); await consumer.tick(); expect(result(id)).toMatchObject({ status: "no-route", attempted: false });
 });
+
+import { registerReminderService } from "../followthrough-reminder.js";
+it.each([{}, { experimental_dataDir: "" }, { get experimental_dataDir() { throw Error("unavailable"); } }])("start gate registers no worker for unavailable getter", host => {
+  const service = vi.fn(); const sources = vi.fn();
+  registerReminderService(Object.assign(Object.create(null, Object.getOwnPropertyDescriptors(host)), { background: { service } }), sources);
+  expect(service).not.toHaveBeenCalled(); expect(sources).not.toHaveBeenCalled(); expect(sdk.sent).toEqual([]);
+});
+it("eligible service starts with the host path and the fixture SDK", async () => {
+  consumer.close(); let start!: (signal: AbortSignal) => Promise<void>;
+  registerReminderService({ experimental_dataDir: dir, background: { service: (_: string, value: { start: typeof start }) => { start = value.start; } } }, () => ({ readPick: () => pick, listThreads: async () => rows(), sdk, now: () => now }));
+  consumer = open(); publish(); consumer.close();
+  const abort = new AbortController(); const send = vi.spyOn(sdk, "send").mockImplementation(async () => { abort.abort(); return { delivery: "sent", messageId: "event_fixture" }; });
+  await start(abort.signal); expect(send).toHaveBeenCalledTimes(1);
+});
+it("malformed existing receipt blocks all dispatch", async () => {
+  const id = publish(); writeFileSync(join(paths(), "receipts", `${id}.json`), "{}", { mode: 0o600 }); await consumer.tick(); expect(sdk.sent).toEqual([]);
+});
+it("positive queue evidence reconciles unknown; a near marker does not", async () => {
+  const send = vi.spyOn(sdk, "send").mockRejectedValueOnce(Error("ambiguous")); publish(); await consumer.tick();
+  const input = send.mock.calls[0]![0].input;
+  vi.spyOn(sdk, "queuedList").mockResolvedValueOnce([{ id: "queue_fixture", text: `${input} extra` }]);
+  now += 86400000; publish(request("2026-11-26")); await consumer.tick(); expect(send).toHaveBeenCalledTimes(1);
+  vi.mocked(sdk.queuedList).mockResolvedValue([{ id: "queue_fixture", text: input }]);
+  await consumer.tick(); expect(send).toHaveBeenCalledTimes(2);
+});
+it("proven lost wake reaches only the new same-project successor", async () => {
+  consumer.close(); pick.delivery = "none-confirmed";
+  consumer = new ReminderConsumer(dir, { readPick: () => pick, listThreads: async () => [{ ...rows()[0]!, archivedAt: 10 }, { ...rows()[0]!, id: "thr_next", createdAt: 11 }], sdk, now: () => now });
+  publish({ ...request(), reason: "confirmed-nondelivery" }); await consumer.tick(); expect(sdk.sent.map(s => s.threadId)).toEqual(["thr_next"]);
+});
+it("consumer source exposes no HTTP, CLI, RPC write or credential", () => {
+  const source = readFileSync(new URL("../followthrough-reminder.ts", import.meta.url), "utf8");
+  expect(source).not.toMatch(/fetch\(|\.post\(|\.rpc\(|tokenReader|process\.env|rerouteStranded|resolveWakeTarget|addObligation/);
+});
