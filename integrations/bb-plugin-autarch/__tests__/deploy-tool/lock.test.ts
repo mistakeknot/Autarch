@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { LOCK_WAIT_CAP_SEC, candidateFd, fdIsLockFile, lockWaitSec } from "../../../../tools/bb-plugin-deploy/lib/lock.mjs";
@@ -100,6 +100,14 @@ describe("one tool run excludes the runner and other tool runs", () => {
     const tick = bash(sh, [lockPath()]);
     expect(tick.status).toBe(0);
     expect(existsSync(runnerLog)).toBe(false);
+
+    // Wait for the kernel to report the holder PID that the second run will read.
+    const lockInode = String(statSync(lockPath()).ino);
+    const holderPidVisible = () => readFileSync("/proc/locks", "utf8").split("\n").some(line => {
+      const [, type, , , pid, file] = line.trim().split(/\s+/);
+      return type === "FLOCK" && /^[1-9]\d*$/.test(pid ?? "") && file?.endsWith(`:${lockInode}`);
+    });
+    expect(waitFor(holderPidVisible, 20_000), "holder PID is visible in /proc/locks").toBe(true);
 
     const second = rig.cli(["rollback", "--to", "previous"], { env: { BPD_LOCK_WAIT_SEC: "1" } });
     expect(second.status, msg(second)).toBe(75);
