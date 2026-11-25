@@ -20,16 +20,7 @@ func pacificBudgetWeek(at time.Time) budgetWeek {
 
 func (w budgetWeek) key() string { return w.start.Format("2006-01-02") }
 
-func weeklyHold(at time.Time, r CardRequest) bool {
-	// mk-bzi8s.6: merge and root-run asks are operational, like urgent and
-	// keep-list asks, and bypass the weekday hold using the pilot definition.
-	if !ordinary(r) {
-		return false
-	}
-	local := at.In(pacific)
-	day := local.Weekday()
-	return day >= time.Monday && day < time.Thursday || day == time.Thursday && local.Hour() < 12
-}
+// weeklyHold lives in weekday_hold.go so its signature requires a parsed setting.
 
 // reservationWeeks reads both Pacific start-date keys and legacy ISO keys.
 // Timestamped legacy rows map exactly. Without a timestamp, report

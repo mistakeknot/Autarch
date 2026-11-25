@@ -30,6 +30,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/google/uuid"
 )
@@ -76,6 +77,13 @@ type CardFiler struct {
 	// ConfigErr, when set, makes File refuse (ErrInvalid): the binding config was
 	// unreadable, so nothing may be filed against a guess.
 	ConfigErr error
+	// ConfigDir, when set, is used instead of os.UserConfigDir for needsmk.env (tests).
+	ConfigDir string
+	// weekdayHoldPtr is an atomic *weekdayHoldState (see weekday_hold.go).
+	// CardFiler is copied by value for the release snapshot and readback, so the
+	// sync.Once lives on the heap. Copies share one loaded setting, and vet does
+	// not see a copied lock. A zero setting is still unusable until loaded.
+	weekdayHoldPtr unsafe.Pointer
 	// ReadbackTimeout bounds how long FileCard polls `bb home get --card` for the card's card_key after
 	// filing it (Home indexes a card shortly after it exists). Zero reads nothing back. A missing key after a configured wait returns ErrOutcomeUnknown.
 	ReadbackTimeout time.Duration
@@ -124,6 +132,7 @@ func ParseTasksProjects(v string) (map[string]string, error) {
 func CardFilerFromEnv(timeout time.Duration) *CardFiler {
 	f := &CardFiler{Timeout: timeout, TasksProject: strings.TrimSpace(os.Getenv(EnvTasksProject))}
 	f.TasksProjects, f.ConfigErr = ParseTasksProjects(os.Getenv(EnvTasksProjects))
+	_ = f.LoadWeekdayHold()
 	return f
 }
 

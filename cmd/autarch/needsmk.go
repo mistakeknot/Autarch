@@ -22,7 +22,9 @@ import (
 
 // newCardFiler builds the filer; tests replace it.
 var newCardFiler = func() *homeask.CardFiler {
-	return &homeask.CardFiler{Timeout: filerTimeout, ReadbackTimeout: readbackTimeout}
+	f := &homeask.CardFiler{Timeout: filerTimeout, ReadbackTimeout: readbackTimeout}
+	_ = f.LoadWeekdayHold()
+	return f
 }
 
 // readbackTimeout bounds how long a filing waits for Home to index the new card and report its card_key.
@@ -49,6 +51,7 @@ func needsMkCmd() *cobra.Command {
 	cmd.AddCommand(needsMkExportCmd())
 	cmd.AddCommand(needsMkPilotsCmd())
 	cmd.AddCommand(needsMkRecheckLinksCmd())
+	cmd.AddCommand(needsMkWeekdayHoldCmd())
 	return cmd
 }
 
@@ -228,6 +231,7 @@ func needsMkFileCmd() *cobra.Command {
 	var project, title, askFile, rootRun, request, moveFile, secretFile, cujgelFile, ownerThread, urgency, stopped, prFlag, supersedes string
 	var blocks []string
 	var vizierOwned, checkOnly bool
+	var atFlag string
 	var cardType string
 	var ui, urgent, nonBlocking bool
 	var keepList string
@@ -248,6 +252,11 @@ Ordinary cards filed Monday 00:00 through Thursday before 12:00 Pacific are also
 held for the Thursday batch. Urgent, keep-list, merge and root-run cards bypass
 this weekday hold. Release inside that window leaves ordinary cards queued;
 schedule release at Thursday noon or later. Reporting retains each request’s filing week.
+AUTARCH_CARD_WEEKDAY_HOLD (on, off, or off:<project>[,<project>]) controls that window.
+Unset, empty, or on keeps it. off disables it for every project. off:<list> disables it
+only for those Tasks project ids, names, or prefixes. The process environment wins over
+<user-config>/autarch/needsmk.env; the library default is on. --check reports weekday_hold
+without filing. --at <RFC3339> is valid only with --check and evaluates the hold at that time.
 --urgent and --keep-list add labels. Exit 0 means filed: JSON has a non-empty card_key.
 Held cards exit 6, with queued:true, the request key and no card_key on stdout
 (--json is also accepted). Treat exit 6 as queued, not as a filed card or an uncertain write.
@@ -324,6 +333,9 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if atFlag != "" && !checkOnly {
+				return &usageError{"--at is only valid with --check"}
+			}
 			if cujgelFile != "" && secretFile != "" {
 				return &usageError{"--cujgel cannot be combined with --secret"}
 			}
@@ -518,8 +530,27 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				return err
 			}
 			if checkOnly {
-				fmt.Fprintln(cmd.OutOrStdout(), `{"checked":true}`)
-				return nil
+				var at time.Time
+				if atFlag != "" {
+					parsed, err := time.Parse(time.RFC3339, atFlag)
+					if err != nil {
+						parsed, err = time.Parse(time.RFC3339Nano, atFlag)
+					}
+					if err != nil {
+						return &usageError{"--at must be an RFC3339 timestamp: " + err.Error()}
+					}
+					at = parsed
+				}
+				held, reason, cfgPath, err := filer.WeekdayHoldDecision(ctx, req, at)
+				if err != nil {
+					return err
+				}
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
+					"checked":             true,
+					"weekday_hold":        held,
+					"weekday_hold_reason": reason,
+					"config_path":         cfgPath,
+				})
 			}
 			if saveEvidence != nil {
 				req.SaveEvidence = func() error {
@@ -562,7 +593,8 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 	cmd.Flags().StringVar(&keepList, "keep-list", "", "Label: spend, credentials, sign-ins/payments, tags/releases/publishes, force-pushes, standing-approvals")
 	cmd.Flags().BoolVar(&ui, "ui", false, "Mark a UI card; play and merge require a screenshot or video")
 	cmd.Flags().StringArrayVar(&attachments, "attach", nil, "Non-symlink, non-empty png/jpg/jpeg/webp/gif/mp4/webm media file; repeatable")
-	cmd.Flags().BoolVar(&checkOnly, "check", false, "Run all preflight checks without submitting")
+	cmd.Flags().BoolVar(&checkOnly, "check", false, "Run all preflight checks without submitting; reports weekday_hold")
+	cmd.Flags().StringVar(&atFlag, "at", "", "RFC3339 timestamp for --check weekday-hold evaluation (requires --check)")
 	cmd.Flags().StringVar(&cardType, "card-type", "other", "Card type: product, design, play, merge or other (merge inferred only when omitted; conflicting types refused)")
 	cmd.Flags().Bool("json", false, "Print JSON (the default and only format); success always includes a non-empty card_key")
 	cmd.Flags().StringVar(&project, "project", "", "Tasks project (id, key or name)")
@@ -581,6 +613,32 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 	cmd.Flags().BoolVar(&vizierOwned, "vizier-owned", false, "Vizier only: this is its own ruling, root run or scope card; mutually exclusive with --owner-thread")
 	cmd.Flags().String("into", "", "Explicitly accept the PR's base branch: must match exactly; required for a non-default base")
 	cmd.Flags().StringVar(&ownerThread, "owner-thread", "", "Route the card's answer to this live thread instead of the filing thread (the routing comment is posted as it)")
+	return cmd
+}
+
+func needsMkWeekdayHoldCmd() *cobra.Command {
+	var checkConfig string
+	cmd := &cobra.Command{
+		Use:   "weekday-hold",
+		Short: "Validate the AUTARCH_CARD_WEEKDAY_HOLD config file",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if checkConfig == "" {
+				return &usageError{"--check-config <file> is required"}
+			}
+			s, err := homeask.CheckWeekdayHoldConfig(checkConfig)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
+				"ok":     true,
+				"value":  s.Value(),
+				"source": s.Source,
+				"path":   s.ConfigFile(),
+			})
+		},
+	}
+	cmd.Flags().StringVar(&checkConfig, "check-config", "", "Validate a needsmk.env file and print the parsed setting as JSON")
 	return cmd
 }
 
