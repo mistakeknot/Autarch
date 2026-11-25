@@ -1,15 +1,19 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, symlinkSync, rmSync, readdirSync, utimesSync, statSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, symlinkSync, rmSync, readdirSync, utimesSync, statSync, lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { ReminderConsumer, reminderActionId, reminderDataDir, parseReminderRequest, type ReminderPick } from "../followthrough-reminder.js";
+import { ReminderConsumer, reminderActionId, reminderDataDir, parseReminderRequest, type ReminderPick, type ReminderSources } from "../followthrough-reminder.js";
 import { FakeSdk } from "./wakes-helpers.js";
 const unlinkHook = vi.hoisted(() => ({ before: undefined as (() => void) | undefined }));
+const renameHook = vi.hoisted(() => ({ before: undefined as ((from: string, to: string) => void) | undefined }));
 vi.mock("node:fs", async importOriginal => {
   const fs = await importOriginal<typeof import("node:fs")>();
-  return { ...fs, unlinkSync(path: Parameters<typeof fs.unlinkSync>[0]) {
+  return { ...fs, renameSync(from: Parameters<typeof fs.renameSync>[0], to: Parameters<typeof fs.renameSync>[1]) {
+    renameHook.before?.(String(from), String(to));
+    fs.renameSync(from, to);
+  }, unlinkSync(path: Parameters<typeof fs.unlinkSync>[0]) {
     if (String(path).endsWith("/consumer.lock")) unlinkHook.before?.();
     fs.unlinkSync(path);
   } };
@@ -18,7 +22,8 @@ let dir: string, now: number, sdk: FakeSdk, pick: ReminderPick, consumer: Remind
 const request = (date = "2026-11-25") => ({ version: 1, pick_id: "pick_fixture", generation: 1, revision: "revision_fixture", pacific_date: date, expires_at: new Date(now + 3600000).toISOString(), reason: "overdue-outcome" });
 const paths = () => join(dir, "plugins/autarch/followthrough");
 const rows = () => [{ id: "thr_fixture", title: "Worker", projectId: "proj_fixture", createdAt: 1, archivedAt: null, deletedAt: null }];
-const open = () => new ReminderConsumer(dir, { readPick: () => pick, listThreads: async () => rows(), sdk, now: () => now });
+const sources = (): ReminderSources => ({ readPick: () => pick, listThreads: async () => rows(), sdk, now: () => now });
+const open = () => new ReminderConsumer(dir, sources());
 function publish(r = request()) { const id = reminderActionId(r); writeFileSync(join(paths(), "requests", `${id}.json`), JSON.stringify(r), { mode: 0o600 }); return id; }
 function result(id: string) { return JSON.parse(readFileSync(join(paths(), "receipts", `${id}.json`), "utf8")); }
 beforeEach(() => {
@@ -215,6 +220,103 @@ function abandonedLock(value: string, age = 0) {
   consumer.close(); const path = join(paths(), "consumer.lock");
   writeFileSync(path, value, { mode: 0o600 }); const at = new Date(now - age); utimesSync(path, at, at);
 }
+function takeoverDirectory(name: string, owner?: string, age = 0) {
+  const path = join(paths(), name);
+  mkdirSync(path, { mode: 0o700 });
+  if (owner !== undefined) writeFileSync(join(path, "owner.json"), owner, { mode: 0o600 });
+  const at = new Date(now - age); utimesSync(path, at, at);
+}
+async function runReminderOnce() {
+  const abort = new AbortController(), log: string[] = [];
+  let start: ((signal: AbortSignal) => Promise<void>) | undefined;
+  registerReminderService({
+    server: { experimental_dataDir: dir },
+    log: { info(message) { log.push(message); abort.abort(); } },
+    background: { service(_name, definition) { start = definition.start; } },
+  }, sources);
+  await start!(abort.signal);
+  return log;
+}
+it.each(["{}", "null", "[]", '{"pid":0}'])("an old JSON lock without positive owner evidence stays refused: %s", text => {
+  abandonedLock(text, 60001);
+  consumer = open();
+  expect(consumer.active).toBe(false);
+  expect(consumer.state).toBe("lock-owner-unavailable");
+  now += 86400000;
+  consumer.close();
+  consumer = open();
+  expect(consumer.state).toBe("lock-owner-unavailable");
+  expect(readFileSync(join(paths(), "consumer.lock"), "utf8")).toBe(text);
+});
+it.each([
+  ["missing owner", undefined],
+  ["invalid owner schema", '{"pid":0,"token":"fixture"}'],
+  ["missing start", '{"pid":2147483647,"token":"fixture"}'],
+] as const)("logs a receipt-free invalid takeover gate for %s", async (_name, owner) => {
+  abandonedLock(JSON.stringify({ pid: 2147483647, token: "fixture" }));
+  takeoverDirectory(".consumer-takeover", owner);
+  publish();
+  expect(await runReminderOnce()).toEqual(["followthrough reminders: state=takeover-gate-invalid"]);
+  expect(readdirSync(join(paths(), "receipts"))).toEqual([]);
+  expect(sdk.sent).toEqual([]);
+  expect(readdirSync(paths())).toContain(".consumer-takeover");
+});
+it("logs an unsuccessful gate release and recovers that exact gate on the next run", async () => {
+  abandonedLock(JSON.stringify({ pid: 2147483647, token: "fixture" }));
+  publish();
+  renameHook.before = (from, to) => {
+    if (from.endsWith("/.consumer-takeover") && to.includes("/.consumer-takeover-")) throw Error("fixture rename failure");
+  };
+  try {
+    expect(await runReminderOnce()).toEqual(["followthrough reminders: state=takeover-gate-release-failed"]);
+    expect(readdirSync(join(paths(), "receipts"))).toEqual([]);
+    expect(sdk.sent).toEqual([]);
+    expect(readdirSync(paths())).toContain(".consumer-takeover");
+  } finally {
+    renameHook.before = undefined;
+  }
+  consumer = open();
+  expect(consumer.active).toBe(true);
+  expect(readdirSync(paths())).not.toContain(".consumer-takeover");
+  await consumer.tick();
+  expect(sdk.sent).toHaveLength(1);
+});
+
+const oldTakeoverAge = 86400001;
+const takeoverStage = ".consumer-takeover-00000000-0000-4000-8000-000000000000";
+const retiredGate = `.consumer-takeover-retired-${"a".repeat(64)}`;
+it("cleans only old takeover leftovers and keeps the live gate and symlink", () => {
+  consumer.close();
+  const owner = JSON.stringify({ pid: 2147483647, token: "fixture", start: "fixture-start" });
+  takeoverDirectory(takeoverStage, owner, oldTakeoverAge);
+  takeoverDirectory(retiredGate, owner, oldTakeoverAge);
+  const freshRetired = `.consumer-takeover-retired-${"b".repeat(64)}`;
+  takeoverDirectory(freshRetired, owner);
+  const freshGate = ".consumer-takeover";
+  takeoverDirectory(freshGate, JSON.stringify({ pid: process.pid, token: "fixture", start: "fixture-live-start" }));
+  const malformedName = ".consumer-takeover-00000000-0000-4000-8000-00000000000";
+  takeoverDirectory(malformedName, owner, oldTakeoverAge);
+  const outside = join(dir, "fixture"); mkdirSync(outside);
+  const link = join(paths(), `.consumer-takeover-retired-${"c".repeat(64)}`);
+  symlinkSync(outside, link);
+  consumer = new ReminderConsumer(dir, { ...sources(), processIdentity: pid => pid === process.pid ? "fixture-live-start" : null });
+  expect(consumer.active).toBe(true);
+  const remaining = readdirSync(paths());
+  expect(remaining).not.toContain(takeoverStage);
+  expect(remaining).not.toContain(retiredGate);
+  expect(remaining).toEqual(expect.arrayContaining([freshGate, freshRetired, malformedName]));
+  expect(lstatSync(link).isSymbolicLink()).toBe(true);
+  expect(readdirSync(outside)).toEqual([]);
+});
+it("preserves a tombstone while a live staged contender could still use it", () => {
+  consumer.close();
+  const owner = JSON.stringify({ pid: process.ppid, token: "fixture", start: "fixture-live-start" });
+  takeoverDirectory(takeoverStage, owner, oldTakeoverAge);
+  takeoverDirectory(retiredGate, owner, oldTakeoverAge);
+  consumer = new ReminderConsumer(dir, { ...sources(), processIdentity: () => "fixture-live-start" });
+  expect(consumer.active).toBe(true);
+  expect(readdirSync(paths())).toEqual(expect.arrayContaining([takeoverStage, retiredGate]));
+});
 it("same-process PID with no held consumer is stale", () => {
   abandonedLock(JSON.stringify({ pid: process.pid, token: "fixture" })); consumer = open(); expect(consumer.active).toBe(true);
 });
@@ -313,10 +415,18 @@ it("a late earlier-day queue acceptance uses today's slot across restart and pru
   consumer.close(); consumer = open(); await consumer.tick(); expect(sdk.sent).toHaveLength(1);
   now += 86400000; publish(request("2026-11-27")); await consumer.tick(); expect(sdk.sent).toHaveLength(2);
 });
-it("an SDK response returning the next day also consumes the resolution day's slot", async () => {
-  vi.spyOn(sdk, "send").mockImplementation(async () => { now += 86400000; return { delivery: "sent", messageId: "event_fixture" }; });
-  publish(); await consumer.tick(); const id = publish(request("2026-11-26")); await consumer.tick();
-  expect(sdk.send).toHaveBeenCalledTimes(1); expect(result(id).status).toBe("day-used");
+it("a send accepted before Pacific midnight keeps that date when its reply crosses midnight", async () => {
+  now = Date.parse("2026-11-26T07:59:59Z");
+  const send = vi.spyOn(sdk, "send").mockImplementationOnce(async ({ threadId, input }) => {
+    sdk.accepted.push({ id: "event_fixture", threadId, text: input, createdAt: now });
+    now += 2000;
+    return { delivery: "sent", messageId: "fixture_message" };
+  });
+  const first = publish(); await consumer.tick();
+  expect(result(first)).toMatchObject({ status: "accepted", resolved_date: "2026-11-25" });
+  const second = publish(request("2026-11-26")); await consumer.tick();
+  expect(send).toHaveBeenCalledTimes(2);
+  expect(result(second).status).toBe("accepted");
 });
 it("deliberate reminder cancellation never becomes permission to re-nag", async () => {
   sdk.fallback = { kind: "queue" }; publish(); await consumer.tick(); sdk.cancel("q1");
