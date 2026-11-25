@@ -268,7 +268,10 @@ interface ReminderHost {
 /** Getter and value are both guarded before registration. No alternate path or send transport. */
 export function registerReminderService(host: ReminderHost, sources: () => ReminderSources | null): void {
   const dataDir = reminderDataDir(host);
-  if (!dataDir) { host.log?.info("followthrough reminders: report mode (server data directory unavailable)"); return; }
+  if (!dataDir) {
+    try { host.log?.info("followthrough reminders: report mode (server data directory unavailable)"); } catch { /* diagnostic only; host initialization must still succeed */ }
+    return;
+  }
   host.background.service("home-followthrough-reminders", {
     async start(signal) {
       let consumer: ReminderConsumer | null = null;
