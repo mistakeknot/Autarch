@@ -259,3 +259,15 @@ it.each([".tmp-", ".consumer-tmp-"])("wrong-mode stray temporary does not disabl
   writeFileSync(path, "{}", { mode: 0o644 }); consumer = open(); expect(consumer.active).toBe(true);
   publish(); await consumer.tick(); expect(sdk.sent).toHaveLength(1); expect(statSync(path).mode & 0o777).toBe(0o644);
 });
+it("legacy EPERM identity lookup cannot strand an old PID-only lock", () => {
+  abandonedLock(JSON.stringify({ pid: process.ppid, token: "fixture" }), 60001);
+  consumer = new ReminderConsumer(dir, { readPick: () => pick, listThreads: async () => rows(), sdk, now: () => now,
+    processIdentity: pid => { if (pid === process.ppid) throw Object.assign(Error("fixture"), { code: "EPERM" }); return "fixture-current-start"; },
+  });
+  expect(consumer.active).toBe(true);
+});
+it("a matching foreign boot/start identity stays locked even after the grace period", () => {
+  abandonedLock(JSON.stringify({ pid: process.ppid, token: "fixture", start: "fixture-current-start" }), 60001);
+  consumer = new ReminderConsumer(dir, { readPick: () => pick, listThreads: async () => rows(), sdk, now: () => now, processIdentity: () => "fixture-current-start" });
+  expect(consumer.active).toBe(false); expect(consumer.state).toBe("lock-held");
+});
