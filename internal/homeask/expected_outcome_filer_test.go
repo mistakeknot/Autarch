@@ -5,9 +5,29 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
+
+func outcomeFilingFixture(t *testing.T) (*memBB, *CardFiler, CardRequest, *BBResult) {
+	t.Helper()
+	bb := newFake(t, registryOnCreate)
+	f := bb.filer()
+	f.StateDir = t.TempDir()
+	capability := BBResult{Stdout: []byte(`{"schema":1,"expected_outcome":[1]}`)}
+	bb.fail = func(args []string) *BBResult {
+		if strings.Join(args, " ") == "home capabilities --json" {
+			return &capability
+		}
+		return nil
+	}
+	req := CardRequest{Project: "P1", Title: "Fixture", Key: "fixture", Thread: "thr_fixture", Ask: map[string]any{
+		"project": "example", "project_root": "/fixture", "question": "Proceed?",
+		"options": []any{map[string]any{"id": "yes", "label": "Proceed"}, map[string]any{"id": "no", "label": "Wait"}},
+	}}
+	return bb, f, req, &capability
+}
 
 func TestExpectedOutcomeFilerCapability(t *testing.T) {
 	for _, lane := range []string{"file", "update", "held release"} {
@@ -16,28 +36,17 @@ func TestExpectedOutcomeFilerCapability(t *testing.T) {
 			result BBResult
 		}{
 			{"missing", BBResult{Stdout: []byte(`{"schema":1}`)}},
+			{"missing schema", BBResult{Stdout: []byte(`{"expected_outcome":[1]}`)}},
+			{"wrong schema", BBResult{Stdout: []byte(`{"schema":2,"expected_outcome":[1]}`)}},
 			{"unsupported", BBResult{Stdout: []byte(`{"schema":1,"expected_outcome":[2]}`)}},
 			{"unreadable", BBResult{Stdout: []byte(`{"schema":1,"expected_outcome":"1"}`)}},
 			{"failed", BBResult{Code: 1}},
 		} {
 			t.Run(lane+"/"+reply.name, func(t *testing.T) {
 				ctx := context.Background()
-				bb := newFake(t, registryOnCreate)
-				f := bb.filer()
-				f.StateDir = t.TempDir()
-				req := CardRequest{Project: "P1", Title: "Fixture", Key: "fixture", Thread: "thr_fixture", Ask: map[string]any{
-					"project": "example", "project_root": "/fixture", "question": "Proceed?",
-					"options": []any{map[string]any{"id": "yes", "label": "Proceed"}, map[string]any{"id": "no", "label": "Wait"}},
-				}}
+				bb, f, req, capability := outcomeFilingFixture(t)
 				writes := func() int {
 					return bb.count("tasks", "create") + bb.count("tasks", "update") + bb.count("tasks", "comment") + bb.count("tasks", "label", "create")
-				}
-				capability := okRes(map[string]any{"schema": 1, "expected_outcome": []int{1}})
-				bb.fail = func(args []string) *BBResult {
-					if args[0] == "home" && args[1] == "capabilities" {
-						return &capability
-					}
-					return nil
 				}
 				var taskID string
 				if lane == "update" {
@@ -57,7 +66,7 @@ func TestExpectedOutcomeFilerCapability(t *testing.T) {
 					f.Now = func() time.Time { return filingTestNow().Add(24 * time.Hour) }
 				}
 				beforeWrites, beforeReads := writes(), bb.count("home", "capabilities")
-				capability = reply.result
+				*capability = reply.result
 				var err error
 				switch lane {
 				case "file":
@@ -72,6 +81,73 @@ func TestExpectedOutcomeFilerCapability(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestExpectedOutcomeFilerReplayWithoutCapability(t *testing.T) {
+	ctx := context.Background()
+	bb, f, req, capability := outcomeFilingFixture(t)
+	req.Ask["options"].([]any)[0].(map[string]any)["expected_outcome"] = map[string]any{
+		"schema": 1, "kind": "file-exists", "target": map[string]any{"path": "/fixture/result"},
+		"by_when": map[string]any{"after_seconds": 172800},
+	}
+	first, err := f.FileCard(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*capability = BBResult{Stdout: []byte(`{"schema":1}`)}
+	before := bb.count("home", "capabilities")
+	replayed, err := f.FileCard(ctx, req)
+	if err != nil || !replayed.Replay || replayed.ID != first.ID || bb.count("home", "capabilities") != before {
+		t.Fatalf("filed card replay must skip the capability probe: %+v, %v, calls %v", replayed, err, bb.calls)
+	}
+	req.Key = "fixture-fresh"
+	if _, err := f.FileCard(ctx, req); !errors.Is(err, ErrHomeDown) {
+		t.Fatalf("fresh request must refuse missing capability: %v", err)
+	}
+	if bb.count("tasks", "create") != 1 || bb.count("tasks", "comment") != 1 || bb.count("home", "capabilities") != before+1 {
+		t.Fatalf("unexpected calls for fresh request: %v", bb.calls)
+	}
+}
+
+func TestExpectedOutcomeHeldReleaseSkipsCapabilityDuringWeeklyHold(t *testing.T) {
+	ctx := context.Background()
+	bb, f, req, capability := outcomeFilingFixture(t)
+	f.Now = func() time.Time { return time.Date(2026, 11, 16, 20, 0, 0, 0, time.UTC) }
+	req.Ask["review_by"] = "2026-11-20T00:00:00Z"
+	if result, err := f.FileCard(ctx, req); err != nil || !result.Queued {
+		t.Fatalf("want weekly hold: %+v, %v", result, err)
+	}
+	*capability = BBResult{Stdout: []byte(`{"schema":1}`)}
+	before := bb.count("home", "capabilities")
+	if result, _, err := f.releaseOne(ctx, req.Key); err != nil || result.ID != "" || bb.count("home", "capabilities") != before {
+		t.Fatalf("release must skip the held request quietly: %+v, %v, calls %v", result, err, bb.calls)
+	}
+}
+
+func TestExpectedOutcomeLibraryPreflightJoinsFailures(t *testing.T) {
+	_, f, req, capability := outcomeFilingFixture(t)
+	req.Ask["review_by"] = "2026-01-01T00:00:00Z"
+	req.Type = "design"
+	*capability = BBResult{Stdout: []byte(`{"schema":1}`)}
+	err := f.Preflight(context.Background(), req)
+	if !errors.Is(err, ErrHomeDown) || !strings.Contains(err.Error(), "three-line opener") {
+		t.Fatalf("want capability and design errors, got %v", err)
+	}
+}
+
+func TestExpectedOutcomeWriterPreservesTypedOptionSlice(t *testing.T) {
+	_, _, req, _ := outcomeFilingFixture(t)
+	yes := Option{ID: "yes", Label: "Proceed", Kind: "ruling-only", ExpectedOutcome: json.RawMessage(
+		`{"schema":1,"kind":"file-exists","target":{"path":"/fixture/result"},"by_when":{"after_seconds":172800}}`,
+	)}
+	options := []any{yes, Option{ID: "no", Label: "Wait", Kind: "ruling-only"}}
+	req.Ask["options"] = options
+	if _, _, err := req.Description(); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := options[0].(Option); !ok || string(got.ExpectedOutcome) != string(yes.ExpectedOutcome) {
+		t.Fatalf("caller option changed: %#v", options[0])
 	}
 }
 

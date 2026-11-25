@@ -103,8 +103,8 @@ func TestNeedsMkExpectedOutcomeCheckRefusesWithoutCapability(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thr_fixture")
 	s := &stubBB{expectedOutcomeCapability: `{"schema":1}`}
 	input := `{"project":"example","project_root":"/fixture","question":"Proceed?","review_by":"2026-01-01T00:00:00Z","options":[{"id":"yes","label":"Proceed"},{"id":"no","label":"Wait"}]}`
-	_, err := runNeedsMk(t, s, "file", "--check", "--project", "P1", "--title", "Fixture", "--ask-file", writeAskBody(t, input))
-	if !errors.Is(err, homeask.ErrHomeDown) || s.card || s.commented {
-		t.Fatalf("want capability refusal without mutation, got %v, %v", err, s.calls)
+	_, err := runNeedsMk(t, s, "file", "--check", "--card-type", "design", "--project", "P1", "--title", "Fixture", "--ask-file", writeAskBody(t, input))
+	if !errors.Is(err, homeask.ErrHomeDown) || !strings.Contains(err.Error(), "three-line opener") || s.card || s.commented {
+		t.Fatalf("want capability and design errors without mutation, got %v, %v", err, s.calls)
 	}
 }

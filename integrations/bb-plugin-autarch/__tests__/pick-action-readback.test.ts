@@ -339,7 +339,10 @@ it("image readback retains the existing ordinary-wake operation and never re-enc
   expect(count).toHaveBeenCalledWith("wake:original:original-pick");
 });
 
-it.each(["absent", "merge"] as const)("picks the generation from the Go writer's %s card bytes", async (name) => {
+it.each([
+  ["absent", "without outcome metadata"],
+  ["merge", "with the writer-filled default deadline"],
+] as const)("picks the Go writer's %s fixture %s", async (name) => {
   const descriptions = JSON.parse(readFileSync(new URL("../../../testdata/expected-outcome-writer.json", import.meta.url), "utf8"));
   const db = new Database(":memory:");
   databases.push(db);
@@ -358,11 +361,16 @@ it.each(["absent", "merge"] as const)("picks the generation from the Go writer's
   task.description = task.description.replace("a".repeat(40), "b".repeat(40)).replace('"after_seconds":86400', '"after_seconds":172800');
   await svc.ingestCard(task as Parameters<typeof svc.ingestCard>[0], { comments });
   const pick = store.pick(original.id)!;
-  expect(pick).toMatchObject({ generation: 1, option_id: "yes", picked_at: now() });
-  const selected = parseStoredCardAsk(JSON.parse(String(store.decision(original.id)!.body_json))).options!.find(o => o.id === pick.option_id);
+  expect(pick).toMatchObject({ option_id: "yes", picked_at: now() });
+  const generation = store.decision(pick.decision_id)!;
+  expect(generation.generation).toBe(1);
+  const ask = parseStoredCardAsk(JSON.parse(String(generation.body_json)));
+  const selected = ask.options!.find(o => o.id === pick.option_id);
   if (name === "absent") {
+    expect(ask.review_by).toBeUndefined();
     expect(selected?.expected_outcome).toBeUndefined();
   } else {
+    expect(ask.review_by).toBe("2026-01-01T17:30:00.123456789Z");
     expect(selected?.expected_outcome).toEqual({
       schema: 1, kind: "merge", by_when: { after_seconds: 86400 },
       target: { prs: [
