@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
 import { Store, createStoreHandle } from "../store.js";
@@ -336,4 +337,38 @@ it("image readback retains the existing ordinary-wake operation and never re-enc
   const svc = new Service({ store, projects: async () => [], env: {}, images: new ImageStore("unused") });
   expect(svc.readPickAction({ pick_id: "original-pick" })).toMatchObject({ kind: "action", facts: { images: { count: 2, op: "wake:original:original-pick" } } });
   expect(count).toHaveBeenCalledWith("wake:original:original-pick");
+});
+
+it.each(["absent", "merge"] as const)("picks the generation from the Go writer's %s card bytes", async (name) => {
+  const descriptions = JSON.parse(readFileSync(new URL("../../../testdata/expected-outcome-writer.json", import.meta.url), "utf8"));
+  const db = new Database(":memory:");
+  databases.push(db);
+  const now = () => "2026-01-01T00:00:00.000Z";
+  const store = new Store(db, { now });
+  const svc = new Service({ store, now, env: {}, projects: async () => [{ name: "example", root: "/fixture", dev: 1, ino: 2 }] });
+  const fake = new FakeTasks();
+  const project = fake.addProject("Example");
+  const label = fake.addLabel(project.id, "needs-mk");
+  const task = fake.addTask(project.id, { id: "fixture", title: "Fixture", description: descriptions[name], labelIds: [label.id] });
+  const comments = async () => [{ id: "fixture-comment", taskId: task.id, kind: "agent" as const, authorName: "Fixture", threadId: "thr_fixture", body: "", createdAt: now() }];
+  expect(await svc.ingestCard(task as Parameters<typeof svc.ingestCard>[0], { comments })).toEqual({ changed: true });
+  const original = svc.currentGeneration(task.id)!;
+  expect(original.request_id).toBe("card:fixture:g1");
+  expect(svc.pick(original.id, "yes", original.revision, "fixture-pick", "mk", "home")).toMatchObject({ ok: true });
+  task.description = task.description.replace("a".repeat(40), "b".repeat(40)).replace('"after_seconds":86400', '"after_seconds":172800');
+  await svc.ingestCard(task as Parameters<typeof svc.ingestCard>[0], { comments });
+  const pick = store.pick(original.id)!;
+  expect(pick).toMatchObject({ generation: 1, option_id: "yes", picked_at: now() });
+  const selected = parseStoredCardAsk(JSON.parse(store.decision(original.id)!.body_json)).options!.find(o => o.id === pick.option_id);
+  if (name === "absent") {
+    expect(selected?.expected_outcome).toBeUndefined();
+  } else {
+    expect(selected?.expected_outcome).toEqual({
+      schema: 1, kind: "merge", by_when: { after_seconds: 86400 },
+      target: { prs: [
+        { repo: "example/repo", number: 42, head: "a".repeat(40) },
+        { repo: "example/other", number: 7, head: "c".repeat(40) },
+      ] },
+    });
+  }
 });
