@@ -1,11 +1,37 @@
 // Same-user, primary-host filesystem boundary. No Home writes or ordinary wake-loop participation.
-import { constants as C, openSync, closeSync, fstatSync, mkdirSync, readdirSync, readSync, writeSync, fsyncSync, renameSync, lstatSync, unlinkSync } from "node:fs";
+import { constants as C, openSync, closeSync, fstatSync, mkdirSync, readdirSync, readSync, writeSync, fsyncSync, renameSync, lstatSync, unlinkSync, readFileSync, type Stats } from "node:fs";
 import { isAbsolute } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { resolveReminderTarget, type ReminderThreadRow } from "./followthrough-target.js";
 import type { WakeSdk } from "./wakes.js";
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
+// Design choice: allow an interrupted exclusive lock creation 60 seconds to finish.
+const LOCK_INIT_GRACE_MS = 60_000;
+const holderKey = Symbol.for("autarch.followthrough.lock-holders");
+const processState = globalThis as typeof globalThis & { [key: symbol]: Map<string, string> | undefined };
+const heldLocks = processState[holderKey] ??= new Map<string, string>();
+class LockRefusal extends Error {
+  constructor(readonly state: string) { super(state); }
+}
+/** Kernel-owned, read-only metadata at fixed proc paths, never caller-supplied paths.
+ * Spool files still use bounded O_NOFOLLOW descriptor reads. Boot plus start ticks distinguishes PID reuse,
+ * including reboots. A matching PID alone never proves another process is a consumer.
+ * Same-process holders additionally require the shared registry's exact token; this
+ * registry survives module reloads. Legacy PID-only locks age out after the grace.
+ */
+function kernelProcessIdentity(pid: number): string | null {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, { encoding: "utf8" });
+    const start = stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/)[19];
+    const boot = readFileSync("/proc/sys/kernel/random/boot_id", { encoding: "utf8" }).trim();
+    if (!start || !/^\d+$/.test(start) || !boot) throw new LockRefusal("lock-owner-unavailable");
+    return `${boot}:${start}`;
+  } catch (e) {
+    if (["ENOENT", "ESRCH"].includes((e as NodeJS.ErrnoException).code ?? "")) return null;
+    throw new LockRefusal("lock-owner-unavailable");
+  }
+}
 const MAX_BYTES = 16384;
 const requestSchema = z.object({
   version: z.literal(1), pick_id: z.string().regex(/^[a-zA-Z0-9_-]{1,160}$/), generation: z.number().int().positive(),
@@ -38,11 +64,12 @@ export interface ReminderSources {
   listThreads: () => Promise<ReminderThreadRow[]>;
   sdk: WakeSdk;
   now: () => number;
+  processIdentity?: (pid: number) => string | null;
 }
 const receiptSchema = z.object({
   action: z.string().regex(/^[a-f0-9]{64}$/), pick_id: z.string(), generation: z.number().int().positive(), pacific_date: z.string(),
   status: z.enum(["claimed", "accepted", "queued", "rejected", "unknown", "capped", "expired", "no-route"]),
-  handle: z.string().optional(), attempted: z.boolean(), target: z.string().nullable(), input: z.string(),
+  resolved_date: z.string().optional(), handle: z.string().optional(), attempted: z.boolean(), target: z.string().nullable(), input: z.string(),
 }).strict();
 type Receipt = z.infer<typeof receiptSchema>;
 const journalSchema = z.object({ version: z.literal(1), entries: z.array(receiptSchema).max(3) }).strict();
@@ -58,6 +85,9 @@ export class ReminderConsumer {
   private requests = -1;
   private receipts = -1;
   private lock = -1;
+  private lockKey = "";
+  private lockToken: string | null = null;
+  state = "setup-unavailable";
   private busy = false;
   active = false;
   constructor(dataDir: string, private readonly s: ReminderSources, private readonly uid = process.getuid?.() ?? -1) {
@@ -76,14 +106,21 @@ export class ReminderConsumer {
       this.root = this.keep(openSync(this.path(pluginDir, "followthrough"), C.O_RDONLY | C.O_DIRECTORY | C.O_NOFOLLOW));
       this.privateStat(this.root, true); this.spoolDirs.add(this.root);
       this.requests = this.directory(this.root, "requests"); this.receipts = this.directory(this.root, "receipts");
+      const rootStat = fstatSync(this.root); this.lockKey = `${rootStat.dev}:${rootStat.ino}`;
       this.acquireLock();
-      for (const parent of this.spoolDirs) {
+      // Consumer temporaries exist only here and in receipts/. Never clean requests/:
+      // the producer contract is exclusive 0600 .request-tmp-<uuid>, fsync the file,
+      // then atomic rename to <action-id>.json and fsync requests/. Legacy .tmp-* is
+      // also producer-owned/ambiguous and must be left alone.
+      for (const parent of [this.root, this.receipts]) {
         for (const name of readdirSync(`/proc/self/fd/${parent}`)) {
-          if (/^\.tmp-[a-f0-9-]{36}$/.test(name)) this.remove(parent, name);
+          if (/^\.consumer-tmp-[a-f0-9-]{36}$/.test(name)) {
+            try { this.remove(parent, name); } catch { /* unsafe strays are ignored, never chmodded or followed */ }
+          }
         }
       }
-      this.active = true;
-    } catch { this.close(); }
+      this.active = true; this.state = "ready";
+    } catch (e) { this.state = e instanceof LockRefusal ? e.state : "setup-unavailable"; this.close(); }
   }
   private path(fd: number, name: string) { if (!/^[a-zA-Z0-9_.-]+$/.test(name)) throw Error("unsafe name"); return `/proc/self/fd/${fd}/${name}`; }
   private spoolPath(fd: number, name: string) {
@@ -96,23 +133,50 @@ export class ReminderConsumer {
     return fd;
   }
   private acquireLock() {
-    try {
-      const old = z.object({ pid: z.number().int().positive(), token: z.string() }).strict().parse(this.read(this.root, "consumer.lock"));
-      try { process.kill(old.pid, 0); throw Error("consumer already running"); }
-      catch (e) { if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e; }
-      this.remove(this.root, "consumer.lock");
-    } catch (e) { if (!absent(e)) throw e; }
-    this.write(this.root, "consumer.lock", { pid: process.pid, token: randomUUID() }, true);
-    this.lock = this.file(this.root, "consumer.lock");
+    let snapshot: { text: string; stat: Stats } | null = null;
+    try { snapshot = this.readText(this.root, "consumer.lock", true); } catch (e) { if (!absent(e)) throw e; }
+    if (snapshot) {
+      let value: unknown; try { value = snapshot.stat.size > MAX_BYTES ? null : JSON.parse(snapshot.text); } catch { value = null; }
+      const old = z.object({ pid: z.number().int().positive(), token: z.string(), start: z.string().optional() }).strict().safeParse(value);
+      const young = this.s.now() - snapshot.stat.mtimeMs <= LOCK_INIT_GRACE_MS;
+      if (!old.success) {
+        if (young) throw new LockRefusal("lock-initializing");
+      } else if (old.data.pid === process.pid) {
+        if (heldLocks.get(this.lockKey) === old.data.token) throw new LockRefusal("lock-held");
+      } else {
+        let current: string | null;
+        try { current = (this.s.processIdentity ?? kernelProcessIdentity)(old.data.pid); }
+        catch (e) {
+          // A legacy PID-only file cannot attest ownership, even on EPERM. Give it
+          // the initialization grace; valid new-format metadata errors refuse visibly.
+          if (old.data.start || young) throw new LockRefusal("lock-owner-unavailable");
+          current = null;
+        }
+        if (old.data.start && current === old.data.start) throw new LockRefusal("lock-held");
+        if (!old.data.start && current && young) throw new LockRefusal("lock-initializing");
+      }
+      this.remove(this.root, "consumer.lock", snapshot.stat, snapshot.text);
+    }
+    const start = (this.s.processIdentity ?? kernelProcessIdentity)(process.pid);
+    if (!start) throw new LockRefusal("lock-owner-unavailable");
+    const token = randomUUID();
+    this.write(this.root, "consumer.lock", { pid: process.pid, token, start }, true);
+    this.lock = this.file(this.root, "consumer.lock"); this.lockToken = token;
+    heldLocks.set(this.lockKey, token);
   }
   private sameFile(parent: number, name: string, fd: number): boolean {
     const a = fstatSync(fd), b = lstatSync(this.spoolPath(parent, name));
     return a.dev === b.dev && a.ino === b.ino;
   }
-  private remove(parent: number, name: string) {
+  private remove(parent: number, name: string, expected?: Stats, expectedText?: string) {
     const fd = this.file(parent, name);
     try {
-      if (!this.sameFile(parent, name, fd)) throw Error("spool file changed");
+      const found = fstatSync(fd);
+      if (expected && (found.dev !== expected.dev || found.ino !== expected.ino)) throw new LockRefusal("lock-changed");
+      // Also compare the captured content: a freed inode can be reused between
+      // reading a stale lock and opening the replacement. The open fd pins it now.
+      if (expectedText !== undefined && this.readText(parent, name, true).text !== expectedText) throw new LockRefusal("lock-changed");
+      if (!this.sameFile(parent, name, fd)) throw new LockRefusal("lock-changed");
       unlinkSync(this.spoolPath(parent, name)); fsyncSync(parent);
     } finally { closeSync(fd); }
   }
@@ -132,18 +196,20 @@ export class ReminderConsumer {
     const fd = openSync(this.spoolPath(parent, name), flags | C.O_NOFOLLOW | C.O_NONBLOCK, 0o600);
     try { this.privateStat(fd, false); return fd; } catch (e) { closeSync(fd); throw e; }
   }
-  private read(parent: number, name: string): unknown {
+  private readText(parent: number, name: string, lockSnapshot = false): { text: string; stat: Stats } {
     const fd = this.file(parent, name);
     try {
-      if (this.privateStat(fd, false).size > MAX_BYTES) throw Error("oversize spool input");
+      const stat = this.privateStat(fd, false);
+      if (stat.size > MAX_BYTES && !lockSnapshot) throw Error("oversize spool input");
       const buf = Buffer.alloc(MAX_BYTES + 1); let n = 0, got: number;
       while (n < buf.length && (got = readSync(fd, buf, n, buf.length - n, null)) > 0) n += got;
-      if (n > MAX_BYTES) throw Error("oversize spool input");
-      return JSON.parse(buf.subarray(0, n).toString("utf8"));
+      if (n > MAX_BYTES && !lockSnapshot) throw Error("oversize spool input");
+      return { text: buf.subarray(0, n).toString("utf8"), stat };
     } finally { closeSync(fd); }
   }
+  private read(parent: number, name: string): unknown { return JSON.parse(this.readText(parent, name).text); }
   private write(parent: number, name: string, value: unknown, exclusive = false) {
-    const temp = exclusive ? name : `.tmp-${randomUUID()}`;
+    const temp = exclusive ? name : `.consumer-tmp-${randomUUID()}`;
     const fd = this.file(parent, temp, C.O_WRONLY | C.O_CREAT | C.O_EXCL);
     try { const bytes = Buffer.from(JSON.stringify(value)); let n = 0; while (n < bytes.length) n += writeSync(fd, bytes, n, bytes.length - n); fsyncSync(fd); }
     finally { closeSync(fd); }
@@ -172,8 +238,9 @@ export class ReminderConsumer {
     if (!this.active || this.busy) return;
     this.busy = true;
     try {
-      if (!this.sameFile(this.root, "consumer.lock", this.lock)) { this.active = false; return; }
+      if (!this.sameFile(this.root, "consumer.lock", this.lock)) { this.state = "lock-changed"; this.active = false; return; }
       for (const fd of [this.root, this.requests, this.receipts]) this.privateStat(fd, true);
+      this.state = "ready";
       // Producer handshake from the owner-delivery plan: private readiness.json beside
       // requests/receipts. Design choice: 45 s validity for a 15 s poll. A stopped,
       // unlocked or unsafe consumer cannot refresh it; producers must fail closed on expiry.
@@ -186,7 +253,7 @@ export class ReminderConsumer {
         if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
         try { await this.consume(name); } catch { /* fail closed; no sensitive exception text in logs */ }
       }
-    } catch { /* unsafe directory: report mode until its metadata is repaired */ }
+    } catch { this.state = "spool-unavailable"; /* report mode until repaired */ }
     finally { this.busy = false; }
   }
   private async consume(name: string) {
@@ -220,11 +287,16 @@ export class ReminderConsumer {
       const accepted = (await this.s.sdk.acceptedEvents(prior.target)).some(e => !!e.id && e.text === prior.input);
       const queued = (await this.s.sdk.queuedList(prior.target)).some(e => !!e.id && e.text === prior.input);
       if (queued) { prior.status = "queued"; putJournal(); return; }
-      if (!accepted) {
-        if (!prior.handle || await this.s.sdk.queuedState(prior.target, prior.handle) !== "cancelled") return;
-        prior.status = "rejected";
-      } else prior.status = "accepted";
+      // Design choice: delete/cancel is never permission to re-nag. The real
+      // adapter has only queued/unknown state; missing history stays unresolved.
+      if (!accepted) return;
+      prior.status = "accepted"; prior.resolved_date = pacificDate(this.s.now());
       putJournal();
+    }
+    // A prior-day send observed landing today consumes today's slot as well.
+    // Persist that observation in the non-prunable journal before refusing today.
+    if (entries.some(e => e.resolved_date === r.pacific_date)) {
+      terminal("capped"); return;
     }
     const proof = await this.proof(r);
     if (!proof) { terminal("no-route"); return; }
@@ -236,7 +308,7 @@ export class ReminderConsumer {
     const input = `[followthrough ${action}] Advisory: selected option ${JSON.stringify(last.pick.option)} still needs outcome review. Read the authenticated action: bb home pick-action --pick ${r.pick_id}`;
     if (input.length > 2048) { terminal("no-route"); return; }
     const receipt: Receipt = { ...base, status: "claimed", attempted: true, target: last.target, input };
-    if (!this.sameFile(this.root, "consumer.lock", this.lock)) { this.active = false; return; }
+    if (!this.sameFile(this.root, "consumer.lock", this.lock)) { this.state = "lock-changed"; this.active = false; return; }
     this.write(this.receipts, name, receipt, true); // exclusive claim, fsync file AND directory before any SDK call
     entries.push(receipt); putJournal();
     try {
@@ -247,12 +319,14 @@ export class ReminderConsumer {
       // Only an affirmative transport refusal is definitive; timeouts and all other exceptions are ambiguous.
       receipt.status = (e as NodeJS.ErrnoException)?.code === "ECONNREFUSED" ? "rejected" : "unknown";
     }
+    if (receipt.status === "accepted") receipt.resolved_date = pacificDate(this.s.now());
     this.write(this.receipts, name, receipt); putJournal();
   }
   close() {
     this.active = false;
     if (this.lock >= 0) {
-      try { if (this.sameFile(this.root, "consumer.lock", this.lock)) this.remove(this.root, "consumer.lock"); } catch { /* never remove another consumer's lock */ }
+      try { if (this.sameFile(this.root, "consumer.lock", this.lock)) this.remove(this.root, "consumer.lock", fstatSync(this.lock)); } catch { /* never remove another consumer's lock */ }
+      if (heldLocks.get(this.lockKey) === this.lockToken) heldLocks.delete(this.lockKey);
       closeSync(this.lock); this.lock = -1;
     }
     for (const fd of this.dirs.reverse()) closeSync(fd);
@@ -275,12 +349,18 @@ export function registerReminderService(host: ReminderHost, sources: () => Remin
   host.background.service("home-followthrough-reminders", {
     async start(signal) {
       let consumer: ReminderConsumer | null = null;
+      let lastState: string | null = null;
       try {
         while (!signal.aborted) {
           const s = sources();
           if (consumer && !consumer.active) { consumer.close(); consumer = null; }
           if (!consumer && s) consumer = new ReminderConsumer(dataDir, s);
           if (consumer) await consumer.tick();
+          const state = consumer?.state ?? "waiting-store";
+          if (state !== lastState) {
+            lastState = state;
+            try { host.log?.info(`followthrough reminders: state=${state}`); } catch { /* diagnostic only */ }
+          }
           if (signal.aborted) break;
           await new Promise<void>(resolve => {
             const done = () => { clearTimeout(timer); signal.removeEventListener("abort", done); resolve(); };
