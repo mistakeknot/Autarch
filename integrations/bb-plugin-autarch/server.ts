@@ -359,15 +359,26 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     readPick: id => readReminderPick(parts!.svc.store, id),
     sdk: deps.sdk ?? sdkAdapter(bb.sdk.threads as unknown as ThreadsLike),
     now: () => Date.now(),
-    listThreads: async () => {
+    listThreads: async owner => {
       // Reminder-only projection, fresh on every proof; ordinary wake/notice cache stays unchanged.
       // Design choice: at most 1000 rows, plus one overflow witness, per proof.
       // A single bounded query has no offset drift. An overflow proves the list
       // incomplete, so it must never be used to select a unique successor.
       const rows = await bb.sdk.threads.list({ includeHidden: false, limit: 1001 }) as unknown as ReminderThreadRow[];
       if (rows.length > 1000) {
+        const matches = rows.filter(row => row.id === owner && row.visibility !== "hidden");
+        // If the owner fell outside the page, look it up by ID. A live owner
+        // needs no successor proof, even when the list is incomplete.
+        let original = matches.length === 1 ? matches[0] : undefined;
+        if (matches.length === 0) {
+          try { original = await bb.sdk.threads.get({ threadId: owner }) as ReminderThreadRow | undefined; }
+          catch { /* an incomplete list still cannot prove a successor */ }
+        }
+        if (original?.id === owner && original.visibility !== "hidden" && original.archivedAt === null && original.deletedAt === null) {
+          return [reminderThreadRow(original)];
+        }
         try { bb.log.info("followthrough reminders: thread read cap exceeded; no send"); } catch { /* diagnostic only */ }
-        return [];
+        return null;
       }
       return rows.filter(row => row.visibility !== "hidden").map(reminderThreadRow);
     },

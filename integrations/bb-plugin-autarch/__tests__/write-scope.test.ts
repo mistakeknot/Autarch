@@ -47,6 +47,7 @@ function reminderWriteAllowed(use: ReturnType<typeof fsWriteUses>[number]): bool
   if (use.api === "fsyncSync") return a.length === 1 && ["fd", "parent"].includes(a[0]);
   if (use.api === "renameSync") return a[0] === "this.spoolPath(parent,temp)" && a[1] === "this.spoolPath(parent,name)";
   if (use.api === "unlinkSync") return a[0] === "this.spoolPath(parent,name)";
+  if (use.api === "rmdirSync") return a[0] === "this.spoolPath(parent,temp)";
   return false;
 }
 const RDONLY_PLUS_FSYNC = new Set(["backup.ts"]);

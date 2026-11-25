@@ -2,8 +2,18 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, symlinkSync, rmSync, readdirSync, utimesSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { ReminderConsumer, reminderActionId, reminderDataDir, parseReminderRequest, type ReminderPick } from "../followthrough-reminder.js";
 import { FakeSdk } from "./wakes-helpers.js";
+const unlinkHook = vi.hoisted(() => ({ before: undefined as (() => void) | undefined }));
+vi.mock("node:fs", async importOriginal => {
+  const fs = await importOriginal<typeof import("node:fs")>();
+  return { ...fs, unlinkSync(path: Parameters<typeof fs.unlinkSync>[0]) {
+    if (String(path).endsWith("/consumer.lock")) unlinkHook.before?.();
+    fs.unlinkSync(path);
+  } };
+});
 let dir: string, now: number, sdk: FakeSdk, pick: ReminderPick, consumer: ReminderConsumer;
 const request = (date = "2026-11-25") => ({ version: 1, pick_id: "pick_fixture", generation: 1, revision: "revision_fixture", pacific_date: date, expires_at: new Date(now + 3600000).toISOString(), reason: "overdue-outcome" });
 const paths = () => join(dir, "plugins/autarch/followthrough");
@@ -65,9 +75,11 @@ it("unknown acceptance and missing history never grant a later retry", async () 
 it("positive exact accepted evidence reconciles unknown before a later advisory", async () => {
   const send = vi.spyOn(sdk, "send").mockRejectedValueOnce(Error("ambiguous")); publish(); await consumer.tick();
   const input = send.mock.calls[0]![0].input;
-  vi.spyOn(sdk, "acceptedEvents").mockResolvedValue([{ id: "event_fixture", text: input }]);
-  now += 86400000; publish(request("2026-11-26")); await consumer.tick(); expect(send).toHaveBeenCalledTimes(1);
-  now += 86400000; publish(request("2026-11-27")); await consumer.tick(); expect(send).toHaveBeenCalledTimes(2);
+  // November 26 UTC is still November 25 in Pacific time.
+  vi.spyOn(sdk, "acceptedEvents").mockResolvedValue([{ id: "event_fixture", text: input, createdAt: Date.parse("2026-11-26T07:59:59Z") }]);
+  now += 86400000; const id = publish(request("2026-11-26")); await consumer.tick();
+  expect(result(id)).toMatchObject({ status: "accepted", attempted: true });
+  expect(send).toHaveBeenCalledTimes(2);
 });
 it("three lifetime attempts survive restart and action receipt pruning", async () => {
   const send = vi.spyOn(sdk, "send").mockRejectedValue({ code: "ECONNREFUSED" });
@@ -236,10 +248,67 @@ it("takeover compares the parsed inode and cannot unlink a newer live holder", (
   try { expect(consumer.active).toBe(false); expect(holder?.active).toBe(true); expect(JSON.parse(readFileSync(join(paths(), "consumer.lock"), "utf8")).token).toBe(token); }
   finally { holder?.close(); }
 });
+it("serializes stale takeover when a rival reaches the stale lock's final unlink", () => {
+  abandonedLock(JSON.stringify({ pid: 2147483647, token: "fixture" }));
+  let rival: ReminderConsumer | undefined;
+  unlinkHook.before = () => {
+    unlinkHook.before = undefined;
+    rival = open();
+  };
+  try {
+    consumer = open();
+    expect(rival).toBeDefined();
+    expect([consumer, rival!].filter(c => c.active)).toHaveLength(1);
+  } finally {
+    unlinkHook.before = undefined;
+    rival?.close();
+  }
+});
+it("recovers a dead takeover guard and leaves a tombstone that cannot be overwritten", () => {
+  abandonedLock(JSON.stringify({ pid: 2147483647, token: "fixture" }));
+  const guardName = ".consumer-takeover";
+  const guard = join(paths(), guardName);
+  const owner = JSON.stringify({ pid: 2147483647, token: "fixture", start: "fixture-start" });
+  mkdirSync(guard, { mode: 0o700 });
+  writeFileSync(join(guard, "owner.json"), owner, { mode: 0o600 });
+  consumer = open();
+  expect(consumer.active).toBe(true);
+  const guards = readdirSync(paths()).filter(name => name.startsWith(guardName));
+  expect(guards).toEqual([expect.stringMatching(/^\.consumer-takeover-retired-[a-f0-9]{64}$/)]);
+  expect(readFileSync(join(paths(), guards[0]!, "owner.json"), "utf8")).toBe(owner);
+});
+it("keeps the stale lock if the new consumer cannot read its own identity", () => {
+  const stale = JSON.stringify({ pid: 2147483647, token: "fixture" });
+  abandonedLock(stale);
+  consumer = new ReminderConsumer(dir, { readPick: () => pick, listThreads: async () => rows(), sdk, now: () => now, processIdentity: () => null });
+  expect(consumer.state).toBe("lock-owner-unavailable");
+  expect(readFileSync(join(paths(), "consumer.lock"), "utf8")).toBe(stale);
+});
+it.each([{}, { future: true }])("protects an old live child lock with extra metadata %j", async extra => {
+  const child = spawn(process.execPath, ["-e", "process.stdin.resume()"], { stdio: ["pipe", "ignore", "ignore"] });
+  try {
+    await once(child, "spawn");
+    // The fixture process has a single-word comm, so split from field 1 and read field 22 directly.
+    const startTicks = readFileSync(`/proc/${child.pid}/stat`, "utf8").split(/\s+/)[21];
+    const boot = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+    expect(startTicks).toMatch(/^\d+$/);
+    const lock = JSON.stringify({ pid: child.pid, token: "fixture", start: `${boot}:${startTicks}`, ...extra });
+    abandonedLock(lock, 60001);
+    consumer = open();
+    expect(consumer.state).toBe("lock-held");
+    expect(readFileSync(join(paths(), "consumer.lock"), "utf8")).toBe(lock);
+  } finally {
+    if (child.pid && child.exitCode === null && child.signalCode === null) {
+      const exit = once(child, "exit");
+      child.kill();
+      await exit;
+    }
+  }
+});
 it("a late earlier-day queue acceptance uses today's slot across restart and pruning", async () => {
   sdk.fallback = { kind: "queue" }; publish(); await consumer.tick();
-  now += 86400000; const id = publish(request("2026-11-26")); sdk.dispatch(sdk.sent.length ? "q1" : "missing");
-  await consumer.tick(); expect(sdk.sent).toHaveLength(1); expect(result(id)).toMatchObject({ status: "capped", attempted: false });
+  now += 86400000; const id = publish(request("2026-11-26")); sdk.dispatch("q1", now);
+  await consumer.tick(); expect(sdk.sent).toHaveLength(1); expect(result(id)).toMatchObject({ status: "day-used", attempted: false });
   for (const file of readdirSync(join(paths(), "receipts"))) if (/^[a-f0-9]{64}\.json$/.test(file)) rmSync(join(paths(), "receipts", file));
   consumer.close(); consumer = open(); await consumer.tick(); expect(sdk.sent).toHaveLength(1);
   now += 86400000; publish(request("2026-11-27")); await consumer.tick(); expect(sdk.sent).toHaveLength(2);
@@ -247,7 +316,7 @@ it("a late earlier-day queue acceptance uses today's slot across restart and pru
 it("an SDK response returning the next day also consumes the resolution day's slot", async () => {
   vi.spyOn(sdk, "send").mockImplementation(async () => { now += 86400000; return { delivery: "sent", messageId: "event_fixture" }; });
   publish(); await consumer.tick(); const id = publish(request("2026-11-26")); await consumer.tick();
-  expect(sdk.send).toHaveBeenCalledTimes(1); expect(result(id).status).toBe("capped");
+  expect(sdk.send).toHaveBeenCalledTimes(1); expect(result(id).status).toBe("day-used");
 });
 it("deliberate reminder cancellation never becomes permission to re-nag", async () => {
   sdk.fallback = { kind: "queue" }; publish(); await consumer.tick(); sdk.cancel("q1");

@@ -70,10 +70,10 @@ export class FakeSdk implements WakeSdk {
     this.rows.set(row.id, row);
     return row;
   }
-  dispatch(id: string): void {
+  dispatch(id: string, createdAt?: number): void {
     const r = this.rows.get(id)!;
     r.state = "dispatched";
-    this.accepted.push({ id: `ev${++this.n}`, threadId: r.threadId, text: r.text });
+    this.accepted.push({ id: `ev${++this.n}`, threadId: r.threadId, text: r.text, ...(createdAt === undefined ? {} : { createdAt }) });
   }
   cancel(id: string): void {
     this.rows.get(id)!.state = "cancelled";
@@ -97,6 +97,6 @@ export class FakeSdk implements WakeSdk {
   }
   async acceptedEvents(threadId: string): Promise<AcceptedEvent[]> {
     if (!this.caps.events) throw new Error("unsupported");
-    return this.accepted.filter((e) => e.threadId === threadId).map((e) => ({ id: e.id, text: e.text }));
+    return this.accepted.filter((e) => e.threadId === threadId).map(({ threadId: _, ...event }) => event);
   }
 }

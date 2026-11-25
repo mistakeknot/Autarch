@@ -20,6 +20,7 @@ export interface QueuedRow {
 export interface AcceptedEvent {
   id: string;
   text: string;
+  createdAt?: number;
 }
 export type QueuedRowState = "queued" | "dispatched" | "cancelled" | "unknown";
 
@@ -612,8 +613,8 @@ export function sdkAdapter(threads: ThreadsLike): WakeSdk {
           limit: threadEventLimit(THREAD_EVENT_PAGE_CAP),
           order: "desc",
           ...(beforeSeq !== undefined ? { beforeSeq: String(beforeSeq) } : {}),
-        })) as { id: string; seq?: number; data?: { input?: unknown } }[];
-        for (const r of rows) out.push({ id: r.id, text: textOf(r.data?.input) });
+        })) as { id: string; seq?: number; createdAt?: number; data?: { input?: unknown } }[];
+        for (const r of rows) out.push({ id: r.id, text: textOf(r.data?.input), ...(r.createdAt === undefined ? {} : { createdAt: r.createdAt }) });
         const last = rows[rows.length - 1];
         if (rows.length < THREAD_EVENT_PAGE_CAP || typeof last?.seq !== "number") break;
         beforeSeq = last.seq;
