@@ -271,3 +271,6 @@ it("a matching foreign boot/start identity stays locked even after the grace per
   consumer = new ReminderConsumer(dir, { readPick: () => pick, listThreads: async () => rows(), sdk, now: () => now, processIdentity: () => "fixture-current-start" });
   expect(consumer.active).toBe(false); expect(consumer.state).toBe("lock-held");
 });
+it("an oversized broken lock ages out without accepting or fully reading it", () => {
+  abandonedLock("{".repeat(16385), 60001); consumer = open(); expect(consumer.active).toBe(true);
+});
