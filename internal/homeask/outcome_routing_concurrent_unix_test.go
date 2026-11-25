@@ -22,27 +22,12 @@ func TestOutcomeConcurrentHeldReleasesRouteOnce(t *testing.T) {
 		t.Fatalf("expected exactly one replay of the existing card, got %+v", cards)
 	}
 	assertOneHeldRoutingComment(t, bb, req, cards)
+	assertHeldDeliveries(t, f, card, req.Key)
 }
 
 func TestOutcomeConcurrentHeldEntriesForSameCardRouteOnce(t *testing.T) {
 	bb, f, req, card := heldOutcomeWithInterruptedRouting(t)
-	// The second delivery was attempted under a different filing key, with
-	// its creation using the existing card's canonical Request key.
-	otherKey := "fixture-other"
-	func() {
-		state, path, unlock, err := f.openState()
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer unlock()
-		entry := state[req.Key]
-		entry.Request.Key = otherKey
-		entry.CreationKey = req.Key
-		state[otherKey] = entry
-		if err := saveFilingState(path, state); err != nil {
-			t.Fatal(err)
-		}
-	}()
+	otherKey := addHeldEntryForSameCard(t, f, req.Key)
 
 	lockPath, err := f.lockPath(req.Key)
 	if err != nil {
@@ -55,13 +40,75 @@ func TestOutcomeConcurrentHeldEntriesForSameCardRouteOnce(t *testing.T) {
 		}
 	}
 	assertOneHeldRoutingComment(t, bb, req, cards)
+	assertHeldDeliveries(t, f, card, req.Key, otherKey)
+}
+
+func TestOutcomeHeldEntriesRecoverRoutingAfterLostReply(t *testing.T) {
+	bb, f, req, card := heldOutcomeWithInterruptedRouting(t)
+	otherKey := addHeldEntryForSameCard(t, f, req.Key)
+	ctx := t.Context()
+	run := f.Run
+	f.Run = func(ctx context.Context, env []string, args ...string) BBResult {
+		result := run(ctx, env, args...)
+		if len(args) >= 2 && args[0] == "tasks" && args[1] == "comment" && !result.failed() {
+			return BBResult{Err: errors.New("fixture reply lost")}
+		}
+		return result
+	}
+	_, _, err := f.releaseOne(ctx, req.Key)
+	f.Run = run
+	if !errors.Is(err, ErrOutcomeUnknown) || bb.count("tasks", "comment") != 1 ||
+		len(bb.tasks[0].Comments) != 1 || AskingThread(bb.tasks[0].Comments) != req.Thread {
+		t.Fatalf("expected one accepted comment and an uncertain reply, got %v, calls %v", err, bb.calls)
+	}
+
+	var cards [2]CardResult
+	for i, key := range []string{req.Key, otherKey} {
+		result, _, err := f.releaseOne(ctx, key)
+		if err != nil || !result.Replay || result.ID != card.ID || result.Key != req.Key {
+			t.Fatalf("expected held entry %d to recover the existing card, got %+v, %v", i+1, result, err)
+		}
+		cards[i] = result
+	}
+	assertOneHeldRoutingComment(t, bb, req, cards)
+	assertHeldDeliveries(t, f, card, req.Key, otherKey)
+}
+
+func addHeldEntryForSameCard(t *testing.T, f *CardFiler, requestKey string) string {
+	t.Helper()
+	state, path, unlock, err := f.openState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	// The second delivery was attempted under a different filing key, with
+	// its creation using the existing card's canonical Request key.
+	otherKey := "fixture-other"
+	entry := state[requestKey]
+	entry.Request.Key = otherKey
+	entry.CreationKey = requestKey
+	state[otherKey] = entry
+	if err := saveFilingState(path, state); err != nil {
+		t.Fatal(err)
+	}
+	return otherKey
+}
+
+func assertHeldDeliveries(t *testing.T, f *CardFiler, card CardResult, keys ...string) {
+	t.Helper()
 	state, _, unlock, err := f.openState()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
-	if entry := state[otherKey]; entry.Held || entry.DeliveredCard != card.ID || entry.DeliveredKey != req.Key {
-		t.Fatalf("second held entry did not record the shared card: %+v", entry)
+	if len(state) != len(keys) {
+		t.Fatalf("expected %d delivery records, got %d", len(keys), len(state))
+	}
+	for _, key := range keys {
+		entry := state[key]
+		if entry.Held || entry.DeliveredCard != card.ID || (key != card.Key && entry.DeliveredKey != card.Key) {
+			t.Fatalf("held entry %s did not record the delivery: %+v", key, entry)
+		}
 	}
 }
 
@@ -81,7 +128,7 @@ func heldOutcomeWithInterruptedRouting(t *testing.T) (*memBB, *CardFiler, CardRe
 		t.Fatalf("expected a held card with interrupted routing, got %+v, %v", card, err)
 	}
 	*capability = BBResult{Stdout: []byte(`{"schema":1}`)}
-	// Keep only the calls made by the overlapping releases.
+	// Keep only the calls made during recovery.
 	bb.calls = nil
 	return bb, f, req, card
 }
@@ -104,45 +151,74 @@ func runOverlappingHeldReleases(t *testing.T, f *CardFiler, firstKey, secondKey,
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	comments := make(chan struct{}, 2)
-	finishComment := make(chan struct{})
-	resume := sync.OnceFunc(func() { close(finishComment) })
-	var workers sync.WaitGroup
-	defer func() {
-		resume()
-		workers.Wait()
-	}()
-	first := *f
-	first.Run = func(ctx context.Context, env []string, args ...string) BBResult {
-		if len(args) >= 2 && args[0] == "tasks" && args[1] == "comment" {
-			comments <- struct{}{}
-			<-finishComment
-		}
-		return f.Run(ctx, env, args...)
-	}
-	second := first
-	contention := make(chan error, 2)
-	secondDeliveryPath := filepath.Join(f.StateDir, "delivery-"+secondKey+".lock")
-	second.testBeforeReleaseLock = func(path string) {
-		switch path {
-		case waitedPath:
-			contention <- requireBusyLock(path)
-		case secondDeliveryPath:
-			// Distinct entries own separate delivery locks before meeting at the Request lock.
-		default:
-			contention <- fmt.Errorf("reached %s first", filepath.Base(path))
-		}
-	}
 	type attempt struct {
 		card CardResult
 		err  error
 	}
+	comments := make(chan struct{}, 2)
+	finishComment := make(chan struct{})
+	resume := sync.OnceFunc(func() { close(finishComment) })
+	var workers []<-chan attempt
+	defer func() {
+		resume()
+		// A worker may be stuck in flock, which cannot be canceled by ctx.
+		for _, done := range workers {
+			select {
+			case <-done:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	contention := make(chan error, 2)
+	reportContention := func(err error) {
+		select {
+		case contention <- err:
+		case <-ctx.Done():
+		}
+	}
+	first := *f
+	first.Run = func(ctx context.Context, env []string, args ...string) BBResult {
+		if len(args) >= 2 && args[0] == "tasks" && args[1] == "comment" {
+			select {
+			case comments <- struct{}{}:
+			case <-ctx.Done():
+				return BBResult{Err: ctx.Err()}
+			}
+			select {
+			case <-finishComment:
+			case <-ctx.Done():
+				return BBResult{Err: ctx.Err()}
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return BBResult{Err: err}
+		}
+		return f.Run(ctx, env, args...)
+	}
+	second := first
+	secondDeliveryPath := filepath.Join(f.StateDir, "delivery-"+secondKey+".lock")
+	second.testBeforeReleaseLock = func(path string) {
+		switch path {
+		case waitedPath:
+			reportContention(requireBusyLock(path))
+		case secondDeliveryPath:
+			// Distinct entries own separate delivery locks before meeting at the Request lock.
+		default:
+			reportContention(fmt.Errorf("reached %s first", filepath.Base(path)))
+		}
+	}
 	start := func(filer *CardFiler, key string) <-chan attempt {
 		done := make(chan attempt, 1)
-		workers.Go(func() {
+		workers = append(workers, done)
+		go func() {
+			defer close(done)
 			card, _, err := filer.releaseOne(ctx, key)
-			done <- attempt{card, err}
-		})
+			select {
+			case done <- attempt{card, err}:
+			case <-ctx.Done():
+			}
+		}()
 		return done
 	}
 	firstDone := start(&first, firstKey)
@@ -151,7 +227,7 @@ func runOverlappingHeldReleases(t *testing.T, f *CardFiler, firstKey, secondKey,
 	case result := <-firstDone:
 		t.Fatalf("first release finished before routing: %+v", result)
 	case <-ctx.Done():
-		t.Fatal("first release did not reach routing")
+		t.Fatalf("first release did not reach routing: %v", ctx.Err())
 	}
 
 	secondDone := start(&second, secondKey)
@@ -173,7 +249,10 @@ func runOverlappingHeldReleases(t *testing.T, f *CardFiler, firstKey, secondKey,
 	var cards [2]CardResult
 	for i, done := range []<-chan attempt{firstDone, secondDone} {
 		select {
-		case result := <-done:
+		case result, ok := <-done:
+			if !ok {
+				t.Fatalf("release %d did not finish before %v", i+1, ctx.Err())
+			}
 			if result.err != nil {
 				t.Fatalf("release %d: %v", i+1, result.err)
 			}
