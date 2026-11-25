@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { ReminderConsumer, reminderActionId, reminderDataDir, parseReminderRequest, registerReminderService, type ReminderPick, type ReminderSources } from "../followthrough-reminder.js";
+import { ReminderConsumer, reminderActionId, reminderDataDir, parseReminderRequest, type ReminderPick, type ReminderSources } from "../followthrough-reminder.js";
 import { FakeSdk } from "./wakes-helpers.js";
 const unlinkHook = vi.hoisted(() => ({ before: undefined as (() => void) | undefined }));
 const renameHook = vi.hoisted(() => ({ before: undefined as ((from: string, to: string) => void) | undefined }));
