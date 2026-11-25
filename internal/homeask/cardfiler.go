@@ -333,9 +333,8 @@ func (r CardRequest) wireAsk() (map[string]any, error) {
 
 // PrepareExpectedOutcomeAuthoring supplies defaults for omitted deadlines in
 // an ask file. The card wire always carries an explicit deadline.
-func PrepareExpectedOutcomeAuthoring(raw []byte, ask map[string]any) error {
-	_, err := prepareOutcomeMetadata(ask, raw)
-	return err
+func PrepareExpectedOutcomeAuthoring(raw []byte, ask map[string]any) (bool, error) {
+	return prepareOutcomeMetadata(ask, raw)
 }
 
 // prepareOutcomeMetadata validates and canonicalizes the optional fields before
@@ -368,7 +367,9 @@ func prepareOutcomeMetadata(ask map[string]any, askFile []byte) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("%w: options: %v", ErrInvalid, err)
 		}
-		_ = json.Unmarshal(raw, &options) // Description checks the option array shape.
+		var decoded []any
+		_ = json.Unmarshal(raw, &decoded) // Description checks the option array shape.
+		options = decoded
 		if scalarSource == nil {
 			scalarSource = raw
 		}
@@ -423,8 +424,12 @@ func (f *CardFiler) PreflightExpectedOutcome(ctx context.Context, req CardReques
 	if err != nil || !participates {
 		return err
 	}
+	return f.checkExpectedOutcomeReader(ctx, req.Thread)
+}
+
+func (f *CardFiler) checkExpectedOutcomeReader(ctx context.Context, thread string) error {
 	var caps map[string]json.RawMessage
-	if err := f.call(ctx, req.Thread, &caps, "home", "capabilities", "--json"); err != nil {
+	if err := f.call(ctx, thread, &caps, "home", "capabilities", "--json"); err != nil {
 		return err
 	}
 	var schema int

@@ -379,6 +379,7 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				}
 			}
 			var ask map[string]any
+			var authorsOutcome bool
 			if askFile == "" {
 				ask = moveOnlyAsk(title, move)
 			} else {
@@ -403,18 +404,12 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				if ask == nil {
 					return &usageError{"--ask-file is not a JSON object: got null"}
 				}
-				if err := homeask.PrepareExpectedOutcomeAuthoring(raw, ask); err != nil {
+				authorsOutcome, err = homeask.PrepareExpectedOutcomeAuthoring(raw, ask)
+				if err != nil {
 					return err
 				}
 			}
 			filer := newCardFiler()
-			// --check never reaches submission. Evidence imports can write files
-			// before submission, so check reader capability before importing them.
-			if checkOnly || ask["evidence"] != nil {
-				if err := filer.PreflightExpectedOutcome(cmd.Context(), homeask.CardRequest{Ask: ask, Thread: thread}); err != nil {
-					return err
-				}
-			}
 			if secret != nil {
 				deliveryType := cardType
 				if prFlag != "" || homeask.IsMergeAsk(ask) {
@@ -428,7 +423,14 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 					return &usageError{err.Error()}
 				}
 			}
-			if err := homeask.PrepareEvidence(ask); err != nil {
+			var saveEvidence func() error
+			var err error
+			if authorsOutcome {
+				saveEvidence, err = homeask.StageEvidence(ask)
+			} else {
+				err = homeask.PrepareEvidence(ask)
+			}
+			if err != nil {
 				return &usageError{err.Error()}
 			}
 			if cmd.Flags().Changed("urgency") {
@@ -493,7 +495,6 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 				failures = append(failures, &usageError{"give exactly one of --owner-thread or --vizier-owned"})
 			}
 			req := homeask.CardRequest{Cujgel: cujgel, Secret: secret, Project: project, Title: title, Blocks: blocks, Ask: ask, Move: move, Key: request, Thread: thread, Owner: ownerThread, VizierOwned: vizierOwned, Type: cardType, UI: ui, Attachments: attachments, Urgent: urgent, NonBlocking: nonBlocking, KeepList: keepList}
-			var err error
 			if rootRun != "" {
 				if req.RootRun, err = parseRootRunFlag(rootRun); err != nil {
 					return err
@@ -511,6 +512,11 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			}
 			if err := errors.Join(failures...); err != nil {
 				return err
+			}
+			if saveEvidence != nil {
+				if err := saveEvidence(); err != nil {
+					return &usageError{err.Error()}
+				}
 			}
 			if checkOnly {
 				fmt.Fprintln(cmd.OutOrStdout(), `{"checked":true}`)

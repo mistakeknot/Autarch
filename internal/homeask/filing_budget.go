@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -200,9 +201,6 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 	if _, _, err := r.Description(); err != nil {
 		return CardResult{}, err
 	}
-	if err := f.PreflightExpectedOutcome(ctx, r); err != nil {
-		return CardResult{}, err
-	}
 	if err := CheckStopped(r.Ask); err != nil {
 		return CardResult{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
@@ -324,6 +322,9 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 			return result, e
 		}
 		lookupUnlock()
+	}
+	if err := f.PreflightExpectedOutcome(ctx, r); err != nil {
+		return CardResult{}, err
 	}
 	if f.pilot("linkcheck") {
 		if v := f.checkLinks(ctx, r); len(v) > 0 {
@@ -614,9 +615,6 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	}
 	unlock()
 	r := e.Request
-	if err := f.PreflightExpectedOutcome(ctx, r); err != nil {
-		return CardResult{}, r.Type, err
-	}
 	projectAttention := func(err error) (CardResult, error) {
 		if !errors.Is(err, ErrProjectNotFound) {
 			return CardResult{}, err
@@ -653,6 +651,22 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 	}
 	if weeklyHold(f.clock(), r) {
 		return CardResult{}, "", nil
+	}
+	authorsOutcome, err := prepareOutcomeMetadata(maps.Clone(r.Ask), nil)
+	if err != nil {
+		return CardResult{}, r.Type, err
+	}
+	if authorsOutcome {
+		if e.Attempted {
+			// Recover an already-routed card before requiring support for a new write.
+			delivered, err := f.resolveTerminal(ctx, key, nil)
+			if err != nil || delivered.ID != "" {
+				return delivered, r.Type, err
+			}
+		}
+		if err := f.checkExpectedOutcomeReader(ctx, r.Thread); err != nil {
+			return CardResult{}, r.Type, err
+		}
 	}
 	// Prove the destination exists before reserving an attempt. In particular,
 	// unchanged missing-project retries must not toggle Attempted on every run.
@@ -790,6 +804,8 @@ func (f *CardFiler) CancelHeld(key string) error {
 
 // resolveTerminal completes a known delivery, or retires a proven absent one.
 // Finding the card supersedes a refusal based on stale project or ruling state.
+// A nil reason recovers proven delivery after an uncertain write and leaves an
+// undelivered request held. A terminal error also permits retiring an absent card.
 func (f *CardFiler) resolveTerminal(ctx context.Context, key string, reason error) (CardResult, error) {
 	current, _, done, readErr := f.openState()
 	if readErr != nil {
@@ -833,6 +849,10 @@ func (f *CardFiler) resolveTerminal(ctx context.Context, key string, reason erro
 		}
 		delivered = candidate
 	}
+	if reason == nil && (delivered == nil || (!removed && e.DeliveredCard == "" &&
+		!e.Request.Pull && AskingThread(delivered.Comments) != e.Request.routeThread())) {
+		return CardResult{}, nil
+	}
 	state, path, unlock, err := f.openState()
 	if err != nil {
 		return CardResult{}, err
@@ -843,6 +863,19 @@ func (f *CardFiler) resolveTerminal(ctx context.Context, key string, reason erro
 	result := CardResult{}
 	if delivered != nil {
 		entry.DeliveredCard = delivered.ID
+		if reason == nil {
+			if delivered.Req.Key != key {
+				entry.DeliveredKey = delivered.Req.Key
+				entry.DeliveredProject = delivered.ProjectID
+			}
+			if f.anyPilot() && entry.DeliveredAt == "" {
+				entry.DeliveredAt = entry.DeliveryPendingAt
+				if _, err := time.Parse(time.RFC3339Nano, entry.DeliveredAt); err != nil {
+					entry.DeliveredAt = f.clock().Format(time.RFC3339Nano)
+				}
+			}
+			entry.DeliveryPendingAt = ""
+		}
 		if removed {
 			entry.TerminalReason = fmt.Sprintf("delivered-then-removed: card %s", delivered.ID)
 		}
