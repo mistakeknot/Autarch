@@ -134,6 +134,13 @@ export class ReminderConsumer {
     this.busy = true;
     try {
       for (const fd of [this.root, this.requests, this.receipts]) this.privateStat(fd, true);
+      // Producer handshake from the owner-delivery plan: private readiness.json beside
+      // requests/receipts. Design choice: 45 s validity for a 15 s poll. A stopped,
+      // unlocked or unsafe consumer cannot refresh it; producers must fail closed on expiry.
+      try { this.read(this.root, "readiness.json"); } catch (e) { if (!absent(e)) throw e; }
+      const readyAt = this.s.now();
+      this.write(this.root, "readiness.json", { version: 1, uid: this.uid,
+        ready_at: new Date(readyAt).toISOString(), expires_at: new Date(readyAt + 45000).toISOString() });
       // Bound work per tick; a malformed item cannot authorize a send or starve another item.
       for (const name of readdirSync(`/proc/self/fd/${this.requests}`).slice(0, 1000)) {
         if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;

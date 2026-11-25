@@ -207,7 +207,7 @@ export function readReminderPick(store: Store, pickId: string): import("./follow
       const wake = wakes.length === 1 ? wakes[0]! : null;
       const attempts = wake ? store.attempts(wake.id) : [];
       const cancelled = attempts.some(a => a.handle && store.queueEvent(a.handle)?.type === "cancelled");
-      const confirmed = attempts.some(a => a.state === "delivered" && !!a.evidence
+      const confirmed = attempts.some(a => a.state === "delivered" && !!a.evidence && a.evidence !== "sent" && a.evidence !== a.handle
         || a.handle && store.queueEvent(a.handle)?.type === "dispatched");
       const nondelivery = attempts.length > 0 && attempts.every(a => a.state === "not-delivered");
       const latest = snapshot.generations.at(-1);
