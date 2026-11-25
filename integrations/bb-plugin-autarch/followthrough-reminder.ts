@@ -8,9 +8,16 @@ import type { WakeSdk } from "./wakes.js";
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 // Design choice: allow an interrupted exclusive lock creation 60 seconds to finish.
 const LOCK_INIT_GRACE_MS = 60_000;
+// Keep takeover leftovers for at least a day before considering cleanup.
+const TAKEOVER_CLEANUP_AGE_MS = 86_400_000;
+const TAKEOVER_GATE = ".consumer-takeover";
+const TAKEOVER_STAGE = /^\.consumer-takeover-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+const TAKEOVER_RETIRED = /^\.consumer-takeover-retired-[a-f0-9]{64}$/;
 const holderKey = Symbol.for("autarch.followthrough.lock-holders");
+const failedGateKey = Symbol.for("autarch.followthrough.failed-takeover-releases");
 const processState = globalThis as typeof globalThis & { [key: symbol]: Map<string, string> | undefined };
 const heldLocks = processState[holderKey] ??= new Map<string, string>();
+const failedGateReleases = processState[failedGateKey] ??= new Map<string, string>();
 class LockRefusal extends Error {
   constructor(readonly state: string) { super(state); }
 }
@@ -35,6 +42,8 @@ function kernelProcessIdentity(pid: number): string | null {
 const MAX_BYTES = 16384;
 const lockOwnerSchema = z.object({ pid: z.number().int().positive() });
 const lockSchema = lockOwnerSchema.extend({ token: z.string(), start: z.string().optional() }).strict();
+type TakeoverOwner = { pid: number; token: string; start: string };
+type LockSnapshot = { text: string; stat: Stats };
 const requestSchema = z.object({
   version: z.literal(1), pick_id: z.string().regex(/^[a-zA-Z0-9_-]{1,160}$/), generation: z.number().int().positive(),
   revision: z.string().min(1).max(256), pacific_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -77,6 +86,9 @@ const receiptSchema = z.object({
 type Receipt = z.infer<typeof receiptSchema>;
 const journalSchema = z.object({ version: z.literal(1), entries: z.array(receiptSchema).max(3) }).strict();
 const absent = (e: unknown) => (e as NodeJS.ErrnoException).code === "ENOENT";
+function acceptedDate(createdAt: number | undefined): string | undefined {
+  return typeof createdAt === "number" && Number.isFinite(new Date(createdAt).getTime()) ? pacificDate(createdAt) : undefined;
+}
 /** Linux pinned directory descriptors: every untrusted component is opened O_NOFOLLOW.
  * /proc/self/fd refers to our already-open descriptor, never to a caller-provided symlink.
  * Lock snapshots are checked for liveness and stale takeovers serialize through a directory rename.
@@ -117,6 +129,7 @@ export class ReminderConsumer {
       // The action ID in the filename must match the request content. The producer
       // must never replace an existing request and removes its own stale .request-tmp-
       // files. Legacy .tmp-* files are producer-owned or ambiguous.
+      // A receipt with attempted:false is never a claim, regardless of status.
       for (const parent of [this.root, this.receipts]) {
         for (const name of readdirSync(`/proc/self/fd/${parent}`)) {
           if (/^\.consumer-tmp-[a-f0-9-]{36}$/.test(name)) {
@@ -124,6 +137,7 @@ export class ReminderConsumer {
           }
         }
       }
+      this.cleanTakeoverLeftovers();
       this.active = true; this.state = "ready";
     } catch (e) { this.state = e instanceof LockRefusal ? e.state : "setup-unavailable"; this.close(); }
   }
@@ -138,7 +152,7 @@ export class ReminderConsumer {
     return fd;
   }
   private acquireLock() {
-    let snapshot: { text: string; stat: Stats } | null = null;
+    let snapshot: LockSnapshot | null = null;
     try { snapshot = this.readText(this.root, "consumer.lock", true); } catch (e) { if (!absent(e)) throw e; }
     const identity = this.s.processIdentity ?? kernelProcessIdentity;
     if (snapshot) {
@@ -150,6 +164,9 @@ export class ReminderConsumer {
         if (value !== undefined) {
           // A newer schema may name a live owner we cannot otherwise identify.
           const owner = lockOwnerSchema.safeParse(value);
+          // Design choice: a valid JSON lock without a positive PID never ages out.
+          // To clear it, stop all consumers and verify the spool is idle before
+          // removing the damaged consumer.lock. Leave requests and receipts intact.
           if (!owner.success) throw new LockRefusal("lock-owner-unavailable");
           if (identity(owner.data.pid)) throw new LockRefusal("lock-held");
         }
@@ -173,41 +190,107 @@ export class ReminderConsumer {
     if (!start) throw new LockRefusal("lock-owner-unavailable");
     const token = randomUUID();
     const owner = { pid: process.pid, token, start };
-    if (snapshot) this.takeOverLock(snapshot, owner, identity);
+    const gate = this.readTakeoverGate();
+    const retryRelease = gate && this.failedGateRelease(gate.owner);
+    if (!retryRelease) failedGateReleases.delete(this.lockKey);
+    if (snapshot || retryRelease) this.takeOverLock(snapshot, owner, identity);
     this.write(this.root, "consumer.lock", owner, true);
     this.lock = this.file(this.root, "consumer.lock"); this.lockToken = token;
     heldLocks.set(this.lockKey, token);
   }
-  private takeOverLock(snapshot: { stat: Stats; text: string }, owner: { pid: number; token: string; start: string }, identity: (pid: number) => string | null) {
+  private failedGateRelease(owner: TakeoverOwner) {
+    return owner.pid === process.pid && failedGateReleases.get(this.lockKey) === owner.token;
+  }
+  private readTakeoverGate(): { fd: number; owner: TakeoverOwner } | null {
+    let fd: number;
+    try { fd = this.openDirectory(this.root, TAKEOVER_GATE); }
+    catch (e) {
+      if (absent(e)) return null;
+      throw new LockRefusal("takeover-gate-invalid");
+    }
+    try {
+      const owner = lockSchema.parse(this.read(fd, "owner.json"));
+      if (!owner.start) throw Error("missing takeover start");
+      return { fd, owner: { ...owner, start: owner.start } };
+    } catch { throw new LockRefusal("takeover-gate-invalid"); }
+  }
+  private takeOverLock(snapshot: LockSnapshot | null, owner: TakeoverOwner, identity: (pid: number) => string | null) {
     const parent = this.root;
-    const gate = ".consumer-takeover";
+    const gate = TAKEOVER_GATE;
     const temp = `${gate}-${owner.token}`;
     const stage = this.directory(parent, temp);
     let published = false;
     try {
       this.write(stage, "owner.json", owner, true);
-      try { this.move(parent, temp, gate); }
-      catch (e) {
-        if (!["EEXIST", "ENOTEMPTY"].includes((e as NodeJS.ErrnoException).code ?? "")) throw e;
-        const incumbent = this.openDirectory(parent, gate);
-        const old = lockSchema.parse(this.read(incumbent, "owner.json"));
-        if (!old.start) throw new LockRefusal("lock-owner-unavailable");
-        if (identity(old.pid) === old.start) throw new LockRefusal("lock-contended");
-        if (!this.sameFile(parent, gate, incumbent)) throw new LockRefusal("lock-changed");
+      // Stage before reading the incumbent so cleanup can see every contender
+      // that might still be about to rename a gate into a tombstone.
+      let incumbent = this.readTakeoverGate();
+      if (!incumbent) {
+        try { this.move(parent, temp, gate); }
+        catch (e) {
+          if (!["EEXIST", "ENOTEMPTY"].includes((e as NodeJS.ErrnoException).code ?? "")) throw e;
+          incumbent = this.readTakeoverGate();
+          if (!incumbent) throw e;
+        }
+      }
+      if (incumbent) {
+        const old = incumbent.owner, retryRelease = this.failedGateRelease(old);
+        if (identity(old.pid) === old.start && !retryRelease) throw new LockRefusal("lock-contended");
+        if (!this.sameFile(parent, gate, incumbent.fd)) throw new LockRefusal("lock-changed");
         // POSIX rename cannot overwrite a nonempty directory. Keep this
         // tombstone so a delayed rival for the same gate cannot move its
         // live replacement there, even after the winner releases the gate.
         this.move(parent, gate, `${gate}-retired-${hash(old.token)}`);
+        if (retryRelease) failedGateReleases.delete(this.lockKey);
         this.move(parent, temp, gate);
       }
       published = true;
-      this.remove(parent, "consumer.lock", snapshot.stat, snapshot.text);
+      if (snapshot) this.remove(parent, "consumer.lock", snapshot.stat, snapshot.text);
     } finally {
       // Move the gate out of the way while it is still nonempty.
-      if (published) this.move(parent, gate, temp);
+      if (published) {
+        try { this.move(parent, gate, temp); }
+        catch {
+          // Record the exact failed release for the next run, even if the stale
+          // consumer.lock is gone. The service logs the receipt-free refusal.
+          failedGateReleases.set(this.lockKey, owner.token);
+          throw new LockRefusal("takeover-gate-release-failed");
+        }
+      }
       try { this.remove(stage, "owner.json"); } catch (e) { if (!absent(e)) throw e; }
       rmdirSync(this.spoolPath(parent, temp));
     }
+  }
+  private cleanTakeoverLeftovers() {
+    const parent = this.root;
+    const names = readdirSync(`/proc/self/fd/${parent}`);
+    for (const name of names) if (TAKEOVER_STAGE.test(name)) this.cleanTakeoverDirectory(parent, name, true);
+    // A contender stages before reading the gate. Keep tombstones while any
+    // staging directory could still be in use by a delayed rival.
+    if (readdirSync(`/proc/self/fd/${parent}`, { withFileTypes: true }).some(e => e.isDirectory() && TAKEOVER_STAGE.test(e.name))) return;
+    for (const name of names) if (TAKEOVER_RETIRED.test(name)) this.cleanTakeoverDirectory(parent, name, false);
+  }
+  private cleanTakeoverDirectory(parent: number, name: string, staged: boolean) {
+    let fd = -1;
+    try {
+      fd = openSync(this.spoolPath(parent, name), C.O_RDONLY | C.O_DIRECTORY | C.O_NOFOLLOW);
+      const stat = this.privateStat(fd, true);
+      if (this.s.now() - stat.mtimeMs <= TAKEOVER_CLEANUP_AGE_MS) return;
+      const files = readdirSync(`/proc/self/fd/${fd}`);
+      if (files.some(file => file !== "owner.json") || !this.sameFile(parent, name, fd)) return;
+      this.spoolDirs.add(fd);
+      if (files.length) {
+        if (staged) {
+          const owner = lockSchema.parse(this.read(fd, "owner.json"));
+          if (!owner.start || (this.s.processIdentity ?? kernelProcessIdentity)(owner.pid) === owner.start) return;
+        }
+        this.remove(fd, "owner.json");
+      }
+      if (!this.sameFile(parent, name, fd)) return;
+      const temp = name;
+      rmdirSync(this.spoolPath(parent, temp)); fsyncSync(parent);
+    } catch { /* Keep unknown, unsafe or concurrently changed leftovers. */ }
+    finally { if (fd >= 0) { this.spoolDirs.delete(fd); closeSync(fd); } }
   }
   private sameFile(parent: number, name: string, fd: number): boolean {
     const a = fstatSync(fd), b = lstatSync(this.spoolPath(parent, name));
@@ -341,9 +424,9 @@ export class ReminderConsumer {
       if (queued) { prior.status = "queued"; putJournal(); return; }
       // Design choice: delete/cancel is never permission to re-nag. The real
       // adapter has only queued/unknown state; missing history stays unresolved.
-      const landed = accepted?.createdAt;
-      if (typeof landed !== "number" || !Number.isFinite(new Date(landed).getTime())) return;
-      prior.status = "accepted"; prior.resolved_date = pacificDate(landed);
+      const landed = acceptedDate(accepted?.createdAt);
+      if (!landed) return;
+      prior.status = "accepted"; prior.resolved_date = landed;
       putJournal();
     }
     // A prior-day send that landed today consumes today's slot as well.
@@ -374,7 +457,17 @@ export class ReminderConsumer {
       // Only an affirmative transport refusal is definitive; timeouts and all other exceptions are ambiguous.
       receipt.status = (e as NodeJS.ErrnoException)?.code === "ECONNREFUSED" ? "rejected" : "unknown";
     }
-    if (receipt.status === "accepted") receipt.resolved_date = pacificDate(this.s.now());
+    if (receipt.status === "accepted") {
+      // An acknowledged send still uses the return date when host event
+      // history is unavailable. Prefer the exact accepted turn when visible.
+      const returnedDate = pacificDate(this.s.now());
+      let landed: string | undefined;
+      try {
+        const accepted = (await this.s.sdk.acceptedEvents(last.target)).find(e => !!e.id && e.text === input);
+        landed = acceptedDate(accepted?.createdAt);
+      } catch { /* keep the acknowledged send on the conservative return date */ }
+      receipt.resolved_date = landed ?? returnedDate;
+    }
     this.write(this.receipts, name, receipt); putJournal();
   }
   close() {
