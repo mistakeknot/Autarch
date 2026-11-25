@@ -55,7 +55,13 @@ it("throwing server getter logs once and stays off", () => {
   expect(info).toHaveBeenCalledTimes(1); expect(service).not.toHaveBeenCalled();
 });
 
-it.each(["collision", "hidden", "oversize"])("bounded successor proof refuses %s without sending", async reason => {
+it.each([
+  ["collision", "no-route", []],
+  ["hidden", "no-route", []],
+  ["oversize successor", "unknown", []],
+  ["oversize live owner", "accepted", ["thr_fixture"]],
+  ["live owner beyond the page", "accepted", ["thr_fixture"]],
+])("routes %s with the expected receipt", async (reason, status, targets) => {
   vi.useFakeTimers(); const f = fixture(); const store = f.handle.store();
   f.db.prepare("INSERT INTO cards(task_id,title,state) VALUES ('task_fixture','Fixture','open')").run();
   store.insertDecision(decision({ id: "decision_fixture", source: "card", task_id: "task_fixture", card_fp: "fixture", generation: 1, thread: "thr_fixture" }));
@@ -65,18 +71,30 @@ it.each(["collision", "hidden", "oversize"])("bounded successor proof refuses %s
   const owner = { id: "thr_fixture", title: "Worker", projectId: "proj_fixture", createdAt: 1, archivedAt: 10, deletedAt: null };
   let rows: ReminderThreadRow[] = [owner, ...Array.from({ length: 101 }, (_, n) => ({ ...owner, id: `thr_fixture_${n}`, title: "Other", archivedAt: null })), { ...owner, id: "thr_next", createdAt: 11, archivedAt: null }, { ...owner, id: "thr_collision", createdAt: 12, archivedAt: null }];
   if (reason === "hidden") rows = [owner, { ...owner, id: "thr_next", createdAt: 11, archivedAt: null, visibility: "hidden" }];
-  if (reason === "oversize") rows = Array.from({ length: 1001 }, (_, n) => ({ ...owner, id: `thr_fixture_${n}` }));
+  const liveOwner = { ...owner, archivedAt: null };
+  const liveSuccessor = { ...liveOwner, id: "thr_next", createdAt: 11 };
+  const fillers = Array.from({ length: 1000 }, (_, n) => ({ ...owner, id: `thr_fixture_${n}` }));
+  if (reason === "oversize successor") rows = [owner, liveSuccessor, ...fillers];
+  if (reason === "oversize live owner") rows = [liveOwner, ...fillers];
+  if (reason === "live owner beyond the page") rows = [...fillers, liveSuccessor, liveOwner];
   const list = vi.fn(async (args: { offset?: number; limit?: number }) => args.limit ? rows.slice(args.offset ?? 0, (args.offset ?? 0) + args.limit) : rows);
   f.harness.sdk.stub("threads.list", list);
+  f.harness.sdk.stub("threads.get", async ({ threadId }) => rows.find(row => row.id === threadId) ?? null);
   const spool = join(f.dir, "plugins/autarch/followthrough"); mkdirSync(spool, { mode: 0o700 }); mkdirSync(join(spool, "requests"), { mode: 0o700 });
   const request = { version: 1, pick_id: "pick_fixture", generation: 1, revision: "rev-1", pacific_date: pacificDate(Date.now()), expires_at: new Date(Date.now() + 3600000).toISOString(), reason: "overdue-outcome" };
   writeFileSync(join(spool, "requests", `${reminderActionId(request)}.json`), JSON.stringify(request), { mode: 0o600 });
-  const run = f.harness.runService("home-followthrough-reminders"); await vi.advanceTimersByTimeAsync(0);
-  expect(list).toHaveBeenCalledExactlyOnceWith({ includeHidden: false, limit: 1001 });
-  expect(f.sdk.sent).toEqual([]);
-  expect(JSON.parse(readFileSync(join(spool, "receipts", `${reminderActionId(request)}.json`), "utf8")).status).toBe("no-route");
-  if (reason === "oversize") expect(f.harness.logEntries.some(e => e.message.includes("thread read cap"))).toBe(true);
-  run.controller.abort(); await run.done;
+  const run = f.harness.runService("home-followthrough-reminders");
+  try {
+    await vi.advanceTimersByTimeAsync(0);
+    expect(list).toHaveBeenCalledTimes(targets.length ? 2 : 1);
+    expect(list).toHaveBeenCalledWith({ includeHidden: false, limit: 1001 });
+    expect(f.sdk.sent.map(send => send.threadId)).toEqual(targets);
+    expect(JSON.parse(readFileSync(join(spool, "receipts", `${reminderActionId(request)}.json`), "utf8")))
+      .toMatchObject({ status, attempted: targets.length > 0 });
+    expect(f.harness.logEntries.some(e => e.message.includes("thread read cap"))).toBe(reason === "oversize successor");
+  } finally {
+    run.controller.abort(); await run.done;
+  }
 });
 it("ordinary queue events still record their existing Home evidence", async () => {
   const f = fixture(); const before = f.db.prepare("SELECT total_changes() AS n").get() as { n: number };

@@ -610,7 +610,7 @@ describe("sdkAdapter against the real threads.send contract", () => {
 
 describe("sdkAdapter.acceptedEvents against the host's thread-event page cap", () => {
   const HOST_CAP = 100; // written out, not imported: the host's THREAD_EVENT_LIST_PAGE_SIZE
-  const turn = (seq: number) => ({ id: `evt_${seq}`, seq, data: { input: [{ type: "text", text: `turn ${seq}` }] } });
+  const turn = (seq: number) => ({ id: `evt_${seq}`, seq, createdAt: 1000 + seq, data: { input: [{ type: "text", text: `turn ${seq}` }] } });
   const host = (total: number) => {
     const asked: number[] = [];
     const threads = {
@@ -634,7 +634,7 @@ describe("sdkAdapter.acceptedEvents against the host's thread-event page cap", (
     const h = host(450);
     const got = await sdkAdapter(h.threads as never).acceptedEvents("thr_x");
     expect(got).toHaveLength(450);
-    expect(got.at(-1)).toEqual({ id: "evt_1", text: "turn 1" });
+    expect(got.at(-1)).toEqual({ id: "evt_1", text: "turn 1", createdAt: 1001 });
     expect(Math.max(...h.asked)).toBe(100);
   });
 
