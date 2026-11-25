@@ -125,6 +125,36 @@ func TestExpectedOutcomeHeldReleaseSkipsCapabilityDuringWeeklyHold(t *testing.T)
 	}
 }
 
+func TestExpectedOutcomeHeldReleaseRecoversDeliveredCardWithoutCapability(t *testing.T) {
+	ctx := context.Background()
+	bb, f, req, capability := outcomeFilingFixture(t)
+	req.Ask["review_by"] = "2026-11-20T00:00:00Z"
+	req.NonBlocking = true
+	if result, err := f.FileCard(ctx, req); err != nil || !result.Queued {
+		t.Fatalf("want held request: %+v, %v", result, err)
+	}
+	read := bb.fail
+	bb.fail = func(args []string) *BBResult {
+		if strings.Join(args, " ") == "home get --card T1 --json" {
+			return badRes(1, "fixture index unavailable")
+		}
+		return read(args)
+	}
+	f.ReadbackTimeout = 10 * time.Millisecond
+	f.ReadbackInterval = time.Millisecond
+	if _, _, err := f.releaseOne(ctx, req.Key); !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("want post-create uncertainty: %v", err)
+	}
+	bb.fail = read
+	*capability = BBResult{Stdout: []byte(`{"schema":1}`)}
+	before := bb.count("home", "capabilities")
+	got, _, err := f.releaseOne(ctx, req.Key)
+	if err != nil || got.ID != "T1" || !got.Replay || bb.count("home", "capabilities") != before ||
+		bb.count("tasks", "create") != 1 || bb.count("tasks", "comment") != 1 {
+		t.Fatalf("want existing card recovered without a probe or duplicate: %+v, %v, calls %v", got, err, bb.calls)
+	}
+}
+
 func TestExpectedOutcomeLibraryPreflightJoinsFailures(t *testing.T) {
 	_, f, req, capability := outcomeFilingFixture(t)
 	req.Ask["review_by"] = "2026-01-01T00:00:00Z"
