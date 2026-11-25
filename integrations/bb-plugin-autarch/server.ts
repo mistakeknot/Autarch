@@ -7,6 +7,9 @@
 // (cli.ts) and the skill in skills/home/SKILL.md that tells agents how to use it. A write
 // publishes a realtime signal so every open page refetches.
 import { resolveWakeTarget as resolveWakeTargetWithReason, type ReportReroute } from "./wake-target.js";
+import { registerReminderService } from "./followthrough-reminder.js";
+import { reminderThreadRow, type ReminderThreadRow } from "./followthrough-target.js";
+import { readReminderPick } from "./pickreadback.js";
 import { postNoteOnce } from "./notepost.js";
 import { wireGovernor } from "./governor-runtime.js";
 import { threadEventLimit } from "./hostLimits.js";
@@ -350,6 +353,23 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
       if (parts) await parts.loop.start(signal);
     },
   });
+  registerReminderService(bb, () => parts ? {
+    readPick: id => readReminderPick(parts!.svc.store, id),
+    sdk: deps.sdk ?? sdkAdapter(bb.sdk.threads as unknown as ThreadsLike),
+    now: () => Date.now(),
+    listThreads: async () => {
+      // Reminder-only projection, fresh on every proof; ordinary wake/notice cache stays unchanged.
+      const rows: ReminderThreadRow[] = [];
+      let offset = 0;
+      for (let page = 0; page < 2000; page++) {
+        const got = await bb.sdk.threads.list({ limit: 100, offset, includeHidden: true }) as unknown as ReminderThreadRow[];
+        rows.push(...got.map(reminderThreadRow));
+        if (got.length === 0) return rows;
+        offset += got.length;
+      }
+      throw new Error("reminder thread list did not end");
+    },
+  } : null);
   let queueRef: Queue | null = null;
   let tasksRef: TasksClient | null = null;
   // One desk for the process: its per-key serialisation only works when every RPC shares the same instance.
