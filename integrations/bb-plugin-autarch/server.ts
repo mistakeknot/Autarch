@@ -361,10 +361,15 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
     now: () => Date.now(),
     listThreads: async () => {
       // Reminder-only projection, fresh on every proof; ordinary wake/notice cache stays unchanged.
-      // Omitting BOTH limit and offset is an unpaginated host DB read. The SDK
-      // forwards absent pagination unchanged; no page boundary can drift or skip a collision.
-      const rows = await bb.sdk.threads.list({ includeHidden: false }) as unknown as ReminderThreadRow[];
-      return rows.filter(row => !row.hidden).map(reminderThreadRow);
+      // Design choice: at most 1000 rows, plus one overflow witness, per proof.
+      // A single bounded query has no offset drift. An overflow proves the list
+      // incomplete, so it must never be used to select a unique successor.
+      const rows = await bb.sdk.threads.list({ includeHidden: false, limit: 1001 }) as unknown as ReminderThreadRow[];
+      if (rows.length > 1000) {
+        try { bb.log.info("followthrough reminders: thread read cap exceeded; no send"); } catch { /* diagnostic only */ }
+        return [];
+      }
+      return rows.filter(row => row.visibility !== "hidden").map(reminderThreadRow);
     },
   } : null);
   let queueRef: Queue | null = null;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, symlinkSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, symlinkSync, rmSync, readdirSync, utimesSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ReminderConsumer, reminderActionId, reminderDataDir, parseReminderRequest, type ReminderPick } from "../followthrough-reminder.js";
@@ -66,7 +66,8 @@ it("positive exact accepted evidence reconciles unknown before a later advisory"
   const send = vi.spyOn(sdk, "send").mockRejectedValueOnce(Error("ambiguous")); publish(); await consumer.tick();
   const input = send.mock.calls[0]![0].input;
   vi.spyOn(sdk, "acceptedEvents").mockResolvedValue([{ id: "event_fixture", text: input }]);
-  now += 86400000; publish(request("2026-11-26")); await consumer.tick(); expect(send).toHaveBeenCalledTimes(2);
+  now += 86400000; publish(request("2026-11-26")); await consumer.tick(); expect(send).toHaveBeenCalledTimes(1);
+  now += 86400000; publish(request("2026-11-27")); await consumer.tick(); expect(send).toHaveBeenCalledTimes(2);
 });
 it("three lifetime attempts survive restart and action receipt pruning", async () => {
   const send = vi.spyOn(sdk, "send").mockRejectedValue({ code: "ECONNREFUSED" });
@@ -183,14 +184,93 @@ it("an earlier-day queued advisory prevents another reminder stacking", async ()
   sdk.fallback = { kind: "queue" }; publish(); await consumer.tick();
   now += 86400000; publish(request("2026-11-26")); await consumer.tick(); expect(sdk.sent).toHaveLength(1);
 });
-it("stale temporary files are removed on setup without touching requests or receipts", () => {
-  consumer.close(); const id = publish();
-  for (const folder of [paths(), join(paths(), "receipts"), join(paths(), "requests")]) writeFileSync(join(folder, ".tmp-00000000-0000-4000-8000-000000000000"), "{}", { mode: 0o600 });
+it("cleanup touches only consumer temporaries and leaves producer publishes alone", () => {
+  consumer.close(); const id = publish(); const suffix = "00000000-0000-4000-8000-000000000000";
+  for (const folder of [paths(), join(paths(), "receipts")]) writeFileSync(join(folder, `.consumer-tmp-${suffix}`), "{}", { mode: 0o600 });
+  const producer = join(paths(), "requests", `.tmp-${suffix}`); writeFileSync(producer, "partial", { mode: 0o600 });
+  const namedProducer = join(paths(), "requests", `.request-tmp-${suffix}`); writeFileSync(namedProducer, "partial", { mode: 0o600 });
   consumer = open(); expect(consumer.active).toBe(true);
-  for (const folder of [paths(), join(paths(), "receipts"), join(paths(), "requests")]) expect(readdirSync(folder).filter(f => f.startsWith(".tmp-"))).toEqual([]);
+  for (const folder of [paths(), join(paths(), "receipts")]) expect(readdirSync(folder).filter(f => f.startsWith(".consumer-tmp-"))).toEqual([]);
+  expect(readFileSync(producer, "utf8")).toBe("partial"); expect(readFileSync(namedProducer, "utf8")).toBe("partial");
   expect(readdirSync(join(paths(), "requests"))).toContain(`${id}.json`);
 });
 it("dead-process exclusive lock can be recovered without spawning", () => {
   consumer.close(); writeFileSync(join(paths(), "consumer.lock"), JSON.stringify({ pid: 2147483647, token: "fixture" }), { mode: 0o600 });
   consumer = open(); expect(consumer.active).toBe(true);
+});
+
+function abandonedLock(value: string, age = 0) {
+  consumer.close(); const path = join(paths(), "consumer.lock");
+  writeFileSync(path, value, { mode: 0o600 }); const at = new Date(now - age); utimesSync(path, at, at);
+}
+it("same-process PID with no held consumer is stale", () => {
+  abandonedLock(JSON.stringify({ pid: process.pid, token: "fixture" })); consumer = open(); expect(consumer.active).toBe(true);
+});
+it.each(["", "{partial"])("broken old lock is recoverable: %j", text => {
+  abandonedLock(text, 60001); consumer = open(); expect(consumer.active).toBe(true);
+});
+it("a fresh partial lock is protected during its 60-second initialization grace", () => {
+  abandonedLock("{"); consumer = open(); expect(consumer.active).toBe(false);
+  consumer.close(); now += 60001; consumer = open(); expect(consumer.active).toBe(true);
+});
+it("a reused live PID with a different boot/start identity is stale", () => {
+  abandonedLock(JSON.stringify({ pid: process.ppid, token: "fixture", start: "fixture-old-start" }));
+  consumer = open(); expect(consumer.active).toBe(true);
+});
+it("legacy PID-only lock owned by another live process expires after the grace period", () => {
+  abandonedLock(JSON.stringify({ pid: process.ppid, token: "fixture" }), 60001);
+  consumer = open(); expect(consumer.active).toBe(true);
+});
+it("takeover compares the parsed inode and cannot unlink a newer live holder", () => {
+  abandonedLock(JSON.stringify({ pid: process.ppid, token: "fixture", start: "fixture-old-start" }));
+  let holder: ReminderConsumer | undefined, token = "";
+  consumer = new ReminderConsumer(dir, { readPick: () => pick, listThreads: async () => rows(), sdk, now: () => now,
+    processIdentity: (pid: number) => {
+      if (pid === process.ppid && !holder) {
+        rmSync(join(paths(), "consumer.lock")); holder = open();
+        token = JSON.parse(readFileSync(join(paths(), "consumer.lock"), "utf8")).token;
+      }
+      return "fixture-current-start";
+    },
+  });
+  try { expect(consumer.active).toBe(false); expect(holder?.active).toBe(true); expect(JSON.parse(readFileSync(join(paths(), "consumer.lock"), "utf8")).token).toBe(token); }
+  finally { holder?.close(); }
+});
+it("a late earlier-day queue acceptance uses today's slot across restart and pruning", async () => {
+  sdk.fallback = { kind: "queue" }; publish(); await consumer.tick();
+  now += 86400000; const id = publish(request("2026-11-26")); sdk.dispatch(sdk.sent.length ? "q1" : "missing");
+  await consumer.tick(); expect(sdk.sent).toHaveLength(1); expect(result(id)).toMatchObject({ status: "capped", attempted: false });
+  for (const file of readdirSync(join(paths(), "receipts"))) if (/^[a-f0-9]{64}\.json$/.test(file)) rmSync(join(paths(), "receipts", file));
+  consumer.close(); consumer = open(); await consumer.tick(); expect(sdk.sent).toHaveLength(1);
+  now += 86400000; publish(request("2026-11-27")); await consumer.tick(); expect(sdk.sent).toHaveLength(2);
+});
+it("an SDK response returning the next day also consumes the resolution day's slot", async () => {
+  vi.spyOn(sdk, "send").mockImplementation(async () => { now += 86400000; return { delivery: "sent", messageId: "event_fixture" }; });
+  publish(); await consumer.tick(); const id = publish(request("2026-11-26")); await consumer.tick();
+  expect(sdk.send).toHaveBeenCalledTimes(1); expect(result(id).status).toBe("capped");
+});
+it("deliberate reminder cancellation never becomes permission to re-nag", async () => {
+  sdk.fallback = { kind: "queue" }; publish(); await consumer.tick(); sdk.cancel("q1");
+  const state = vi.spyOn(sdk, "queuedState"); now += 86400000; publish(request("2026-11-26")); await consumer.tick();
+  expect(sdk.sent).toHaveLength(1); expect(state).not.toHaveBeenCalled();
+});
+it.each([".tmp-", ".consumer-tmp-"])("wrong-mode stray temporary does not disable setup: %s", async prefix => {
+  consumer.close(); const path = join(paths(), "receipts", `${prefix}00000000-0000-4000-8000-000000000000`);
+  writeFileSync(path, "{}", { mode: 0o644 }); consumer = open(); expect(consumer.active).toBe(true);
+  publish(); await consumer.tick(); expect(sdk.sent).toHaveLength(1); expect(statSync(path).mode & 0o777).toBe(0o644);
+});
+it("legacy EPERM identity lookup cannot strand an old PID-only lock", () => {
+  abandonedLock(JSON.stringify({ pid: process.ppid, token: "fixture" }), 60001);
+  consumer = new ReminderConsumer(dir, { readPick: () => pick, listThreads: async () => rows(), sdk, now: () => now,
+    processIdentity: pid => { if (pid === process.ppid) throw Object.assign(Error("fixture"), { code: "EPERM" }); return "fixture-current-start"; },
+  });
+  expect(consumer.active).toBe(true);
+});
+it("a matching foreign boot/start identity stays locked even after the grace period", () => {
+  abandonedLock(JSON.stringify({ pid: process.ppid, token: "fixture", start: "fixture-current-start" }), 60001);
+  consumer = new ReminderConsumer(dir, { readPick: () => pick, listThreads: async () => rows(), sdk, now: () => now, processIdentity: () => "fixture-current-start" });
+  expect(consumer.active).toBe(false); expect(consumer.state).toBe("lock-held");
+});
+it("an oversized broken lock ages out without accepting or fully reading it", () => {
+  abandonedLock("{".repeat(16385), 60001); consumer = open(); expect(consumer.active).toBe(true);
 });

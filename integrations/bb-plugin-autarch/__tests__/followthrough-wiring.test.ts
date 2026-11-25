@@ -1,12 +1,13 @@
 import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, existsSync, readdirSync, chmodSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, existsSync, readdirSync, chmodSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createFakePluginHost, makeQueueEntry } from "@get-bb/plugin-sdk/testing";
+import type { ReminderThreadRow } from "../followthrough-target.js";
 import { wireHome } from "../server.js";
 import { createStoreHandle } from "../store.js";
-import { reminderActionId, pacificDate, registerReminderService } from "../followthrough-reminder.js";
+import { ReminderConsumer, reminderActionId, pacificDate, registerReminderService } from "../followthrough-reminder.js";
 import { FakeSdk } from "./wakes-helpers.js";
 import { decision, pickOf } from "./helpers.js";
 import type { ServeClient } from "../serve.js";
@@ -18,9 +19,9 @@ function fixture() {
   mkdirSync(join(dir, "plugins/autarch"), { recursive: true, mode: 0o755 });
   const f = createFakePluginHost({ pluginId: "autarch", dataDir: dir }); cleanup.push(() => f.harness.dispose());
   const db = new Database(":memory:"); cleanup.push(() => { if (db.open) db.close(); });
-  const handle = createStoreHandle(() => db, {});
-  wireHome(f.bb, handle, { serveAddr: "127.0.0.1:1", serveTokenFile: "/fixture", serveProjectDirs: [], autarchBin: "autarch" }, { serve, sdk: new FakeSdk() });
-  return { ...f, db, dir, handle };
+  const handle = createStoreHandle(() => db, {}); const sdk = new FakeSdk();
+  wireHome(f.bb, handle, { serveAddr: "127.0.0.1:1", serveTokenFile: "/fixture", serveProjectDirs: [], autarchBin: "autarch" }, { serve, sdk });
+  return { ...f, db, dir, handle, sdk };
 }
 it("wireHome starts the consumer from the SDK testing fake's server dataDir", async () => {
   const f = fixture();
@@ -54,7 +55,7 @@ it("throwing server getter logs once and stays off", () => {
   expect(info).toHaveBeenCalledTimes(1); expect(service).not.toHaveBeenCalled();
 });
 
-it("unpaginated successor read cannot skip a collision at a moving offset boundary", async () => {
+it.each(["collision", "hidden", "oversize"])("bounded successor proof refuses %s without sending", async reason => {
   vi.useFakeTimers(); const f = fixture(); const store = f.handle.store();
   f.db.prepare("INSERT INTO cards(task_id,title,state) VALUES ('task_fixture','Fixture','open')").run();
   store.insertDecision(decision({ id: "decision_fixture", source: "card", task_id: "task_fixture", card_fp: "fixture", generation: 1, thread: "thr_fixture" }));
@@ -62,14 +63,19 @@ it("unpaginated successor read cannot skip a collision at a moving offset bounda
   f.db.prepare("UPDATE obligations SET state = 'done', attempt = 1 WHERE id = 'wake_fixture'").run();
   f.db.prepare("INSERT INTO attempts(obligation_id,n,state,evidence,at) VALUES ('wake_fixture',1,'delivered','event_fixture','2026-01-01T00:00:01Z')").run();
   const owner = { id: "thr_fixture", title: "Worker", projectId: "proj_fixture", createdAt: 1, archivedAt: 10, deletedAt: null };
-  const rows = [owner, ...Array.from({ length: 101 }, (_, n) => ({ ...owner, id: `thr_fixture_${n}`, title: "Other", archivedAt: null })), { ...owner, id: "thr_next", createdAt: 11, archivedAt: null }, { ...owner, id: "thr_collision", createdAt: 12, archivedAt: null }];
+  let rows: ReminderThreadRow[] = [owner, ...Array.from({ length: 101 }, (_, n) => ({ ...owner, id: `thr_fixture_${n}`, title: "Other", archivedAt: null })), { ...owner, id: "thr_next", createdAt: 11, archivedAt: null }, { ...owner, id: "thr_collision", createdAt: 12, archivedAt: null }];
+  if (reason === "hidden") rows = [owner, { ...owner, id: "thr_next", createdAt: 11, archivedAt: null, visibility: "hidden" }];
+  if (reason === "oversize") rows = Array.from({ length: 1001 }, (_, n) => ({ ...owner, id: `thr_fixture_${n}` }));
   const list = vi.fn(async (args: { offset?: number; limit?: number }) => args.limit ? rows.slice(args.offset ?? 0, (args.offset ?? 0) + args.limit) : rows);
   f.harness.sdk.stub("threads.list", list);
   const spool = join(f.dir, "plugins/autarch/followthrough"); mkdirSync(spool, { mode: 0o700 }); mkdirSync(join(spool, "requests"), { mode: 0o700 });
   const request = { version: 1, pick_id: "pick_fixture", generation: 1, revision: "rev-1", pacific_date: pacificDate(Date.now()), expires_at: new Date(Date.now() + 3600000).toISOString(), reason: "overdue-outcome" };
   writeFileSync(join(spool, "requests", `${reminderActionId(request)}.json`), JSON.stringify(request), { mode: 0o600 });
   const run = f.harness.runService("home-followthrough-reminders"); await vi.advanceTimersByTimeAsync(0);
-  expect(list).toHaveBeenCalledExactlyOnceWith({ includeHidden: false });
+  expect(list).toHaveBeenCalledExactlyOnceWith({ includeHidden: false, limit: 1001 });
+  expect(f.sdk.sent).toEqual([]);
+  expect(JSON.parse(readFileSync(join(spool, "receipts", `${reminderActionId(request)}.json`), "utf8")).status).toBe("no-route");
+  if (reason === "oversize") expect(f.harness.logEntries.some(e => e.message.includes("thread read cap"))).toBe(true);
   run.controller.abort(); await run.done;
 });
 it("ordinary queue events still record their existing Home evidence", async () => {
@@ -81,4 +87,15 @@ it("report-mode diagnostic cannot break host initialization when logging throws"
   const info = vi.fn(() => { throw Error("fixture log unavailable"); }), service = vi.fn();
   expect(() => registerReminderService({ server: {}, log: { info }, background: { service } }, () => null)).not.toThrow();
   expect(info).toHaveBeenCalledTimes(1); expect(service).not.toHaveBeenCalled();
+});
+
+it("lock refusal logs once per state change and recovers without restarting the service", async () => {
+  vi.useFakeTimers(); const f = fixture();
+  const holder = new ReminderConsumer(f.dir, { readPick: () => null, listThreads: async () => [], sdk: f.sdk, now: () => Date.now() });
+  const run = f.harness.runService("home-followthrough-reminders"); await vi.advanceTimersByTimeAsync(30000);
+  const states = () => f.harness.logEntries.filter(e => e.message.startsWith("followthrough reminders: state="));
+  expect(states().map(e => e.message)).toEqual(["followthrough reminders: state=lock-held"]);
+  holder.close(); await vi.advanceTimersByTimeAsync(15000);
+  expect(states().map(e => e.message)).toEqual(["followthrough reminders: state=lock-held", "followthrough reminders: state=ready"]);
+  run.controller.abort(); await run.done;
 });
