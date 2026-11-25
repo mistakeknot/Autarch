@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -101,10 +102,20 @@ func TestNeedsMkExpectedOutcomeAuthoring(t *testing.T) {
 
 func TestNeedsMkExpectedOutcomeCheckRefusesWithoutCapability(t *testing.T) {
 	t.Setenv("BB_THREAD_ID", "thr_fixture")
+	store := filepath.Join(t.TempDir(), "store")
+	t.Setenv("AUTARCH_HOME_EVIDENCE", store)
+	image := filepath.Join(t.TempDir(), "picture.gif")
+	if err := os.WriteFile(image, []byte("GIF89a"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	s := &stubBB{expectedOutcomeCapability: `{"schema":1}`}
-	input := `{"project":"example","project_root":"/fixture","question":"Proceed?","review_by":"2026-01-01T00:00:00Z","options":[{"id":"yes","label":"Proceed"},{"id":"no","label":"Wait"}]}`
+	encodedImage, _ := json.Marshal(image)
+	input := `{"project":"example","project_root":"/fixture","question":"Proceed?","review_by":"2026-01-01T00:00:00Z","options":[{"id":"yes","label":"Proceed"},{"id":"no","label":"Wait"}],"evidence":[{"caption":"Picture","image_path":` + string(encodedImage) + `}]}`
 	_, err := runNeedsMk(t, s, "file", "--check", "--card-type", "design", "--project", "P1", "--title", "Fixture", "--ask-file", writeAskBody(t, input))
 	if !errors.Is(err, homeask.ErrHomeDown) || !strings.Contains(err.Error(), "three-line opener") || s.card || s.commented {
 		t.Fatalf("want capability and design errors without mutation, got %v, %v", err, s.calls)
+	}
+	if _, err := os.Stat(store); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("evidence store changed during a refused check: %v", err)
 	}
 }
