@@ -143,7 +143,19 @@ func parseAskSource(data []byte, requireStopped, cardSource bool) (Ask, error) {
 		if err := checkStopped(m, requireStopped); err != nil {
 			return Ask{}, err
 		}
+		if cardSource {
+			options, _ := m["options"].([]any)
+			for _, raw := range options {
+				option, _ := raw.(map[string]any)
+				if err := exactCardOptionKeys(option); err != nil {
+					return Ask{}, err
+				}
+			}
+		}
 		for k, raw := range fields {
+			if cardSource && k != "options" && strings.EqualFold(k, "options") {
+				return Ask{}, fmt.Errorf("invalid ask field %q", k)
+			}
 			if strings.EqualFold(k, "review_by") && (k != "review_by" || !cardSource) {
 				return Ask{}, errors.New("review_by requires card source and exact spelling")
 			}
@@ -202,7 +214,7 @@ const maxOutcomePRs = 32
 
 func canonicalCardInstant(value any) (string, error) {
 	s, _ := value.(string)
-	if !cardInstantRe.MatchString(s) || strings.HasPrefix(s, "0000") {
+	if !cardInstantRe.MatchString(s) || strings.HasPrefix(s, "0000") || strings.HasSuffix(s, "-00:00") {
 		return "", errors.New("expected an offset-bearing RFC 3339 timestamp")
 	}
 	t, err := time.Parse(time.RFC3339Nano, s)
@@ -292,6 +304,11 @@ func validateOutcomeTarget(kind string, target map[string]any) error {
 		if err != nil {
 			return err
 		}
+		type prKey struct {
+			repo   string
+			number float64
+		}
+		seen := make(map[prKey]bool, len(prs))
 		for _, value := range prs {
 			pr, _ := value.(map[string]any)
 			repo, _ := pr["repo"].(string)
@@ -299,6 +316,12 @@ func validateOutcomeTarget(kind string, target map[string]any) error {
 			if !validOutcomeRepo(repo) || !validOutcomeInt(pr["number"], 999999999) {
 				return errors.New("PR target requires a repository and positive PR number")
 			}
+			// Repository case and differing heads do not make separate PRs.
+			key := prKey{repo: strings.ToLower(repo), number: pr["number"].(float64)}
+			if seen[key] {
+				return errors.New("duplicate PR target")
+			}
+			seen[key] = true
 			if kind == "merge" {
 				if len(pr) != 3 || !acHeadRe.MatchString(head) {
 					return errors.New("merge target requires a full lowercase PR head")
@@ -338,16 +361,21 @@ func validateOutcomeTarget(kind string, target map[string]any) error {
 	return nil
 }
 
+// Normalization validates card metadata. When an Ask was assembled by hand,
+// malformed fields are omitted by the canonical encoder.
 func cardMetadataNode(raw json.RawMessage) any {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	var v any
 	if err := dec.Decode(&v); err != nil {
-		panic(fmt.Errorf("invalid normalized card metadata: %w", err))
+		return nil
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil
 	}
 	node, err := fromDecoded(v)
 	if err != nil {
-		panic(fmt.Errorf("invalid normalized card metadata: %w", err))
+		return nil
 	}
 	return node
 }

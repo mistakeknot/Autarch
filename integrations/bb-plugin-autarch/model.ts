@@ -191,7 +191,7 @@ const OUTCOME_CONTROL = /[\u0000-\u001f\u007f]/u;
 
 function canonicalCardInstant(value: unknown): string {
   const match = typeof value === "string" && CARD_INSTANT.exec(value);
-  if (!match || match[1]!.startsWith("0000")) return fail("expected an offset-bearing RFC 3339 timestamp");
+  if (!match || match[1]!.startsWith("0000") || match[3] === "-00:00") return fail("expected an offset-bearing RFC 3339 timestamp");
   const [, local, fraction, zone] = match;
   // Compare the local calendar before applying the offset, and preserve sub-millisecond precision.
   if (new Date(local + "Z").toISOString().slice(0, 19) !== local) return fail("invalid calendar date");
@@ -240,10 +240,14 @@ function parseExpectedOutcome(input: unknown): ExpectedOutcome {
     case "merge":
     case "close": {
       known(target, ["prs"], "target");
+      const seen = new Set<string>();
       const prs = outcomePRList(target.prs).map(value => {
         const pr = obj(value, "PR target");
         known(pr, kind === "merge" ? ["repo", "number", "head"] : ["repo", "number"], "PR target");
         if (!outcomeRepo(pr.repo) || !positiveOutcomeInt(pr.number, 999999999)) return fail("PR target requires a repository and positive PR number");
+        const key = pr.repo.toLowerCase() + "#" + pr.number;
+        if (seen.has(key)) return fail("duplicate PR target");
+        seen.add(key);
         return { repo: pr.repo, number: pr.number, head: pr.head };
       });
       if (kind === "merge") return { ...base, kind, target: { prs: prs.map(pr => {
