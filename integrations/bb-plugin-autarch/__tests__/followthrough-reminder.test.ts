@@ -166,3 +166,8 @@ it.each(["symlink", "oversize"])("unsafe receipt %s prevents dispatch", async ki
   else writeFileSync(path, " ".repeat(16385), { mode: 0o600 });
   await consumer.tick(); expect(sdk.sent).toEqual([]);
 });
+it("cancelled wake with affirmative nondelivery can reach a proven successor after owner retirement", async () => {
+  consumer.close(); pick.delivery = "none-confirmed"; pick.cancelled = true;
+  consumer = new ReminderConsumer(dir, { readPick: () => pick, listThreads: async () => [{ ...rows()[0]!, archivedAt: 10 }, { ...rows()[0]!, id: "thr_next", createdAt: 11 }], sdk, now: () => now });
+  publish({ ...request(), reason: "confirmed-nondelivery" }); await consumer.tick(); expect(sdk.sent.map(s => s.threadId)).toEqual(["thr_next"]);
+});
