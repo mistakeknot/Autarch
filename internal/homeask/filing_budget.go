@@ -223,7 +223,14 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 	if e = os.MkdirAll(dir, 0700); e != nil {
 		return CardResult{}, e
 	}
-	windowHeld := weeklyHold(f.clock(), r)
+	if e = f.ensureWeekdayHold(); e != nil {
+		return CardResult{}, e
+	}
+	setting := f.WeekdayHoldSetting()
+	windowHeld, e := weeklyHold(f.clock(), r, setting)
+	if e != nil {
+		return CardResult{}, e
+	}
 	// Resolve the queue's canonical key before taking its delivery lock. Recheck
 	// under the state lock below, retrying if another admission won the race.
 	deliveryKey := r.Key
@@ -280,7 +287,11 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 			priorDone()
 			promotable := false
 			if knownHeld && hadHeld && oldHeld.Held {
-				promotable = oldHeld.canPromote(r, ordinary(r) && (weeklyHold(f.clock(), r) || r.NonBlocking))
+				heldNow, holdErr := weeklyHold(f.clock(), r, setting)
+				if holdErr != nil {
+					return CardResult{}, holdErr
+				}
+				promotable = oldHeld.canPromote(r, ordinary(r) && (heldNow || r.NonBlocking))
 			}
 			if promotable && oldHeld.Attempted {
 				return f.reconcileAttemptedEscalation(ctx, oldHeld, r, identity)
@@ -388,10 +399,14 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		return CardResult{}, err
 	}
 	admittedAt := f.clock()
-	if err := checkSecretDeliveryAt(r, admittedAt); err != nil {
+	if err := checkSecretDeliveryAt(r, admittedAt, setting); err != nil {
 		return CardResult{}, err
 	}
-	coalesce = ordinary(r) && (weeklyHold(admittedAt, r) || r.NonBlocking)
+	heldNow, holdErr := weeklyHold(admittedAt, r, setting)
+	if holdErr != nil {
+		return CardResult{}, holdErr
+	}
+	coalesce = ordinary(r) && (heldNow || r.NonBlocking)
 	if state.heldTarget(r, coalesce) != deliveryKey || !slices.Equal(state.retiringHeld(r, coalesce), retiring) {
 		return CardResult{}, errHeldTargetChanged
 	}
@@ -461,7 +476,10 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		}
 		// Gate and state-lock waits can cross a policy boundary. Reserve using the
 		// admission time under both locks, rather than the earlier validation time.
-		nowHeld := weeklyHold(admittedAt, r)
+		nowHeld, holdErr := weeklyHold(admittedAt, r, setting)
+		if holdErr != nil {
+			return CardResult{}, holdErr
+		}
 		if nowHeld && !windowHeld && updateLane && !r.NonBlocking && !queueChecks {
 			return CardResult{}, errQueueValidation
 		}
@@ -589,6 +607,9 @@ func (f *CardFiler) Release(ctx context.Context) (map[string][]CardResult, error
 
 func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) {
 	report := ReleaseReport{Groups: map[string][]CardResult{}, Failures: map[string]string{}}
+	if err := f.ensureWeekdayHold(); err != nil {
+		return report, err
+	}
 	// One configuration read per release; expiry is still evaluated at each admission.
 	scoped := *f
 	pilots, pilotErr := f.Pilots()
@@ -727,7 +748,11 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 			return CardResult{}, r.Type, ownerErr
 		}
 	}
-	if weeklyHold(f.clock(), r) {
+	held, holdErr := weeklyHold(f.clock(), r, f.WeekdayHoldSetting())
+	if holdErr != nil {
+		return CardResult{}, "", holdErr
+	}
+	if held {
 		return CardResult{}, "", nil
 	}
 	authorsOutcome, err := prepareOutcomeMetadata(maps.Clone(r.Ask), nil)
@@ -786,7 +811,12 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		unlock()
 		return CardResult{}, "", nil
 	}
-	if weeklyHold(f.clock(), e.Request) {
+	held, holdErr = weeklyHold(f.clock(), e.Request, f.WeekdayHoldSetting())
+	if holdErr != nil {
+		unlock()
+		return CardResult{}, "", holdErr
+	}
+	if held {
 		unlock()
 		return CardResult{}, "", nil
 	}

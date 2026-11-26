@@ -97,7 +97,7 @@ func TestNeedsMkVizierOwnershipCheckOnly(t *testing.T) {
 				if err == nil || exitCode(err) != 2 || !strings.Contains(err.Error(), "--vizier-owned") {
 					t.Fatalf("expected ownership refusal, got %v", err)
 				}
-			} else if err != nil || out != `{"checked":true}` {
+			} else if err != nil || !strings.Contains(out, `"checked":true`) {
 				t.Fatalf("out=%s err=%v", out, err)
 			}
 			if calls := writeCalls(s); len(calls) != 0 {

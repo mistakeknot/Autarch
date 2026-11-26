@@ -97,9 +97,12 @@ func (f *CardFiler) CheckSecretDelivery(r CardRequest) error {
 	if r.Secret == nil {
 		return nil
 	}
-	return checkSecretDeliveryAt(r, f.clock())
+	if err := f.ensureWeekdayHold(); err != nil {
+		return err
+	}
+	return checkSecretDeliveryAt(r, f.clock(), f.WeekdayHoldSetting())
 }
-func checkSecretDeliveryAt(r CardRequest, at time.Time) error {
+func checkSecretDeliveryAt(r CardRequest, at time.Time, setting WeekdayHoldSetting) error {
 	if r.Secret == nil {
 		return nil
 	}
@@ -109,7 +112,11 @@ func checkSecretDeliveryAt(r CardRequest, at time.Time) error {
 	if r.NonBlocking {
 		return fmt.Errorf("%w: --secret cannot be combined with --non-blocking: the secret request expires before the batch releases", ErrInvalid)
 	}
-	if weeklyHold(at, r) {
+	held, err := weeklyHold(at, r, setting)
+	if err != nil {
+		return err
+	}
+	if held {
 		return fmt.Errorf("%w: --secret cannot use the weekly hold: the secret request expires before the batch releases; use --urgent for immediate delivery", ErrInvalid)
 	}
 	return nil

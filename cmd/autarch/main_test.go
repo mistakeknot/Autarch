@@ -14,6 +14,9 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Setenv("HOME", home)
+	os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	os.Setenv("AUTARCH_CARD_WEEKDAY_HOLD", "")
+	_ = os.MkdirAll(filepath.Join(home, "config"), 0o700)
 	os.Unsetenv("BB_THREAD_ID")
 	code := m.Run()
 	for _, path := range []string{filepath.Join(home, ".autarch", "caller-log.jsonl"), filepath.Join(home, ".autarch", "audit", "caller-log.jsonl")} {
