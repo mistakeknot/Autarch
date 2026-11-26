@@ -252,11 +252,12 @@ Ordinary cards filed Monday 00:00 through Thursday before 12:00 Pacific are also
 held for the Thursday batch. Urgent, keep-list, merge and root-run cards bypass
 this weekday hold. Release inside that window leaves ordinary cards queued;
 schedule release at Thursday noon or later. Reporting retains each request’s filing week.
-AUTARCH_CARD_WEEKDAY_HOLD (on, off, or off:<project>[,<project>]) controls that window.
-Unset, empty, or on keeps it. off disables it for every project. off:<list> disables it
-only for those Tasks project ids, names, or prefixes. The process environment wins over
-<user-config>/autarch/needsmk.env; the library default is on. --check reports weekday_hold
-without filing. --at <RFC3339> is valid only with --check and evaluates the hold at that time.
+AUTARCH_CARD_WEEKDAY_HOLD (on or off) controls that window.
+An unset or empty process value, or on, keeps it. off disables it. The process
+environment wins over <user-config>/autarch/needsmk.env. The library default is on
+only when that file is absent. An unknown key or an empty AUTARCH_CARD_WEEKDAY_HOLD=
+in the file fails closed. --check reports weekday_hold without filing.
+--at <RFC3339> is valid only with --check and evaluates the hold at that time.
 --urgent and --keep-list add labels. Exit 0 means filed: JSON has a non-empty card_key.
 Held cards exit 6, with queued:true, the request key and no card_key on stdout
 (--json is also accepted). Treat exit 6 as queued, not as a filed card or an uncertain write.
@@ -333,7 +334,7 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if atFlag != "" && !checkOnly {
+			if cmd.Flags().Changed("at") && !checkOnly {
 				return &usageError{"--at is only valid with --check"}
 			}
 			if cujgelFile != "" && secretFile != "" {
@@ -531,7 +532,10 @@ Any other urgency is refused. It works on every kind of card; a machine blocker 
 			}
 			if checkOnly {
 				var at time.Time
-				if atFlag != "" {
+				if cmd.Flags().Changed("at") {
+					if strings.TrimSpace(atFlag) == "" {
+						return &usageError{"--at must be an RFC3339 timestamp"}
+					}
 					parsed, err := time.Parse(time.RFC3339, atFlag)
 					if err != nil {
 						parsed, err = time.Parse(time.RFC3339Nano, atFlag)

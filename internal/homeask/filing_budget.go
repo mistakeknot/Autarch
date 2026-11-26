@@ -226,9 +226,8 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 	if e = f.ensureWeekdayHold(); e != nil {
 		return CardResult{}, e
 	}
-	holdPrefix := f.holdPrefix(ctx, r)
 	setting := f.WeekdayHoldSetting()
-	windowHeld, e := weeklyHold(f.clock(), r, setting, holdPrefix)
+	windowHeld, e := weeklyHold(f.clock(), r, setting)
 	if e != nil {
 		return CardResult{}, e
 	}
@@ -288,7 +287,7 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 			priorDone()
 			promotable := false
 			if knownHeld && hadHeld && oldHeld.Held {
-				heldNow, holdErr := weeklyHold(f.clock(), r, setting, holdPrefix)
+				heldNow, holdErr := weeklyHold(f.clock(), r, setting)
 				if holdErr != nil {
 					return CardResult{}, holdErr
 				}
@@ -400,10 +399,10 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		return CardResult{}, err
 	}
 	admittedAt := f.clock()
-	if err := checkSecretDeliveryAt(r, admittedAt, setting, holdPrefix); err != nil {
+	if err := checkSecretDeliveryAt(r, admittedAt, setting); err != nil {
 		return CardResult{}, err
 	}
-	heldNow, holdErr := weeklyHold(admittedAt, r, setting, holdPrefix)
+	heldNow, holdErr := weeklyHold(admittedAt, r, setting)
 	if holdErr != nil {
 		return CardResult{}, holdErr
 	}
@@ -477,7 +476,7 @@ func (f *CardFiler) submitOnce(ctx context.Context, r CardRequest, supersedes st
 		}
 		// Gate and state-lock waits can cross a policy boundary. Reserve using the
 		// admission time under both locks, rather than the earlier validation time.
-		nowHeld, holdErr := weeklyHold(admittedAt, r, setting, holdPrefix)
+		nowHeld, holdErr := weeklyHold(admittedAt, r, setting)
 		if holdErr != nil {
 			return CardResult{}, holdErr
 		}
@@ -610,13 +609,6 @@ func (f *CardFiler) ReleaseDetailed(ctx context.Context) (ReleaseReport, error) 
 	report := ReleaseReport{Groups: map[string][]CardResult{}, Failures: map[string]string{}}
 	if err := f.ensureWeekdayHold(); err != nil {
 		return report, err
-	}
-	if f.WeekdayHoldSetting().mode == weekdayHoldOffList {
-		m, err := f.tasksPrefixMap(ctx)
-		if err != nil {
-			return report, fmt.Errorf("%w: listing tasks projects for weekday hold: %v", ErrInvalid, err)
-		}
-		f.setWeekdayPrefixMap(m)
 	}
 	// One configuration read per release; expiry is still evaluated at each admission.
 	scoped := *f
@@ -756,7 +748,7 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 			return CardResult{}, r.Type, ownerErr
 		}
 	}
-	held, holdErr := weeklyHold(f.clock(), r, f.WeekdayHoldSetting(), f.holdPrefix(ctx, r))
+	held, holdErr := weeklyHold(f.clock(), r, f.WeekdayHoldSetting())
 	if holdErr != nil {
 		return CardResult{}, "", holdErr
 	}
@@ -819,7 +811,7 @@ func (f *CardFiler) releaseOne(ctx context.Context, key string) (CardResult, str
 		unlock()
 		return CardResult{}, "", nil
 	}
-	held, holdErr = weeklyHold(f.clock(), e.Request, f.WeekdayHoldSetting(), f.holdPrefix(ctx, e.Request))
+	held, holdErr = weeklyHold(f.clock(), e.Request, f.WeekdayHoldSetting())
 	if holdErr != nil {
 		unlock()
 		return CardResult{}, "", holdErr

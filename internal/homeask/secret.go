@@ -2,7 +2,6 @@ package homeask
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -101,9 +100,9 @@ func (f *CardFiler) CheckSecretDelivery(r CardRequest) error {
 	if err := f.ensureWeekdayHold(); err != nil {
 		return err
 	}
-	return checkSecretDeliveryAt(r, f.clock(), f.WeekdayHoldSetting(), f.holdPrefix(context.Background(), r))
+	return checkSecretDeliveryAt(r, f.clock(), f.WeekdayHoldSetting())
 }
-func checkSecretDeliveryAt(r CardRequest, at time.Time, setting WeekdayHoldSetting, resolvedPrefix string) error {
+func checkSecretDeliveryAt(r CardRequest, at time.Time, setting WeekdayHoldSetting) error {
 	if r.Secret == nil {
 		return nil
 	}
@@ -113,7 +112,7 @@ func checkSecretDeliveryAt(r CardRequest, at time.Time, setting WeekdayHoldSetti
 	if r.NonBlocking {
 		return fmt.Errorf("%w: --secret cannot be combined with --non-blocking: the secret request expires before the batch releases", ErrInvalid)
 	}
-	held, err := weeklyHold(at, r, setting, resolvedPrefix)
+	held, err := weeklyHold(at, r, setting)
 	if err != nil {
 		return err
 	}

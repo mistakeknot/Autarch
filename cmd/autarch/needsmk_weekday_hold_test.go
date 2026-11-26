@@ -56,6 +56,17 @@ func TestNeedsMkFileAtRequiresCheck(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "--at") {
 		t.Fatalf("expected --at usage error, got %v", err)
 	}
+	if len(writeCalls(s)) != 0 {
+		t.Fatalf("--at without --check filed: %v", writeCalls(s))
+	}
+	_, err = runNeedsMk(t, s, "file", "--project", "P1", "--title", "Choose", "--ask-file", writeAsk(t), "--at=")
+	if err == nil || !strings.Contains(err.Error(), "--at") {
+		t.Fatalf("empty --at without --check: %v", err)
+	}
+	_, err = runNeedsMk(t, s, "file", "--project", "P1", "--title", "Choose", "--ask-file", writeAsk(t), "--check", "--at=")
+	if err == nil || !strings.Contains(err.Error(), "RFC3339") {
+		t.Fatalf("empty --at with --check: %v", err)
+	}
 }
 
 func TestNeedsMkWeekdayHoldCheckConfigAndNewCardFiler(t *testing.T) {
@@ -92,12 +103,9 @@ func TestNeedsMkWeekdayHoldCheckConfigAndNewCardFiler(t *testing.T) {
 		t.Fatal("expected invalid config to fail")
 	}
 
-	// Real newCardFiler (not the runNeedsMk stub) must load the setting.
+	// Real newCardFiler (not the runNeedsMk stub) loads the setting itself.
 	t.Setenv(homeask.EnvCardWeekdayHold, "off")
 	f := newCardFiler()
-	if err := f.LoadWeekdayHold(); err != nil {
-		t.Fatal(err)
-	}
 	s := f.WeekdayHoldSetting()
 	if !s.Loaded() || s.Value() != "off" || s.Source != "env" {
 		t.Fatalf("newCardFiler setting: loaded=%v value=%q source=%q", s.Loaded(), s.Value(), s.Source)
