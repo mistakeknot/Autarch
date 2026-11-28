@@ -8,6 +8,7 @@
 // publishes a realtime signal so every open page refetches.
 import { resolveWakeTarget as resolveWakeTargetWithReason, type ReportReroute } from "./wake-target.js";
 import { registerReminderService } from "./followthrough-reminder.js";
+import { REQUEST_SIGNAL_TOOL, registerRequestReminders } from "./request-reminder-runtime.js";
 import { reminderThreadRow, type ReminderThreadRow } from "./followthrough-target.js";
 import { readReminderPick } from "./pickreadback.js";
 import { postNoteOnce } from "./notepost.js";
@@ -343,9 +344,12 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   bb.events.on("turn.failed", (e) => guard("turn.failed", () => parts?.catchup.recordTurnFailed(e.threadId, e.requestId)));
 
   // ---- feed injection -------------------------------------------------------------
+  const reminderSdk = deps.sdk ?? sdkAdapter(bb.sdk.threads as unknown as ThreadsLike);
+  const requestReminderTools = registerRequestReminders(bb, () => parts?.svc.store ?? null, reminderSdk)
+    ? [REQUEST_SIGNAL_TOOL] : [];
   bb.agents.configure((ctx) => {
     const text = parts?.caches.configure(ctx.project.name, ctx.thread.id);
-    return text === undefined ? { tools: [], skills: [] } : { tools: [], skills: [], instructions: text };
+    return { tools: requestReminderTools, skills: [], ...(text === undefined ? {} : { instructions: text }) };
   });
 
   // ---- background -----------------------------------------------------------------
@@ -357,7 +361,7 @@ export function wireHome(bb: BbPluginApi, handle: StoreHandle, cfg: HomeConfig, 
   });
   registerReminderService(bb, () => parts ? {
     readPick: id => readReminderPick(parts!.svc.store, id),
-    sdk: deps.sdk ?? sdkAdapter(bb.sdk.threads as unknown as ThreadsLike),
+    sdk: reminderSdk,
     now: () => Date.now(),
     listThreads: async owner => {
       // Reminder-only projection, fresh on every proof; ordinary wake/notice cache stays unchanged.
