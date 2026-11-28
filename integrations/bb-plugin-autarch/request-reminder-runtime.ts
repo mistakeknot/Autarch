@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { readAsk } from "./askbody.js";
 import { VIZIER_TITLE_PREFIX } from "./delegation.js";
+import { DEFAULTS as GOVERNOR_DEFAULTS } from "./governor-policy.js";
 import { THREAD_EVENT_PAGE_CAP, threadEventLimit } from "./hostLimits.js";
 import { confirmedRequestDelivery, type RequestEvent } from "./request-reminder-evidence.js";
 import { RequestReminders, type ReminderRequestSource, type RequestRoute } from "./request-reminders.js";
@@ -15,6 +16,7 @@ const TICK_MS = 15000;
 const READ_LIMIT = 100;
 const EVENT_PAGES = 5;
 const THREAD_ID = /^thr_[a-zA-Z0-9_-]{1,120}$/;
+const NO_REMINDER_TIMER = new RegExp(GOVERNOR_DEFAULTS.recipient_exclude);
 const EVENT_TYPES = ["client/turn/requested", "client/turn/rejected", "turn/input/accepted"] as const;
 
 interface PickSource {
@@ -117,7 +119,7 @@ function liveAgent(row: AgentThread | undefined): boolean {
 async function route(bb: BbPluginApi, store: Store, recipient: string, project: string, explicitOwner?: boolean): Promise<RequestRoute | null> {
   const thread = await bb.sdk.threads.get({ threadId: recipient });
   if (!liveAgent(thread) || thread.id !== recipient || !thread.projectId
-      || thread.title?.startsWith(VIZIER_TITLE_PREFIX) || recipient === store.setting("vizierThreadId")) return null;
+      || NO_REMINDER_TIMER.test(thread.title ?? "") || recipient === store.setting("vizierThreadId")) return null;
   const home = await bb.sdk.projects.get({ projectId: thread.projectId });
   if (home.name !== project || home.id !== thread.projectId) return null;
   const rows = await bb.sdk.threads.list({ projectId: home.id, includeHidden: false, limit: READ_LIMIT + 1 });

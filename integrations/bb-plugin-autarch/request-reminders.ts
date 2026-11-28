@@ -11,17 +11,18 @@ const MINUTE = 60_000;
 const CLOCK = { owner: [9, 27], coordinator: [14, 42] } as const;
 const digest = (parts: unknown[]) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 const id = z.string().min(1).max(200).regex(/^[a-zA-Z0-9:_-]+$/);
+const opaqueId = z.string().min(1).max(200);
 const time = z.number().int().nonnegative();
 const sourceSchema = z.object({
   id, ref: id, since: time, recipient: id, project: z.string().min(1).max(200), decision: id, task: id,
   explicitOwner: z.boolean().optional(),
 }).strict();
 export type ReminderRequestSource = z.infer<typeof sourceSchema>;
-const deliverySchema = z.object({ id, at: time }).strict();
+const deliverySchema = z.object({ id: opaqueId, at: time }).strict();
 const sendSchema = z.object({ key: id, target: id, epoch: time,
   step: z.enum(["transfer", "reminder", "escalation"]),
-  result: z.enum(["pending", "unknown", "sent", "queued", "cancelled"]),
-  handle: id.optional(),
+  result: z.enum(["pending", "unknown", "sent", "queued", "cancelled", "settled"]),
+  handle: opaqueId.optional(),
 }).strict();
 const recordSchema = z.object({
   source: sourceSchema,
@@ -32,7 +33,8 @@ const recordSchema = z.object({
   transfer: z.object({ from: id, to: id, at: time }).strict().nullable(),
   delivery: deliverySchema.nullable(),
   role: z.enum(["owner", "coordinator"]).nullable(),
-  answer: z.object({ actor: id, comment: id, at: time }).strict().nullable(),
+  answer: z.object({ actor: id, comment: opaqueId, at: time }).strict().nullable(),
+  retired: z.enum(["escalated", "void"]).nullable().default(null),
   sends: z.array(sendSchema),
 }).strict();
 type RequestRecord = z.infer<typeof recordSchema>;
@@ -67,11 +69,15 @@ export class RequestReminders {
 
   private get(request: string): RequestRecord | null {
     const raw = this.store.setting(PREFIX + request);
-    return raw === undefined ? null : recordSchema.parse(JSON.parse(raw));
+    if (raw === undefined) return null;
+    const record = recordSchema.parse(JSON.parse(raw));
+    if (record.source.id !== request) throw Error("request record identity mismatch");
+    return record;
   }
 
   private put(record: RequestRecord): void {
-    this.store.setSetting(PREFIX + record.source.id, JSON.stringify(record));
+    const valid = recordSchema.parse(record);
+    this.store.setSetting(PREFIX + valid.source.id, JSON.stringify(valid));
   }
 
   private durable<T>(write: () => T): T {
@@ -84,31 +90,46 @@ export class RequestReminders {
     finally { db.pragma(`synchronous = ${synchronous}`); }
   }
 
-  private rows(): RequestRecord[] {
-    // Keyset pagination visits a bounded batch even with old answered rows.
+  private rows(): { key: string; value: string }[] {
+    // SQL first skips complete rows. A malformed value is passed to the
+    // per-row read boundary so it cannot abort this query or the next record.
     const rows = this.store.db.prepare(
       `SELECT key, value FROM settings_kv WHERE key > ? AND key < ?
-        AND (json_extract(value, '$.answer') IS NULL
-          OR EXISTS (SELECT 1 FROM json_each(settings_kv.value, '$.sends') WHERE
-                     json_extract(json_each.value, '$.result') IN ('queued', 'unknown', 'pending')))
+        AND CASE WHEN json_valid(value) THEN (
+          (json_extract(value, '$.answer') IS NULL AND json_extract(value, '$.retired') IS NULL)
+          OR EXISTS (SELECT 1 FROM json_each(settings_kv.value, '$.sends') AS a
+            WHERE CASE WHEN a.type = 'object' THEN
+              json_extract(a.value, '$.result') = 'queued'
+              OR (json_extract(a.value, '$.result') IN ('unknown', 'pending')
+                AND (json_extract(settings_kv.value, '$.answer') IS NOT NULL
+                  OR json_extract(settings_kv.value, '$.retired') = 'void'
+                  OR json_extract(a.value, '$.epoch') <> json_extract(settings_kv.value, '$.epoch')))
+            ELSE 0 END))
+        ELSE 1 END
         ORDER BY key LIMIT 100`,
     ).all(this.cursor, END) as { key: string; value: string }[];
     this.cursor = rows.length === 100 ? rows[rows.length - 1]!.key : PREFIX;
-    return rows.map(row => recordSchema.parse(JSON.parse(row.value)));
+    return rows;
   }
 
   list(actor: string): { request: string; decision: string; task: string; accepted: boolean }[] {
     const rows = this.store.db.prepare(
-      `SELECT value FROM settings_kv WHERE key > ? AND key < ?
-        AND json_extract(value, '$.recipient') = ? AND json_extract(value, '$.answer') IS NULL
+      `SELECT key, value FROM settings_kv WHERE key > ? AND key < ?
+        AND CASE WHEN json_valid(value) THEN
+          (json_extract(value, '$.recipient') = ? AND json_extract(value, '$.answer') IS NULL)
+        ELSE 0 END
         ORDER BY key LIMIT 100`,
-    ).all(PREFIX, END, actor) as { value: string }[];
-    return rows.map(row => recordSchema.parse(JSON.parse(row.value)))
+    ).all(PREFIX, END, actor) as { key: string; value: string }[];
+    return rows.flatMap(({ key, value }) => {
+      const parsed = recordSchema.safeParse(JSON.parse(value));
+      return parsed.success && key === PREFIX + parsed.data.source.id ? [parsed.data] : [];
+    })
       .filter(row => this.s.eligible(row.source))
       .map(row => ({ request: row.source.id, decision: row.source.decision, task: row.source.task, accepted: row.delivery !== null }));
   }
 
   async answer(request: string, actor: string, comment: string): Promise<boolean> {
+    if (!opaqueId.safeParse(comment).success) return false;
     const row = await this.actorRequest(request, actor);
     if (!row?.delivery || row.recipient !== actor || !this.s.eligible(row.source)) return false;
     if (row.answer) return row.answer.actor === actor && row.answer.comment === comment;
@@ -131,7 +152,7 @@ export class RequestReminders {
     if (!row || row.answer || !this.s.eligible(row.source)) return false;
     if (row.transfer?.from === actor && row.transfer.to === target) return true;
     if (row.recipient !== actor || !row.delivery || actor === target) return false;
-    const route = await this.s.route(target, row.source.project, row.source.explicitOwner);
+    const route = await this.s.route(target, row.source.project, target === row.source.recipient && row.source.explicitOwner);
     if (!route || route.project !== row.source.project) return false;
     const claimed = this.durable(() => {
       const fresh = this.get(request);
@@ -142,7 +163,7 @@ export class RequestReminders {
       const since = this.s.now();
       const attempt: Attempt = { key, target, epoch, step: "transfer", result: "pending" };
       this.put({ ...fresh, recipient: target, transfer: { from: actor, to: target, at: since },
-        epoch, ref, since, role: null, delivery: null, sends: [...fresh.sends, attempt] });
+        epoch, ref, since, role: null, delivery: null, retired: null, sends: [...fresh.sends, attempt] });
       return { attempt, ref };
     });
     if (!claimed) return false;
@@ -154,20 +175,31 @@ export class RequestReminders {
   private async cancelQueues(request: string): Promise<void> {
     const row = this.get(request);
     if (!row) return;
-    const ended = row.answer !== null || !this.s.eligible(row.source);
+    const ended = row.answer !== null || row.retired === "void" || !this.s.eligible(row.source);
     for (const attempt of row.sends) {
-      if ((!ended && attempt.epoch === row.epoch) || attempt.result === "cancelled" || attempt.result === "sent") continue;
+      if (!["pending", "unknown", "queued"].includes(attempt.result)) continue;
+      const stale = ended || attempt.epoch !== row.epoch;
       try {
         const known = attempt.handle;
-        if (known) {
-          await this.s.removeQueued(attempt.target, known);
-        } else if (this.s.queuedList) {
+        if (stale && known) {
+          try { await this.s.removeQueued(attempt.target, known); }
+          catch {
+            const rows = await this.s.queuedList?.(attempt.target);
+            if (rows?.every(entry => entry.id !== known)) this.finish(request, attempt.key, "settled");
+            continue;
+          }
+        } else if (stale && this.s.queuedList) {
           // A response can be lost after the host enqueues the message.
           const prefix = `[followthrough ${attempt.key}] Advisory:`;
           const rows = (await this.s.queuedList(attempt.target)).filter(entry => entry.text.startsWith(prefix));
           if (rows.length !== 1) continue;
           await this.s.removeQueued(attempt.target, rows[0]!.id);
-        } else continue;
+        } else {
+          if (known && (await this.s.queuedList?.(attempt.target))?.every(entry => entry.id !== known)) {
+            this.finish(request, attempt.key, "settled");
+          }
+          continue;
+        }
       } catch { continue; }
       this.finish(request, attempt.key, "cancelled");
     }
@@ -178,7 +210,9 @@ export class RequestReminders {
       const row = this.get(request);
       if (!row) return;
       const active = row.sends.find(a => a.key === key);
-      if (!active || active.result !== "pending" && !(["queued", "unknown"].includes(active.result) && result === "cancelled")) return;
+      if (!active || active.result !== "pending" && !(
+        ["queued", "unknown"].includes(active.result) && ["cancelled", "settled"].includes(result)
+      )) return;
       Object.assign(active, { result }, handle === undefined ? {} : { handle });
       this.put(row);
     }).immediate();
@@ -212,7 +246,7 @@ export class RequestReminders {
     this.collect();
     const row = this.get(request);
     if (row?.recipient === actor && !row.delivery && this.s.eligible(row.source)) {
-      const route = await this.s.route(actor, row.source.project, row.source.explicitOwner);
+      const route = await this.s.route(actor, row.source.project, actor === row.source.recipient && row.source.explicitOwner);
       if (route?.project === row.source.project) await this.observe(row, route);
       return this.get(request);
     }
@@ -221,24 +255,32 @@ export class RequestReminders {
 
   private async advance(row: RequestRecord): Promise<void> {
     const request = row.source.id;
+    const eligible = this.s.eligible(row.source);
+    if (!eligible && row.retired !== "void") {
+      this.durable(() => {
+        const fresh = this.get(request);
+        if (fresh && !this.s.eligible(fresh.source)) this.put({ ...fresh, retired: "void" });
+      });
+    }
     await this.cancelQueues(request);
-    if (row.answer || !this.s.eligible(row.source)) return;
-    const route = await this.s.route(row.recipient, row.source.project, row.source.explicitOwner);
+    if (row.answer || row.retired || !eligible) return;
+    const route = await this.s.route(row.recipient, row.source.project, row.recipient === row.source.recipient && row.source.explicitOwner);
     if (!route || route.project !== row.source.project) return;
     await this.observe(row, route);
     // Recheck the request under the same lock that writes the durable claim.
     const attempt = this.durable(() => {
       const fresh = this.get(request);
-      if (!fresh?.delivery || !fresh.role || fresh.epoch !== row.epoch || fresh.answer
+      if (!fresh?.delivery || !fresh.role || fresh.epoch !== row.epoch || fresh.answer || fresh.retired
           || fresh.role !== route.role || !this.s.enabled(fresh.source) || !this.s.eligible(fresh.source)) return null;
       const elapsed = this.s.now() - fresh.delivery.at;
       const [reminder, escalation] = CLOCK[fresh.role];
-      const step = elapsed >= escalation * MINUTE ? "escalation" : elapsed >= reminder * MINUTE ? "reminder" : null;
+      const canEscalate = route.next && route.next !== fresh.recipient;
+      const step = elapsed >= escalation * MINUTE && canEscalate ? "escalation" : elapsed >= reminder * MINUTE ? "reminder" : null;
       const target = step === "escalation" ? route.next : fresh.recipient;
       if (!step || !target || step === "escalation" && target === fresh.recipient
           || fresh.sends.some(a => a.epoch === fresh.epoch && a.step === step)) return null;
       const claimed: Attempt = { key: digest([request, fresh.epoch, step]), target, epoch: fresh.epoch, step, result: "pending" };
-      this.put({ ...fresh, sends: [...fresh.sends, claimed] });
+      this.put({ ...fresh, retired: step === "escalation" ? "escalated" : null, sends: [...fresh.sends, claimed] });
       return claimed;
     });
     if (!attempt) return;
@@ -253,9 +295,9 @@ export class RequestReminders {
         const source = sourceSchema.safeParse(raw);
         if (!source.success) continue;
         const s = source.data;
-        if (this.get(s.id) || !this.s.eligible(s)) continue;
+        if (this.store.setting(PREFIX + s.id) !== undefined || !this.s.eligible(s)) continue;
         this.put({ source: s, recipient: s.recipient, ref: s.ref, since: s.since, epoch: 0, transfer: null,
-          delivery: null, role: null, answer: null, sends: [] });
+          delivery: null, role: null, answer: null, retired: null, sends: [] });
       }
     });
   }
@@ -263,8 +305,12 @@ export class RequestReminders {
   async tick(): Promise<boolean> {
     this.collect();
     let complete = true;
-    for (const row of this.rows()) {
-      try { await this.advance(row); }
+    for (const { key, value } of this.rows()) {
+      try {
+        const row = recordSchema.parse(JSON.parse(value));
+        if (key !== PREFIX + row.source.id) throw Error("request record identity mismatch");
+        await this.advance(row);
+      }
       catch { complete = false; }
     }
     return complete;

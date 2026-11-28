@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
 import { Store } from "../store.js";
-import { RequestReminders, type ReminderRequestSource } from "../request-reminders.js";
+import { RequestReminders, type ReminderRequestSource, type RequestReminderSources } from "../request-reminders.js";
 import type { WakeSdk } from "../wakes.js";
 import { tmpDir } from "./helpers.js";
 import { join } from "node:path";
@@ -40,14 +40,19 @@ function fixture(initial = owner, file = ":memory:") {
   const send = vi.fn<WakeSdk["send"]>(async () => ({ delivery: "sent" }));
   const removeQueued = vi.fn(async () => {});
   const reply = vi.fn(async (task: string, comment: string, actor: string) => task === source.task && comment === "comment-one" && actor === initial);
+  const route = vi.fn<RequestReminderSources["route"]>(async (tid, _project, explicitOwner) => {
+    const found = routes[tid as keyof typeof routes];
+    return found?.role === "coordinator" && explicitOwner ? { ...found, role: "owner" } : found ?? null;
+  });
+  const queuedList = vi.fn<WakeSdk["queuedList"]>(async () => []);
   let now = acceptedAt;
   let enabled = true;
   const create = () => new RequestReminders(store, {
     now: () => now, sources, eligible: () => true, deliver,
-    route: async (tid, _project) => routes[tid as keyof typeof routes] ?? null,
-    send, removeQueued, reply, enabled: () => enabled,
+    route, send, removeQueued, queuedList, reply, enabled: () => enabled,
   });
-  return { create, source, second, sources, routes, deliver, send, reply, removeQueued,
+  return { create, source, second, sources, routes, deliver, send, reply, removeQueued, route, queuedList,
+    store: () => store,
     time(value: number) { now = value; },
     observationOnly() { enabled = false; },
     restart() {
@@ -162,4 +167,82 @@ it("cancels a queued reminder if the answer arrives before the send response", a
   f.time(acceptedAt + 27 * minute);
   await f.create().tick();
   expect(f.send).toHaveBeenCalledTimes(1);
+});
+
+it("uses coordinator timing after an explicitly assigned owner transfers", async () => {
+  const f = fixture();
+  f.sources.mockReturnValue([{ ...f.source, explicitOwner: true }]);
+  const runner = f.create();
+  await runner.tick();
+  expect(await runner.transfer(f.source.id, owner, coordinator)).toBe(true);
+  const acceptedHandoff = acceptedAt + minute;
+  f.deliver.mockResolvedValue({ id: "request-2", at: acceptedHandoff });
+  f.time(acceptedHandoff + 9 * minute);
+  await runner.tick();
+  expect(f.send).toHaveBeenCalledTimes(1);
+  f.time(acceptedHandoff + 14 * minute);
+  await runner.tick();
+  expect(f.send).toHaveBeenCalledTimes(2);
+  f.time(acceptedHandoff + 27 * minute);
+  await runner.tick();
+  expect(f.send).toHaveBeenCalledTimes(2);
+  f.time(acceptedHandoff + 42 * minute);
+  await runner.tick();
+  expect(f.send.mock.calls.at(-1)?.[0].threadId).toBe(vizier);
+});
+
+it("isolates malformed records while still visiting unrelated requests", async () => {
+  const f = fixture();
+  f.sources.mockReturnValue([f.source]);
+  f.store().setSetting("request-reminders:v1:request:000-invalid", "{broken");
+  f.store().setSetting("request-reminders:v1:request:001-invalid", JSON.stringify({ sends: ["invalid"] }));
+  f.time(acceptedAt + 9 * minute);
+  await expect(f.create().tick()).resolves.toBe(false);
+  expect(f.send).toHaveBeenCalledTimes(1);
+});
+
+it("accepts an opaque Tasks comment ID with punctuation without corrupting storage", async () => {
+  const f = fixture();
+  f.reply.mockResolvedValue(true);
+  const runner = f.create();
+  await runner.tick();
+  await expect(runner.answer(f.source.id, owner, "comment.1")).resolves.toBe(true);
+  f.time(acceptedAt + 9 * minute);
+  await expect(runner.tick()).resolves.toBe(true);
+  expect(f.send).toHaveBeenCalledTimes(1);
+  expect(f.send.mock.calls[0]?.[0].input).toContain(f.second.id);
+});
+
+it("stops polling after claiming the final step, across service restarts", async () => {
+  const f = fixture();
+  f.sources.mockReturnValue([f.source]);
+  f.time(acceptedAt + 27 * minute);
+  await f.create().tick();
+  expect(f.send).toHaveBeenCalledTimes(1);
+  f.route.mockClear();
+  await f.create().tick();
+  expect(f.route).not.toHaveBeenCalled();
+});
+
+it("cancels a uniquely marked queue entry after a lost send response", async () => {
+  const f = fixture();
+  f.sources.mockReturnValue([f.source]);
+  f.send.mockRejectedValueOnce(new Error("lost response"));
+  f.time(acceptedAt + 9 * minute);
+  await f.create().tick();
+  f.queuedList.mockResolvedValue([{ id: "queue-found", text: f.send.mock.calls[0]![0].input }]);
+  expect(await f.create().answer(f.source.id, owner, "comment-one")).toBe(true);
+  expect(f.removeQueued).toHaveBeenCalledWith(owner, "queue-found");
+});
+
+it("still reminds the owner after the deadline when the next responsible agent is unavailable", async () => {
+  const f = fixture();
+  f.sources.mockReturnValue([f.source]);
+  f.route.mockResolvedValueOnce({ project, role: "owner", next: null });
+  f.time(acceptedAt + 27 * minute);
+  const runner = f.create();
+  await runner.tick();
+  expect(f.send.mock.calls.map(([message]) => message.threadId)).toEqual([owner]);
+  await runner.tick();
+  expect(f.send.mock.calls.map(([message]) => message.threadId)).toEqual([owner, coordinator]);
 });
